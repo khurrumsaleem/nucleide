@@ -8,7 +8,7 @@ Nucleide is pre-alpha. APIs may change without notice.
 
 ## Current status
 
-The workspace is bootstrapped with fourteen crates, PyO3 and WASM bindings, a
+The workspace is bootstrapped with eighteen crates, PyO3 and WASM bindings, a
 typed Python facade, and golden-byte fixtures. The canonical CI checks (format,
 clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
 
