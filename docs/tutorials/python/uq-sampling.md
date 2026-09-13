@@ -36,6 +36,36 @@ blocks, `"eigen_clip"` when a positive-semidefinite but singular block
 falls back to eigen-clipping (then `min_eigen`/`max_eigen` carry the
 unclipped extremes). It is reported, never silent.
 
+## Sample with Latin hypercube
+
+`sample_lhs` draws `n` stratified samples `x ~ N(mean, cov)` reproducibly
+from `seed`: per dimension, one jittered draw per stratum
+(`u = (perm[i] + w) / n`, with a Fisher–Yates permutation `perm` of `0..n-1`
+and `w ~ U(0,1)`, both from the seeded `StdRng`), mapped through the
+hand-rolled `inv_normal_cdf` to standard normals, then the shared
+Cholesky/eigen-clip factor path with `x = μ + Bz`. The block below is the
+synthetic 2x2 from `fixtures/uq/lhs_2x2.json` (mean `[1, 2]`, variances
+0.25/0.16, covariance 0.10 — round numbers, no evaluated data; `n = 5000`,
+`k = 5`, seed `20260916`):
+
+```python
+from nucleide.uq import sample_lhs
+
+mean, cov = [1.0, 2.0], [[0.25, 0.10], [0.10, 0.16]]
+out = sample_lhs(mean, cov, 5000, 20260916)
+print(out["method"])  # "cholesky" (positive-definite path)
+```
+
+Return shape matches `sample_mvn` (`samples`, `method`, `min_eigen`/
+`max_eigen`), and identical inputs always yield identical samples. The
+separate U6 gate (theory U7) is **G1 stratification-exact** (each dimension
+hits each of the `n` strata exactly once at the pinned seed) plus **G2
+LHS-valid moment bound** (sample mean/covariance within `k` IID standard
+errors as an *upper* bound — the IID `k`-SE null is wrong for stratified
+draws, whose variance is smaller by construction, never an equality null).
+LHS is a draw mode, not a perturbation convention
+(`perturb_energies(..., "lhs")` stays an error).
+
 ## Check convergence
 
 `check_convergence` recomputes the sample mean and unbiased sample

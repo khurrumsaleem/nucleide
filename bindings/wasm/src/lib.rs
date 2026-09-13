@@ -3827,6 +3827,344 @@ pub fn r2s_from_snapshot(snapshot: JsValue) -> Result<JsValue, JsValue> {
 }
 
 // ---------------------------------------------------------------------------
+// R2S voxel tags (local port — no `nucleide-r2s` dependency)
+// ---------------------------------------------------------------------------
+//
+// `nucleide-r2s` depends on `nucleide-depletion` with default features, which
+// would re-enable Rayon through Cargo feature unification and break this
+// `wasm32-unknown-unknown` build (the same reason the snapshot adapter above
+// is re-implemented here). The per-voxel tag math from `nucleide_r2s::tags`
+// (`VoxelTags` + `tag_zone_totals` + `split_zone_totals` +
+// `photon_groups_at` + `sum_group_strengths`,
+// `crates/r2s/src/tags.rs:25-197`) is therefore copy-ported here over
+// `nucleide-alara-io` photon types only, drifting with the owner crate by
+// design. Only the ALARA photon types cross this boundary
+// (`PhotonSource`/`PhotonGroup` in `photon_groups_at`/`sum_group_strengths`);
+// the zone-source rows are a local stand-in for
+// `nucleide_r2s::photon::ZonePhotonSource` (only `total()` is needed).
+// Errors surface as strings via `js_err`; dict inputs arrive via
+// `serde_wasm_bindgen` like the snapshot adapter above.
+
+/// Browser-demo cap on voxel counts (mirrors the RTFLUX values cap).
+const MAX_VOXEL_TAGS: usize = 200;
+
+/// Per-voxel photon-source tags over `n_voxels` voxels.
+///
+/// Local port of `nucleide_r2s::tags::VoxelTags`; see the section header.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+struct VoxelTags {
+    /// Zone count the indices in `zone_of_voxel` refer to.
+    n_zones: usize,
+    /// Zone index per voxel (length `n_voxels`, each `< n_zones`).
+    zone_of_voxel: Vec<usize>,
+    /// Total source strength per voxel (length `n_voxels`).
+    source_strength: Vec<f64>,
+    /// Decay (cooling) time per voxel in seconds (length `n_voxels`).
+    decay_time_s: Vec<f64>,
+}
+
+impl VoxelTags {
+    /// Voxel count.
+    fn n_voxels(&self) -> usize {
+        self.zone_of_voxel.len()
+    }
+
+    /// Build tags from parallel arrays, checking lengths, zone-index
+    /// bounds, and finiteness (non-finite strengths or times are rejected;
+    /// sign conventions stay caller-side).
+    fn new(
+        n_zones: usize,
+        zone_of_voxel: Vec<usize>,
+        source_strength: Vec<f64>,
+        decay_time_s: Vec<f64>,
+    ) -> Result<Self, String> {
+        let n = zone_of_voxel.len();
+        if source_strength.len() != n || decay_time_s.len() != n {
+            return Err(format!(
+                "voxel tag arrays must share one length, found zone_of_voxel={n}, \
+                 source_strength={}, decay_time_s={}",
+                source_strength.len(),
+                decay_time_s.len()
+            ));
+        }
+        if let Some(bad) = zone_of_voxel.iter().position(|z| *z >= n_zones) {
+            return Err(format!(
+                "voxel {bad} names zone {} of only {n_zones}",
+                zone_of_voxel[bad]
+            ));
+        }
+        if source_strength.iter().any(|v| !v.is_finite()) {
+            return Err("voxel source strengths must be finite".to_string());
+        }
+        if decay_time_s.iter().any(|v| !v.is_finite()) {
+            return Err("voxel decay times must be finite".to_string());
+        }
+        Ok(VoxelTags {
+            n_zones,
+            zone_of_voxel,
+            source_strength,
+            decay_time_s,
+        })
+    }
+
+    /// Sum of all voxel strengths.
+    fn total_strength(&self) -> f64 {
+        self.source_strength.iter().sum()
+    }
+
+    /// Sum of strengths over voxels naming `zone`.
+    fn zone_total(&self, zone: usize) -> f64 {
+        self.zone_of_voxel
+            .iter()
+            .zip(&self.source_strength)
+            .filter(|(z, _)| **z == zone)
+            .map(|(_, v)| *v)
+            .sum()
+    }
+}
+
+/// Zone photon-source row (local stand-in for
+/// `nucleide_r2s::photon::ZonePhotonSource`; only `total()` feeds the tag
+/// math below).
+#[derive(Debug, Clone, Deserialize)]
+struct VoxelZoneSource {
+    #[allow(dead_code)] // positional tag math never names zones; kept for the ported shape.
+    zone: String,
+    groups: Vec<f64>,
+}
+
+impl VoxelZoneSource {
+    /// Total photon strength.
+    fn total(&self) -> f64 {
+        self.groups.iter().sum()
+    }
+}
+
+/// Copy each zone total onto every voxel of that zone (tag-as-attribute:
+/// voxel strengths in a zone sum to `count * total`, not `total`).
+/// Decay times are `0.0` (shutdown); voxel count is `zone_of_voxel.len()`.
+fn voxel_tag_zone_totals(
+    zones: &[VoxelZoneSource],
+    zone_of_voxel: &[usize],
+) -> Result<VoxelTags, String> {
+    let totals: Vec<f64> = zones.iter().map(VoxelZoneSource::total).collect();
+    let strengths: Vec<f64> = zone_of_voxel
+        .iter()
+        .map(|z| {
+            totals
+                .get(*z)
+                .copied()
+                .ok_or_else(|| format!("voxel names zone {z} of only {} zones", totals.len()))
+        })
+        .collect::<Result<_, _>>()?;
+    VoxelTags::new(
+        zones.len(),
+        zone_of_voxel.to_vec(),
+        strengths,
+        vec![0.0; zone_of_voxel.len()],
+    )
+}
+
+/// Distribute each zone total conservatively over its voxels (voxel =
+/// `total / voxel count in zone`; zones with no voxels contribute nothing).
+/// The voxel strengths in a zone sum back to the zone total exactly when
+/// the division is exact, and [`VoxelTags::total_strength`] equals the sum
+/// of zone totals over zones owning at least one voxel.
+fn voxel_split_zone_totals(
+    zones: &[VoxelZoneSource],
+    zone_of_voxel: &[usize],
+) -> Result<VoxelTags, String> {
+    let totals: Vec<f64> = zones.iter().map(VoxelZoneSource::total).collect();
+    let mut counts = vec![0usize; zones.len()];
+    for z in zone_of_voxel {
+        counts
+            .get_mut(*z)
+            .ok_or_else(|| format!("voxel names zone {z} of only {} zones", zones.len()))?;
+        counts[*z] += 1;
+    }
+    let strengths: Vec<f64> = zone_of_voxel
+        .iter()
+        .map(|z| totals[*z] / counts[*z] as f64)
+        .collect();
+    VoxelTags::new(
+        zones.len(),
+        zone_of_voxel.to_vec(),
+        strengths,
+        vec![0.0; zone_of_voxel.len()],
+    )
+}
+
+/// Select `.photonSrc` group spectra for caller-named `nuclides` at exactly
+/// `time_s` seconds (exact match, the same convention the R2S shutdown
+/// assembly uses for `0.0`). Unknown nuclides select nothing; `TOTAL`
+/// aggregates are ordinary rows — pass `"TOTAL"` to select them. No
+/// rescaling is applied: strengths keep the file's own normalization and
+/// stay caller-side to interpret.
+fn voxel_photon_groups_at<'a>(
+    photon: &'a nucleide_alara_io::photon::PhotonSource,
+    nuclides: &[&str],
+    time_s: f64,
+) -> Vec<&'a nucleide_alara_io::photon::PhotonGroup> {
+    photon
+        .groups
+        .iter()
+        .filter(|g| g.time_s == time_s && nuclides.contains(&g.nuclide.as_str()))
+        .collect()
+}
+
+/// Add selected group spectra element-wise (ALARA group order preserved).
+/// Empty selection yields an empty spectrum; ragged group counts are an
+/// error. The sums conserve the input total exactly up to float rounding:
+/// `sums.iter().sum()` equals the sum of the inputs' totals.
+fn voxel_sum_group_strengths(
+    groups: &[&nucleide_alara_io::photon::PhotonGroup],
+) -> Result<Vec<f64>, String> {
+    let mut sums: Vec<f64> = Vec::new();
+    for g in groups {
+        if sums.is_empty() {
+            sums.clone_from(&g.strengths);
+        } else {
+            if sums.len() != g.strengths.len() {
+                return Err(format!(
+                    "photon group spectra have ragged group counts ({} vs {})",
+                    sums.len(),
+                    g.strengths.len()
+                ));
+            }
+            for (s, v) in sums.iter_mut().zip(&g.strengths) {
+                *s += *v;
+            }
+        }
+    }
+    Ok(sums)
+}
+
+#[derive(Deserialize)]
+struct VoxelTagsInputJson {
+    totals: Vec<f64>,
+    #[serde(rename = "zoneOfVoxel", alias = "zone_of_voxel")]
+    zone_of_voxel: Vec<usize>,
+    #[serde(default)]
+    split: bool,
+}
+
+#[derive(Serialize)]
+struct VoxelTagsResult {
+    n_zones: usize,
+    n_voxels: usize,
+    zone_of_voxel: Vec<usize>,
+    source_strength: Vec<f64>,
+    decay_time_s: Vec<f64>,
+    zone_totals: Vec<f64>,
+    total: f64,
+}
+
+/// Tag per-voxel source strengths from per-zone totals.
+///
+/// Dict-in `{totals, zoneOfVoxel, split?}` (snake_case aliases accepted):
+/// `totals` carries one total source strength per zone; with `split=false`
+/// every voxel copies its zone total (tag-as-attribute), with `split=true`
+/// each zone total is divided conservatively over its voxels (mirrors the
+/// Python `r2s_tag_zone_strength` facade). Voxel counts above
+/// [`MAX_VOXEL_TAGS`] are rejected for the browser demo. Returns
+/// `{n_zones, n_voxels, zone_of_voxel, source_strength, decay_time_s,
+/// zone_totals, total}` with shutdown (`0.0`) decay times.
+#[wasm_bindgen(js_name = voxelTagsFromTotals)]
+pub fn voxel_tags_from_totals(input: JsValue) -> Result<JsValue, JsValue> {
+    let parsed: VoxelTagsInputJson = serde_wasm_bindgen::from_value(input).map_err(js_err)?;
+    if parsed.zone_of_voxel.len() > MAX_VOXEL_TAGS {
+        return Err(js_err(format!(
+            "voxel count {} exceeds the demo cap of {MAX_VOXEL_TAGS}",
+            parsed.zone_of_voxel.len()
+        )));
+    }
+    let zones: Vec<VoxelZoneSource> = parsed
+        .totals
+        .into_iter()
+        .enumerate()
+        .map(|(i, total)| VoxelZoneSource {
+            zone: format!("zone{i}"),
+            groups: if total == 0.0 {
+                Vec::new()
+            } else {
+                vec![total]
+            },
+        })
+        .collect();
+    let tags = if parsed.split {
+        voxel_split_zone_totals(&zones, &parsed.zone_of_voxel)
+    } else {
+        voxel_tag_zone_totals(&zones, &parsed.zone_of_voxel)
+    }
+    .map_err(js_err)?;
+    let total = tags.total_strength();
+    let n_voxels = tags.n_voxels();
+    let zone_totals: Vec<f64> = (0..tags.n_zones).map(|z| tags.zone_total(z)).collect();
+    to_js(&VoxelTagsResult {
+        n_zones: tags.n_zones,
+        n_voxels,
+        zone_of_voxel: tags.zone_of_voxel,
+        source_strength: tags.source_strength,
+        decay_time_s: tags.decay_time_s,
+        zone_totals,
+        total,
+    })
+}
+
+#[derive(Deserialize)]
+struct VoxelPhotonInputJson {
+    #[serde(rename = "photonText", alias = "photon_text")]
+    photon_text: String,
+    #[serde(default)]
+    nuclides: Vec<String>,
+    #[serde(rename = "timeS", alias = "time_s", default)]
+    time_s: f64,
+}
+
+#[derive(Serialize)]
+struct VoxelPhotonGroupJson {
+    nuclide: String,
+    time_s: f64,
+    strengths: Vec<f64>,
+}
+
+#[derive(Serialize)]
+struct VoxelPhotonResult {
+    groups: Vec<VoxelPhotonGroupJson>,
+    sums: Vec<f64>,
+    total: f64,
+}
+
+/// Select and sum `.photonSrc` group spectra for `nuclides` at `time_s`.
+///
+/// Dict-in `{photonText, nuclides, timeS}` (snake_case aliases accepted):
+/// parses ALARA photon-source text, keeps rows matching the named nuclides
+/// at exactly `time_s` seconds (shutdown `0.0`), and adds them element-wise
+/// in ALARA group order (mirrors the Python `r2s_photon_group_sums`
+/// facade). Returns `{groups, sums, total}`; no rescaling is applied.
+#[wasm_bindgen(js_name = voxelPhotonSums)]
+pub fn voxel_photon_sums(input: JsValue) -> Result<JsValue, JsValue> {
+    let parsed: VoxelPhotonInputJson = serde_wasm_bindgen::from_value(input).map_err(js_err)?;
+    let source =
+        nucleide_alara_io::photon::PhotonSource::from_str(&parsed.photon_text).map_err(js_err)?;
+    let names: Vec<&str> = parsed.nuclides.iter().map(String::as_str).collect();
+    let at = voxel_photon_groups_at(&source, &names, parsed.time_s);
+    let sums = voxel_sum_group_strengths(&at).map_err(js_err)?;
+    to_js(&VoxelPhotonResult {
+        groups: at
+            .iter()
+            .map(|g| VoxelPhotonGroupJson {
+                nuclide: g.nuclide.clone(),
+                time_s: g.time_s,
+                strengths: g.strengths.clone(),
+            })
+            .collect(),
+        total: sums.iter().sum(),
+        sums,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Point kinetics (step-reactivity transient + prompt jump)
 // ---------------------------------------------------------------------------
 

@@ -45,7 +45,13 @@ mesh to activation cases. The ARMI snapshot adapter (`r2s_from_snapshot`)
 runs in the browser through the **R2S snapshot** tab below over an inline
 two-zone JSON snapshot (zone volumes, ARMI-keyed number densities, fluxes,
 cooling times), returning workflow steps plus the template and per-step deck
-count.
+count. The same tab hosts an **R2S voxels** section mapping zone totals onto
+native-mesh voxels through a drift-accepted `VoxelTags` copy-port
+(`voxelTagsFromTotals` copies each zone total onto its voxels or splits it
+conservatively; `voxelPhotonSums` selects and adds `.photonSrc` group spectra
+by nuclide and cooling time): per-voxel strengths render in a
+scatter/bar/heatmap/histogram chart bundle capped at 200 voxels, following the
+deterministic RTFLUX values-cap precedent.
 
 ## Try it
 

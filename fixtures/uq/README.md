@@ -15,6 +15,10 @@ library content, nothing read from ENDF tapes.
   0.10 deficit stands in for a dropped SF branch per the `1 − BR(SF)` store
   convention) plus a relative perturbation, and a synthetic two-entry energy
   vector with its delta and convention.
+- `lhs_2x2.json`: synthetic 2-D block (`mean`, `cov`) for Latin-hypercube
+  sampling (same covariances as `cov_2x2.json`), with pinned `seed`, `n`,
+  and `k`. Separate G1/G2 gate: G1 exact one-per-stratum recovery per
+  dimension plus G2 moments within `k` IID standard errors as an upper bound.
 - `lognormal_2x2.json`: synthetic log-space 2-D block (`mean_log`, `cov`)
   for log-normal sampling (`y = exp(x)`, `x ~ N(mean_log, cov)`), with
   pinned seed, `n`, and `k`. Gates check `ln(y)` recovers the log-space

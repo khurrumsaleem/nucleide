@@ -26,8 +26,10 @@ export function UqDemo() {
   const [covText, setCovText] = useState(DEFAULT_COV);
   const [nText, setNText] = useState(DEFAULT_N);
   const [seedText, setSeedText] = useState(DEFAULT_SEED);
+  const [mode, setMode] = useState<"mvn" | "lhs">("mvn");
   const [mean, setMean] = useState<number[] | null>(null);
   const [cov, setCov] = useState<number[][] | null>(null);
+  const [drawMode, setDrawMode] = useState<"mvn" | "lhs" | null>(null);
   const [result, setResult] = useState<UqSampleResult | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -66,15 +68,20 @@ export function UqDemo() {
       const seed = parseInt(seedText, 10);
       if (!Number.isInteger(seed) || seed < 0)
         throw new Error(`bad seed \`${seedText}\` (expected a non-negative integer)`);
-      const out = wasm.uqSample(meanValues, covMatrix, n, seed);
+      const out =
+        mode === "lhs"
+          ? wasm.sampleLhs(meanValues, covMatrix, n, seed)
+          : wasm.uqSample(meanValues, covMatrix, n, seed);
       setMean(meanValues);
       setCov(covMatrix);
+      setDrawMode(mode);
       setResult(out);
       setLocalError(null);
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : String(e));
       setMean(null);
       setCov(null);
+      setDrawMode(null);
       setResult(null);
     }
   }
@@ -144,15 +151,39 @@ export function UqDemo() {
             </div>
           </div>
 
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Sampling method">
+            <Button
+              onClick={() => {
+                setMode("mvn");
+                clearError();
+              }}
+              variant={mode === "mvn" ? "default" : "outline"}
+              size="sm"
+            >
+              MVN
+            </Button>
+            <Button
+              onClick={() => {
+                setMode("lhs");
+                clearError();
+              }}
+              variant={mode === "lhs" ? "default" : "outline"}
+              size="sm"
+            >
+              LHS
+            </Button>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <Button onClick={run}>Run sampling</Button>
           </div>
 
-          {result && mean && cov && (
+          {result && mean && cov && drawMode && (
             <div className="space-y-3">
               <p className="text-sm">
-                Sampling method: <span className="font-mono">{result.method}</span> (
-                {result.samples.length} draws, seed <span className="font-mono">{seedText}</span>)
+                Draw mode: <span className="font-mono">{drawMode}</span> (Sampling method:{" "}
+                <span className="font-mono">{result.method}</span>) ({result.samples.length} draws,
+                seed <span className="font-mono">{seedText}</span>)
               </p>
               <div>
                 <p className="text-sm font-medium">Sample mean vs input mean</p>

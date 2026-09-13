@@ -5,7 +5,7 @@
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use nucleide_linalg::lstsq::weighted_lstsq;
-use nucleide_linalg::sample::{sample_lognormal, sample_mvn};
+use nucleide_linalg::sample::{sample_lhs, sample_lognormal, sample_mvn};
 
 /// AR(1) correlation block: `C[i][j] = rho^|i-j|`, positive-definite.
 fn ar1_cov(dim: usize, rho: f64, scale: f64) -> Vec<Vec<f64>> {
@@ -59,6 +59,9 @@ fn bench_linalg(c: &mut Criterion) {
     group.measurement_time(std::time::Duration::from_secs(5));
     group.bench_function("mvn_8d_2000", |b| {
         b.iter(|| sample_mvn(&mean, &cov, 2000, 0xC0FFEE).expect("mvn"))
+    });
+    group.bench_function("lhs_8d_2000", |b| {
+        b.iter(|| sample_lhs(&mean, &cov, 2000, 0xC0FFEE).expect("lhs"))
     });
     group.bench_function("lognormal_8d_2000", |b| {
         b.iter(|| sample_lognormal(&mean, &cov, 2000, 0xC0FFEE).expect("lognormal"))

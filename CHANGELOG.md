@@ -20,10 +20,13 @@ workspace crates from tags.
   Fisher–Yates permutation, hand-rolled inverse-normal CDF, shared
   Cholesky/eigen-clip factor path with `x = μ + Bz`; thin Python
   `nucleide.uq.sample_lhs` + WASM `sampleLhs` facades). Ships with its
-  separate U6 gate (`validation/uq_lite_vs_sandy.py`: G1
+   separate validation gate U6 (theory U7) (`validation/uq_lite_vs_sandy.py`: G1
   stratification-exact plus G2 moments within the IID bound as an upper
   bound only) over synthetic `fixtures/uq/lhs_2x2.json`. A draw mode, not
   a perturbation convention (`perturb_energies(..., "lhs")` stays an error).
+- Interactive UQ demo: MVN/LHS draw-mode toggle calling the WASM
+  `sampleLhs` facade with the same (mean, cov, n, seed) inputs and result
+  shape, with E2E coverage.
 - Interactive deterministic demo: the RTFLUX section now renders a chart-only
   per-point flux profile (one grouped-bar trace per energy group over the
   capped `parseRtflux` values, following the ISOTXS grouped-bar precedent)
@@ -33,6 +36,13 @@ workspace crates from tags.
   same `parseOrigenTape6` reader) into a per-nuclide series chart over all
   steps in the existing grouped log-bar bundle, with E2E coverage.
   Multi-snapshot file grammar stays out — pasted snapshots only.
+- Interactive activation demo: the R2S snapshot tab hosts an R2S voxels
+  section over a drift-accepted `VoxelTags` copy-port in `nucleide-wasm`
+  (copy/split zone-total tagging plus `.photonSrc` group select-and-sum over
+  `nucleide-alara-io` photon types only — no `nucleide-r2s` dependency, so
+  the Rayon chain stays untouched). Zone totals and voxel maps tag in the
+  browser (200-voxel demo cap) with a scatter/bar/heatmap/histogram chart
+  bundle, with E2E coverage.
 
 ## [0.9.0] - 2026-09-13
 

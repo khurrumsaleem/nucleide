@@ -10,6 +10,8 @@ import type {
   R2sSummary,
   SnapshotBundleJson,
   SnapshotInputJson,
+  VoxelPhotonSummary,
+  VoxelTagsSummary,
 } from "../../types/nucleide-wasm";
 import { Button } from "@nukehub/docs-kit/components/ui/Button";
 import { Input } from "@nukehub/docs-kit/components/ui/Input";
@@ -114,6 +116,36 @@ const DEFAULT_SNAPSHOT = `{
   "coolingS": [86400]
 }`;
 
+const DEFAULT_VOXEL_TOTALS = "400, 50";
+const DEFAULT_VOXEL_MAP = "0, 0, 1";
+const DEFAULT_VOXEL_PHOTON = `mn-56 shutdown 6.0 2.0
+co-60 shutdown 1.0 3.0
+mn-56 1 h 5.0 1.0
+TOTAL shutdown 7.0 5.0`;
+const DEFAULT_VOXEL_NUCLIDES = "mn-56, co-60";
+// Browser-demo cap on voxel counts (mirrors the WASM `MAX_VOXEL_TAGS` cap
+// and the RTFLUX values-cap precedent).
+const VOXEL_CAP = 200;
+
+type VoxelView = "scatter" | "bar" | "heatmap" | "histogram";
+
+const VOXEL_VIEWS: { value: VoxelView; label: string }[] = [
+  { value: "scatter", label: "Scatter" },
+  { value: "bar", label: "Bar" },
+  { value: "heatmap", label: "Heatmap" },
+  { value: "histogram", label: "Histogram" },
+];
+
+function parseNumberList(text: string, label: string): number[] {
+  const values = text
+    .split(/[\s,;]+/)
+    .filter((t) => t.length > 0)
+    .map((t) => Number(t));
+  const bad = values.findIndex((v) => !Number.isFinite(v));
+  if (bad >= 0) throw new Error(`${label} must be finite numbers (comma/space separated)`);
+  return values;
+}
+
 const DEFAULTS: Record<ActivationMode, string> = {
   "alara-deck": DEFAULT_DECK,
   "alara-output": DEFAULT_ALARA_OUTPUT,
@@ -150,6 +182,15 @@ export function ActivationDemo() {
   const [r2s, setR2s] = useState<R2sSummary | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotBundleJson | null>(null);
   const [snapshots, setSnapshots] = useState<string[]>([DEFAULT_STEP_SNAPSHOT]);
+  const [voxelTotals, setVoxelTotals] = useState(DEFAULT_VOXEL_TOTALS);
+  const [voxelMap, setVoxelMap] = useState(DEFAULT_VOXEL_MAP);
+  const [voxelSplit, setVoxelSplit] = useState(false);
+  const [voxelPhoton, setVoxelPhoton] = useState(DEFAULT_VOXEL_PHOTON);
+  const [voxelNuclides, setVoxelNuclides] = useState(DEFAULT_VOXEL_NUCLIDES);
+  const [voxelTime, setVoxelTime] = useState("0");
+  const [voxelView, setVoxelView] = useState<VoxelView>("heatmap");
+  const [voxelTags, setVoxelTags] = useState<VoxelTagsSummary | null>(null);
+  const [voxelPhotonSums, setVoxelPhotonSums] = useState<VoxelPhotonSummary | null>(null);
   const [stepSeries, setStepSeries] = useState<{
     nuclides: string[];
     steps: string[];
@@ -171,6 +212,8 @@ export function ActivationDemo() {
     setTape9(null);
     setR2s(null);
     setSnapshot(null);
+    setVoxelTags(null);
+    setVoxelPhotonSums(null);
   }
 
   function selectMode(next: ActivationMode) {
@@ -241,6 +284,74 @@ export function ActivationDemo() {
 
   const displayError = error ?? localError;
   const needsRunLbl = mode === "alara-output" || mode === "fispact";
+
+  function tagVoxels() {
+    if (!wasm) return;
+    try {
+      const totals = parseNumberList(voxelTotals, "Zone totals");
+      const zoneOfVoxel = parseNumberList(voxelMap, "Zone of voxel").map((v) => {
+        if (!Number.isInteger(v) || v < 0) throw new Error("Zone of voxel must be integers >= 0");
+        return v;
+      });
+      const timeS = Number(voxelTime);
+      if (!Number.isFinite(timeS))
+        throw new Error("Photon time must be a finite number of seconds");
+      const nuclides = voxelNuclides.split(/[\s,;]+/).filter((t) => t.length > 0);
+      setVoxelTags(wasm.voxelTagsFromTotals({ totals, zoneOfVoxel, split: voxelSplit }));
+      setVoxelPhotonSums(wasm.voxelPhotonSums({ photonText: voxelPhoton, nuclides, timeS }));
+      clearError();
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : String(e));
+      setVoxelTags(null);
+      setVoxelPhotonSums(null);
+    }
+  }
+
+  // Voxel-strength views over the tagged strengths (file order): the heatmap
+  // draws one row over voxel index; histogram bins the strength
+  // distribution. Values follow the RTFLUX capped-values precedent (the
+  // WASM voxel cap rejects oversized maps, so the chart shows every voxel).
+  const voxelLabels = voxelTags ? voxelTags.zone_of_voxel.map((_, i) => `v${i + 1}`) : [];
+  const voxelChartData =
+    voxelTags && voxelTags.source_strength.length > 0
+      ? voxelView === "scatter"
+        ? [
+            {
+              type: "scatter" as const,
+              mode: "lines+markers" as const,
+              name: "Strength per voxel",
+              x: voxelLabels,
+              y: voxelTags.source_strength,
+            },
+          ]
+        : voxelView === "bar"
+          ? [
+              {
+                type: "bar" as const,
+                name: "Strength per voxel",
+                x: voxelLabels,
+                y: voxelTags.source_strength,
+              },
+            ]
+          : voxelView === "heatmap"
+            ? [
+                {
+                  type: "heatmap" as const,
+                  x: voxelLabels,
+                  y: ["strength"],
+                  z: [voxelTags.source_strength],
+                  colorscale: "Viridis" as const,
+                  colorbar: { title: { text: "Strength" } },
+                },
+              ]
+            : [
+                {
+                  type: "histogram" as const,
+                  name: "Strength distribution",
+                  x: voxelTags.source_strength,
+                },
+              ]
+      : null;
 
   return (
     <div className="rounded-xl border border-border/50 bg-background p-4 space-y-4">
@@ -628,6 +739,140 @@ export function ActivationDemo() {
                   {snapshot.deck}
                 </pre>
               </div>
+            </div>
+          )}
+
+          {mode === "r2s-snapshot" && (
+            <div className="space-y-3 border-t border-border/50 pt-3">
+              <p className="text-sm font-medium">R2S voxels (per-voxel photon-source tags)</p>
+              <p className="text-xs text-muted-foreground">
+                Zone totals map onto voxels of the native structured mesh: copy mode tags every
+                voxel with its zone total, split mode divides each zone total conservatively over
+                its voxels. Photon group spectra select `.photonSrc` rows by nuclide and cooling
+                time. Browser demo cap: {VOXEL_CAP} voxels.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>Zone totals</Label>
+                  <Input
+                    value={voxelTotals}
+                    onChange={(e) => {
+                      setVoxelTotals(e.target.value);
+                      clearError();
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Zone of voxel</Label>
+                  <Input
+                    value={voxelMap}
+                    onChange={(e) => {
+                      setVoxelMap(e.target.value);
+                      clearError();
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>Photon source (.photonSrc rows)</Label>
+                <Textarea
+                  value={voxelPhoton}
+                  onChange={(e) => {
+                    setVoxelPhoton(e.target.value);
+                    clearError();
+                  }}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>Nuclides</Label>
+                  <Input
+                    value={voxelNuclides}
+                    onChange={(e) => {
+                      setVoxelNuclides(e.target.value);
+                      clearError();
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Cooling time (s)</Label>
+                  <Input
+                    value={voxelTime}
+                    onChange={(e) => {
+                      setVoxelTime(e.target.value);
+                      clearError();
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => setVoxelSplit(!voxelSplit)}>
+                  Split: {voxelSplit ? "on" : "off"}
+                </Button>
+                <Button onClick={tagVoxels}>Tag voxels</Button>
+              </div>
+              {voxelTags && (
+                <div className="space-y-3">
+                  <p className="text-sm">
+                    Voxel tags: {voxelTags.n_voxels} voxels over {voxelTags.n_zones} zones, total{" "}
+                    {voxelTags.total.toExponential(4)} (zone totals:{" "}
+                    {voxelTags.zone_totals.map((v) => v.toExponential(2)).join(", ")})
+                  </p>
+                  <DataTable
+                    data={voxelTags.zone_of_voxel.map((z, i) => ({
+                      voxel: `v${i + 1}`,
+                      zone: z,
+                      strength: voxelTags.source_strength[i].toExponential(4),
+                      decay: voxelTags.decay_time_s[i].toFixed(1),
+                    }))}
+                    columns={[
+                      { key: "voxel", header: "Voxel" },
+                      { key: "zone", header: "Zone", align: "right" },
+                      { key: "strength", header: "Strength", align: "right" },
+                      { key: "decay", header: "Decay (s)", align: "right" },
+                    ]}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    {VOXEL_VIEWS.map((v) => (
+                      <Button
+                        key={v.value}
+                        onClick={() => setVoxelView(v.value)}
+                        variant={voxelView === v.value ? "default" : "outline"}
+                        size="sm"
+                      >
+                        {v.label}
+                      </Button>
+                    ))}
+                  </div>
+                  {voxelChartData && (
+                    <Plotly
+                      aspect="video"
+                      data={voxelChartData}
+                      layout={{
+                        xaxis: {
+                          title: { text: voxelView === "histogram" ? "Strength" : "Voxel" },
+                        },
+                        yaxis: {
+                          title: { text: voxelView === "histogram" ? "Count" : "Strength" },
+                        },
+                        margin: { t: 16, r: 16, b: 48, l: 64 },
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+              {voxelPhotonSums && (
+                <p className="text-sm">
+                  Photon sums: [{voxelPhotonSums.sums.map((v) => v.toFixed(2)).join(", ")}] total{" "}
+                  {voxelPhotonSums.total.toExponential(4)} over {voxelPhotonSums.groups.length}{" "}
+                  groups
+                </p>
+              )}
             </div>
           )}
         </>

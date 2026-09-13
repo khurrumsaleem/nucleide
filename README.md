@@ -44,6 +44,7 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | Point kinetics (`nucleide-kinetics`) | Prescribed-reactivity PKE solver, inhour roots, prompt-jump factor |
 | Spectroscopy (`nucleide-spectroscopy`) | Spectrum smoothing, gross/net counting, energy/efficiency calibration, X-ray lines, SPE parsing, decay-line SDEF source cards (E9) fed from caller lists or the runtime decay-lines TSV interchange |
 | Variance reduction (`nucleide-vr-tools`) | MAGIC weight-window generation, mesh source sampling with alias tables |
+| UQ sampling (`nucleide-linalg`) | Seeded MVN + log-normal + LHS draws over caller-supplied covariance blocks, SANDY-compatible estimators |
 | CCCC I/O (`nucleide-cccc-io`) | ISOTXS/RTFLUX text-subset parsers + PARTISN deck writer (no solver) |
 | FISPACT I/O (`nucleide-fispact-io`) | FISPACT-II inventory output parser reusing the ALARA response frame (output-only) |
 | ORIGEN I/O (`nucleide-origen-io`) | Scoped ORIGEN 2.2 TAPE5 input-echo, TAPE6 inventory, and TAPE9 decay readers |

@@ -19,7 +19,11 @@ UQ-lite sampling kernel: the `sample` module (seeded multivariate-normal
 sampling over caller-supplied covariance blocks — Cholesky primary,
 eigen-clipping fallback, relative/absolute conventions, SANDY-style
 convergence diagnostics) and the decay-only `decay` consumer (branch/energy
-perturbers preserving the `1 − BR(SF)` deficit; fission yields named-open).
+ perturbers preserving the `1 − BR(SF)` deficit; fission yields named-open).
+ The 0.9.0 `sample` extension adds `sample_lognormal` plus the closed-form
+ `lognormal_mean`/`lognormal_cov` helpers. The 0.9.0 `lstsq` module owns the
+ shared dense-real weighted least-squares kernel. The 0.10.0 `sample`
+ extension adds `sample_lhs` stratified sampling (theory U7, separate G1/G2 gate).
 Other workspace crates depend on `nucleide-linalg`, not on the backend directly.
 
 ### `nucleide-nuclei`

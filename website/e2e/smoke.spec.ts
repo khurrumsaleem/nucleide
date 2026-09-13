@@ -174,6 +174,7 @@ end`,
       { button: "R2S snapshot" },
       { button: "Parse", output: "text=Top schedule:" },
       { button: "Parse", output: "text=Decks:" },
+      { button: "Tag voxels", output: "text=Voxel tags:", chart: ".js-plotly-plot" },
     ],
   },
   {
@@ -248,6 +249,10 @@ NUCLIDE PU239 94239 2
     button: "Run sampling",
     output: "text=Sample mean",
     chart: { button: "Run sampling", selector: ".js-plotly-plot" },
+    extraSteps: [
+      { button: "LHS" },
+      { button: "Run sampling", output: "text=Sample mean", chart: ".js-plotly-plot" },
+    ],
   },
 ];
 

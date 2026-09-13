@@ -543,6 +543,40 @@ export interface SnapshotBundleJson {
   decks: string[];
 }
 
+export interface VoxelTagsInputJson {
+  totals: number[];
+  zoneOfVoxel: number[];
+  split?: boolean;
+}
+
+export interface VoxelTagsSummary {
+  n_zones: number;
+  n_voxels: number;
+  zone_of_voxel: number[];
+  source_strength: number[];
+  decay_time_s: number[];
+  zone_totals: number[];
+  total: number;
+}
+
+export interface VoxelPhotonGroupJson {
+  nuclide: string;
+  time_s: number;
+  strengths: number[];
+}
+
+export interface VoxelPhotonInputJson {
+  photonText: string;
+  nuclides: string[];
+  timeS: number;
+}
+
+export interface VoxelPhotonSummary {
+  groups: VoxelPhotonGroupJson[];
+  sums: number[];
+  total: number;
+}
+
 export interface CompendiumEntryInfo {
   name: string;
   acronym: string[];
@@ -731,6 +765,8 @@ export interface WasmApi {
   parseOrigenTape9(text: string): OrigenTape9Summary;
   r2sFromDeck(text: string): R2sSummary;
   r2sFromSnapshot(snapshot: SnapshotInputJson): SnapshotBundleJson;
+  voxelTagsFromTotals(input: VoxelTagsInputJson): VoxelTagsSummary;
+  voxelPhotonSums(input: VoxelPhotonInputJson): VoxelPhotonSummary;
   parseIsotxs(text: string): IsotxsSummary;
   parseSerpentRes(text: string): SerpentResSummary;
   parseSerpentDep(text: string): SerpentDepSummary;
