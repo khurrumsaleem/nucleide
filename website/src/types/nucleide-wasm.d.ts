@@ -398,6 +398,20 @@ export interface IsotxsSummary {
   groups: number;
 }
 
+export interface PartisnZone {
+  id: number;
+  material: string;
+  isotxs_labels: string[];
+  density: number;
+}
+
+export interface PartisnDeck {
+  title: string;
+  dim: number;
+  zones: PartisnZone[];
+  source?: string | null;
+}
+
 export interface SerpentVariableJson {
   name: string;
   kind: "scalar" | "vector" | "matrix";
@@ -768,6 +782,8 @@ export interface WasmApi {
   voxelTagsFromTotals(input: VoxelTagsInputJson): VoxelTagsSummary;
   voxelPhotonSums(input: VoxelPhotonInputJson): VoxelPhotonSummary;
   parseIsotxs(text: string): IsotxsSummary;
+  partisnRender(deck: PartisnDeck): string;
+  partisnValidate(deck: PartisnDeck, isotxsText: string): void;
   parseSerpentRes(text: string): SerpentResSummary;
   parseSerpentDep(text: string): SerpentDepSummary;
   parseSerpentDet(text: string): SerpentDetSummary;

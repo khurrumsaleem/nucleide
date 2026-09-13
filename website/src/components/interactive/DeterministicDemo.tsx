@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useWasm } from "../../lib/wasm";
-import type { IsotxsSummary, RtfluxSummary } from "../../types/nucleide-wasm";
+import type { IsotxsSummary, PartisnDeck, RtfluxSummary } from "../../types/nucleide-wasm";
 import { Button } from "@nukehub/docs-kit/components/ui/Button";
+import { Input } from "@nukehub/docs-kit/components/ui/Input";
+import { Label } from "@nukehub/docs-kit/components/ui/Label";
 import { Textarea } from "@nukehub/docs-kit/components/ui/Textarea";
 import { DataTable } from "@nukehub/docs-kit/components/mdx/DataTable";
 import { Plotly } from "@nukehub/docs-kit/components/mdx/PlotlyClient";
@@ -17,6 +19,18 @@ const DEFAULT_RTFLUX = `RTFLUX 2 3
 1.0 2.0 3.0
 4.0 5.0 6.0`;
 
+interface PartisnZoneRow {
+  id: string;
+  material: string;
+  density: string;
+  labels: string;
+}
+
+const DEFAULT_ZONES: PartisnZoneRow[] = [
+  { id: "1", material: "fuel", density: "10", labels: "U235" },
+  { id: "2", material: "blanket", density: "5", labels: "PU239" },
+];
+
 export function DeterministicDemo() {
   const { wasm, ready, error } = useWasm();
   const [text, setText] = useState(DEFAULT_ISOTXS);
@@ -25,6 +39,16 @@ export function DeterministicDemo() {
   const [rtfluxKind, setRtfluxKind] = useState("rtflux");
   const [rtflux, setRtflux] = useState<RtfluxSummary | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  const [partisnTitle, setPartisnTitle] = useState("synthetic slab");
+  const [partisnDim, setPartisnDim] = useState("1");
+  const [partisnZones, setPartisnZones] = useState<PartisnZoneRow[]>(DEFAULT_ZONES);
+  const [partisnSource, setPartisnSource] = useState("isotropic");
+  const [partisnIsotxsText, setPartisnIsotxsText] = useState(DEFAULT_ISOTXS);
+  const [partisnLabels, setPartisnLabels] = useState<string | null>(null);
+  const [partisnPreview, setPartisnPreview] = useState<string | null>(null);
+  const [partisnValid, setPartisnValid] = useState<string | null>(null);
+  const [partisnInvalid, setPartisnInvalid] = useState<string | null>(null);
 
   function clearError() {
     setLocalError(null);
@@ -39,6 +63,77 @@ export function DeterministicDemo() {
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  function buildPartisnDeck(): PartisnDeck {
+    const title = partisnTitle.trim();
+    if (title === "") throw new Error("PARTISN deck title is empty");
+    const dim = parseInt(partisnDim, 10);
+    if (![1, 2, 3].includes(dim))
+      throw new Error(`bad PARTISN dim \`${partisnDim}\` (expected 1, 2, or 3)`);
+    if (partisnZones.length === 0) throw new Error("PARTISN deck has no zones");
+    const zones = partisnZones.map((row, i) => {
+      const id = parseInt(row.id, 10);
+      if (!Number.isInteger(id) || id < 0)
+        throw new Error(`bad PARTISN zone ${i + 1} id \`${row.id}\``);
+      if (row.material.trim() === "") throw new Error(`PARTISN zone ${i + 1} material is empty`);
+      const density = parseFloat(row.density);
+      if (!Number.isFinite(density))
+        throw new Error(`bad PARTISN zone ${i + 1} density \`${row.density}\``);
+      const isotxs_labels = row.labels
+        .split(/[\s,]+/)
+        .map((s) => s.trim())
+        .filter((s) => s !== "");
+      if (isotxs_labels.length === 0) throw new Error(`PARTISN zone ${i + 1} has no ISOTXS labels`);
+      return { id, material: row.material.trim(), isotxs_labels, density };
+    });
+    const source = partisnSource.trim();
+    return {
+      title,
+      dim,
+      zones,
+      source: source === "" ? null : source,
+    };
+  }
+
+  function renderPartisn() {
+    if (!wasm) return;
+    setPartisnPreview(null);
+    try {
+      setPartisnPreview(wasm.partisnRender(buildPartisnDeck()));
+      clearError();
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function validatePartisn() {
+    if (!wasm) return;
+    setPartisnValid(null);
+    setPartisnInvalid(null);
+    try {
+      const deck = buildPartisnDeck();
+      wasm.partisnValidate(deck, partisnIsotxsText);
+      setPartisnValid(`PARTISN deck valid: ${deck.zones.length} zone(s), DIM ${deck.dim}`);
+    } catch (e) {
+      setPartisnInvalid(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function parsePartisnIsotxs() {
+    if (!wasm) return;
+    try {
+      const lib = wasm.parseIsotxs(partisnIsotxsText);
+      setPartisnLabels(lib.nuclides.map((n) => n.label).join(", "));
+      clearError();
+    } catch (e) {
+      setLocalError(e instanceof Error ? e.message : String(e));
+      setPartisnLabels(null);
+    }
+  }
+
+  function setZone(index: number, patch: Partial<PartisnZoneRow>) {
+    setPartisnZones((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
   const displayError = error ?? localError;
@@ -133,7 +228,7 @@ export function DeterministicDemo() {
           )}
 
           <div className="space-y-2 border-t border-border/50 pt-4">
-            <p className="text-sm font-medium">RTFLUX fluxes (PARTISN stays Python-only)</p>
+            <p className="text-sm font-medium">RTFLUX fluxes (PARTISN renders in-browser below)</p>
             <Textarea
               value={rtfluxText}
               onChange={(e) => {
@@ -201,6 +296,191 @@ export function DeterministicDemo() {
                   </>
                 )}
               </div>
+            )}
+          </div>
+
+          <div className="space-y-3 border-t border-border/50 pt-4">
+            <p className="text-sm font-medium">PARTISN writer (renders in-browser)</p>
+            <p className="text-xs text-muted-foreground">
+              Structured deck dict with exact keys: <span className="font-mono">title</span>,{" "}
+              <span className="font-mono">dim</span>, <span className="font-mono">zones</span> (each{" "}
+              <span className="font-mono">id</span>, <span className="font-mono">material</span>,{" "}
+              <span className="font-mono">isotxs_labels</span>,{" "}
+              <span className="font-mono">density</span>), optional{" "}
+              <span className="font-mono">source</span> — mirroring the Python{" "}
+              <span className="font-mono">partisn_render</span>/
+              <span className="font-mono">partisn_validate</span> shape. Labels validate against the
+              pasted ISOTXS library below.
+            </p>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label htmlFor="partisn-title">Deck title</Label>
+                <Input
+                  id="partisn-title"
+                  value={partisnTitle}
+                  onChange={(e) => {
+                    setPartisnTitle(e.target.value);
+                    clearError();
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Dimension</Label>
+                <Select
+                  value={partisnDim}
+                  onChange={(v) => {
+                    setPartisnDim(v);
+                    clearError();
+                  }}
+                  options={[
+                    { value: "1", label: "1" },
+                    { value: "2", label: "2" },
+                    { value: "3", label: "3" },
+                  ]}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="partisn-source">Source (optional)</Label>
+                <Input
+                  id="partisn-source"
+                  value={partisnSource}
+                  onChange={(e) => {
+                    setPartisnSource(e.target.value);
+                    clearError();
+                  }}
+                  placeholder="Empty omits SOURCE"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {partisnZones.map((zone, i) => (
+                <div key={i} className="grid gap-3 sm:grid-cols-4">
+                  <div className="space-y-1">
+                    <Label htmlFor={`partisn-zone-${i}-id`}>Zone {i + 1} id</Label>
+                    <Input
+                      id={`partisn-zone-${i}-id`}
+                      value={zone.id}
+                      onChange={(e) => {
+                        setZone(i, { id: e.target.value });
+                        clearError();
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`partisn-zone-${i}-material`}>Zone {i + 1} material</Label>
+                    <Input
+                      id={`partisn-zone-${i}-material`}
+                      value={zone.material}
+                      onChange={(e) => {
+                        setZone(i, { material: e.target.value });
+                        clearError();
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`partisn-zone-${i}-density`}>Zone {i + 1} density</Label>
+                    <Input
+                      id={`partisn-zone-${i}-density`}
+                      value={zone.density}
+                      onChange={(e) => {
+                        setZone(i, { density: e.target.value });
+                        clearError();
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`partisn-zone-${i}-labels`}>Zone {i + 1} labels</Label>
+                    <Input
+                      id={`partisn-zone-${i}-labels`}
+                      value={zone.labels}
+                      onChange={(e) => {
+                        setZone(i, { labels: e.target.value });
+                        clearError();
+                      }}
+                      placeholder="space/comma separated"
+                    />
+                  </div>
+                </div>
+              ))}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPartisnZones((rows) => [
+                      ...rows,
+                      {
+                        id: String(rows.length + 1),
+                        material: "shield",
+                        density: "1",
+                        labels: "U235",
+                      },
+                    ]);
+                    clearError();
+                  }}
+                >
+                  Add zone
+                </Button>
+                {partisnZones.length > 1 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setPartisnZones((rows) => rows.slice(0, -1));
+                      clearError();
+                    }}
+                  >
+                    Remove zone
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="partisn-isotxs">ISOTXS library (pasted)</Label>
+              <Textarea
+                id="partisn-isotxs"
+                value={partisnIsotxsText}
+                onChange={(e) => {
+                  setPartisnIsotxsText(e.target.value);
+                  clearError();
+                }}
+                className="font-mono text-xs"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={parsePartisnIsotxs}>
+                  Parse PARTISN ISOTXS
+                </Button>
+              </div>
+              {partisnLabels && (
+                <p className="text-sm">
+                  ISOTXS labels: <span className="font-mono">{partisnLabels}</span>
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={renderPartisn}>Render PARTISN</Button>
+              <Button onClick={validatePartisn}>Validate PARTISN</Button>
+            </div>
+
+            {partisnPreview && (
+              <div className="space-y-1">
+                <p className="text-sm font-medium">PARTISN preview</p>
+                <pre className="overflow-x-auto rounded-lg border border-border/50 bg-muted/30 p-3 font-mono text-xs whitespace-pre-wrap">
+                  {partisnPreview}
+                </pre>
+              </div>
+            )}
+            {partisnValid && (
+              <p className="text-sm text-green-700 dark:text-green-300">{partisnValid}</p>
+            )}
+            {partisnInvalid && (
+              <p className="text-sm text-red-700 dark:text-red-300">
+                PARTISN validation error: {partisnInvalid}
+              </p>
             )}
           </div>
         </>

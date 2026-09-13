@@ -31,6 +31,13 @@ workspace crates from tags.
   per-point flux profile (one grouped-bar trace per energy group over the
   capped `parseRtflux` values, following the ISOTXS grouped-bar precedent)
   with E2E coverage.
+- Interactive deterministic demo: PARTISN writer section rendering and
+  validating structured deck dicts in the browser via new WASM
+  `partisnRender`/`partisnValidate` facades (exact `title`/`dim`/`zones`
+  (`id`/`material`/`isotxs_labels`/`density`)/`source` keys mirroring the
+  Python `partisn_render`/`partisn_validate` shape, no camelCase aliases;
+  zone labels validated against a pasted ISOTXS library via `parseIsotxs`)
+  with render preview, inline validation-error display, and E2E coverage.
 - Interactive activation demo: the ORIGEN TAPE6 per-step comparison now takes
   a dynamic list of N pasted snapshots (add/remove, each re-parsed with the
   same `parseOrigenTape6` reader) into a per-nuclide series chart over all

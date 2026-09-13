@@ -189,6 +189,13 @@ NUCLIDE PU239 94239 2
     extraSteps: [
       { button: "Parse RTFLUX", output: "text=Flux kind:" },
       { button: "Parse RTFLUX", output: "text=Flux profile", chart: ".js-plotly-plot" },
+      { button: "Render PARTISN", output: "text=TITLE" },
+      { button: "Validate PARTISN", output: "text=PARTISN deck valid" },
+      {
+        button: "Validate PARTISN",
+        fill: { label: "Zone 1 labels", text: "NOPE" },
+        output: "text=unknown ISOTXS",
+      },
     ],
   },
   {

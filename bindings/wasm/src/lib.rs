@@ -2111,6 +2111,76 @@ pub fn parse_isotxs(text: &str) -> Result<JsValue, JsValue> {
 }
 
 // ---------------------------------------------------------------------------
+// PARTISN writer (structured deck dicts, exact keys)
+// ---------------------------------------------------------------------------
+
+/// One PARTISN zone of the structured deck dict.
+///
+/// Exact keys (no aliases): `id`, `material`, `isotxs_labels`, `density`.
+/// Mirrors the Python `partisn_render`/`partisn_validate` zone shape.
+#[derive(Deserialize)]
+struct PartisnZoneJson {
+    id: u32,
+    material: String,
+    isotxs_labels: Vec<String>,
+    density: f64,
+}
+
+/// Minimal PARTISN deck of the structured deck dict.
+///
+/// Exact keys (no aliases): `title`, `dim`, `zones`, `source` (optional,
+/// `null`/absent omits the SOURCE card). Mirrors the Python
+/// `partisn_render`/`partisn_validate` deck shape.
+#[derive(Deserialize)]
+struct PartisnDeckJson {
+    title: String,
+    dim: u8,
+    zones: Vec<PartisnZoneJson>,
+    #[serde(default)]
+    source: Option<String>,
+}
+
+fn partisn_deck_from_json(deck: JsValue) -> Result<nucleide_cccc_io::PartisnDeck, JsValue> {
+    let parsed: PartisnDeckJson = serde_wasm_bindgen::from_value(deck).map_err(js_err)?;
+    Ok(nucleide_cccc_io::PartisnDeck {
+        title: parsed.title,
+        dim: parsed.dim,
+        zones: parsed
+            .zones
+            .into_iter()
+            .map(|z| nucleide_cccc_io::partisn::PartisnZone {
+                id: z.id,
+                material: z.material,
+                isotxs_labels: z.isotxs_labels,
+                density: z.density,
+            })
+            .collect(),
+        source: parsed.source,
+    })
+}
+
+/// Render a structured PARTISN deck dict to PARTISN input text.
+///
+/// `deck` uses the exact keys `title`, `dim` (1|2|3), `zones` (each with
+/// exact keys `id`, `material`, `isotxs_labels`, `density`), and optional
+/// `source` (`null`/absent omits the SOURCE card).
+#[wasm_bindgen(js_name = partisnRender)]
+pub fn partisn_render(deck: JsValue) -> Result<String, JsValue> {
+    Ok(partisn_deck_from_json(deck)?.render())
+}
+
+/// Validate a structured PARTISN deck dict against ISOTXS library text.
+///
+/// Same exact deck keys as [`partisn_render`]. Throws when `dim` is not
+/// 1/2/3 or a zone names an ISOTXS label absent from the library.
+#[wasm_bindgen(js_name = partisnValidate)]
+pub fn partisn_validate(deck: JsValue, isotxs_text: &str) -> Result<(), JsValue> {
+    let rust_deck = partisn_deck_from_json(deck)?;
+    let lib = nucleide_cccc_io::IsotxsLib::parse(isotxs_text).map_err(js_err)?;
+    rust_deck.validate(&lib).map_err(js_err)
+}
+
+// ---------------------------------------------------------------------------
 // MCNP full-deck problem
 // ---------------------------------------------------------------------------
 

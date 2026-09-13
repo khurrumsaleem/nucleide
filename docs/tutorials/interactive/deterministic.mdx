@@ -22,11 +22,14 @@ nuclide labels, ZAIDs, and total cross sections per group.
 RTFLUX/ATFLUX/RZFLUX point-flux files parse in the browser below
 (`parseRtflux` with the `rtflux`|`atflux`|`rzflux` kind-switch mirroring
 Python) and render a chart-only per-point flux profile (one grouped-bar trace
-per energy group, following the ISOTXS precedent). PARTISN deck
-rendering/validation (`partisn_render`, `partisn_validate`) need structured
-deck dicts rather than plain text, so they stay in the Python package — see
-the crate docs for the deck shape. ISOTXS totals render as a grouped bar
-chart (chart-only).
+per energy group, following the ISOTXS precedent). PARTISN decks also render
+and validate in the browser (`partisnRender`, `partisnValidate`): the demo
+builds a structured deck dict with the exact keys `title`, `dim`, `zones`
+(each `id`, `material`, `isotxs_labels`, `density`), and optional `source`
+(mirroring the Python `partisn_render`/`partisn_validate` shape — no
+camelCase aliases), and validates zone labels against a pasted ISOTXS library
+parsed with `parseIsotxs`. ISOTXS totals render as a grouped bar chart
+(chart-only).
 
 ## Try it
 
