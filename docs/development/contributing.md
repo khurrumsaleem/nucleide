@@ -107,9 +107,9 @@ Python APIs. Breaking changes are signaled, never silent:
    documented, and types with invariants construct through validating
    constructors (record-style structs may keep public fields, validated at
    use). 17 of 18 crates carry the lint after the 0.10.0 API-stability
-   pass; `nucleide-mcnp-io` is the recorded deferral (a doc-volume cycle
-   owns its ~132 missing docs) — new crates must ship the lint from the
-   start.
+   pass; `nucleide-mcnp-io` is the recorded deferral (a follow-up
+   documentation pass owns its ~132 missing docs) — new crates must ship
+   the lint from the start.
 
 The 0.5.0 API freeze covered (`nucleide-kinetics`,
 `nucleide-spectroscopy`, the `nucleide-mcnp-io` `endl`/`fortran` modules,
