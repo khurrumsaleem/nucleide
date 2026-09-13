@@ -13,6 +13,8 @@ workspace crates from tags.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-14
+
 ### Added
 
 - Fission product yields from the ENDF/B-VIII.0 neutron-induced and
