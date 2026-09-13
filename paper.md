@@ -28,7 +28,8 @@ Nucleide is a toolkit for the nuclear-engineering workflow *around* particle
 transport codes: reading and writing legacy code files (MCNP, Serpent, FLUKA),
 canonical nuclide identification across a dozen naming dialects, embedded
 nuclear reference data (AME2020 masses, IUPAC 2013 abundances, ENDF/B-VIII.0
-half-lives, plus ENDF/B and NIST-derived screening cross sections, neutron
+half-lives, decay branches, and fission yields, plus ENDF/B and
+NIST-derived screening cross sections, neutron
 scattering lengths, and prompt decay energies), material construction,
 multi-step burnup-matrix depletion with the
 Chebyshev Rational Approximation Method (CRAM) [@pusa2010cram; @pusa2016cram]
@@ -158,6 +159,12 @@ The repository contains a runnable cross-code validation harness
   carries per-isomer excitation masses alongside the AME2020 grounds); all name-dialect conversions match `pyne.nucname`
   exactly. Screening scattering lengths follow Sears [@sears1992], and prompt
   decay energies plus 14-MeV totals follow ENDF/B-VII.1 [@chadwick2011endf71].
+  Fission yields (independent and cumulative sets for the 36 neutron-induced
+  and spontaneous parents, carried from the ENDF/B-VII.1 evaluations) match
+  the ENDF/B-VIII.0 tape values exactly at the probe rows, with per-energy
+  independent-yield sums within $1.2\times10^{-7}$ of 2
+  [@brown2018endf; @chadwick2011endf71]; the same library backs the depletion
+  chain fallback when a chain omits yields for a fissionable parent.
 - **Performance**: single-step CRAM-48 solves run in $\sim$134 µs from Python
   ($\sim$85 µs native) versus $\sim$3.0 ms for OpenMC's Python path; the
   default uranium enrichment solve runs in $\sim$110 µs versus $\sim$5.8 ms

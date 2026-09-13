@@ -6,7 +6,7 @@
     "date": "2026-09-13",
     "python": "3.12.14",
     "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
-    "nucleide": "0.9.0",
+    "nucleide": "0.10.0",
     "pyne": "0.7.5",
     "openmc": "0.16.0"
   },
@@ -480,6 +480,102 @@
           "0.000000e+00"
         ]
       ]
+    },
+    {
+      "kind": "heading",
+      "level": 3,
+      "text": "Fission yields vs ENDF/B-VIII.0 tape spot values"
+    },
+    {
+      "kind": "prose",
+      "text": "Nucleide `fission_yields` (independent MF8/MT454 and cumulative MF8/MT459 sets) vs values read off the ENDF/B-VIII.0 neutron-induced/spontaneous fission-yield tapes they were generated from. Both sublibraries are unchanged carries of ENDF/B-VII.1 evaluations per their README.txt (England et al. ENDF-349, except the Chadwick-Kawano Pu-239 evaluation), and the Mattera-Sonzogni cumulative-yield correction is not applied. Independent sets sum to ~2.0 (two fragments per fission); U-238's lowest neutron-induced set is 500 keV, and Cf-252's spontaneous set is E = 0."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Set -> daughter",
+        "Nucleide",
+        "Spot",
+        "Rel diff"
+      ],
+      "rows": [
+        [
+          "U235[n/independent]@0.0253 -> Xe135",
+          "7.851250e-04",
+          "7.851250e-04",
+          "0.000000e+00"
+        ],
+        [
+          "U235[n/independent]@0.0253 -> Xe135_m1",
+          "1.781220e-03",
+          "1.781220e-03",
+          "0.000000e+00"
+        ],
+        [
+          "U235[n/independent]@0.0253 -> Kr85",
+          "2.553320e-04",
+          "2.553320e-04",
+          "0.000000e+00"
+        ],
+        [
+          "U235[n/cumulative]@0.0253 -> Xe135",
+          "6.538500e-02",
+          "6.538500e-02",
+          "0.000000e+00"
+        ],
+        [
+          "U235[n/cumulative]@0.0253 -> Cs137",
+          "6.188320e-02",
+          "6.188320e-02",
+          "0.000000e+00"
+        ],
+        [
+          "Pu239[n/independent]@0.0253 -> Xe135",
+          "3.141310e-03",
+          "3.141310e-03",
+          "0.000000e+00"
+        ],
+        [
+          "U238[n/independent]@500000 -> Xe135",
+          "1.115410e-04",
+          "1.115410e-04",
+          "0.000000e+00"
+        ],
+        [
+          "Cf252[sf/independent]@0 -> Xe135",
+          "1.861450e-03",
+          "1.861450e-03",
+          "0.000000e+00"
+        ],
+        [
+          "U235[n]@0.0253 independent sum",
+          "2.000000e+00",
+          "2.0",
+          "1.161862e-07"
+        ],
+        [
+          "Pu239[n]@0.0253 independent sum",
+          "2.000000e+00",
+          "2.0",
+          "6.474940e-08"
+        ],
+        [
+          "U238[n]@500000 independent sum",
+          "2.000000e+00",
+          "2.0",
+          "1.809704e-08"
+        ],
+        [
+          "Cf252[sf]@0 independent sum",
+          "2.000000e+00",
+          "2.0",
+          "2.739402e-08"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "SKIPPED fission_yields: OpenMC fission-yield cross-check skipped: ENDF/B-VIII.0 nfy tapes are not present under validation/.cache (the container cache holds only the CASL chain); the tape spot gates above still pin the committed table."
     }
   ]
 }
