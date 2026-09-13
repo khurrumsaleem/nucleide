@@ -236,6 +236,13 @@ def test_lhs_malformed_inputs_raise() -> None:
         uq.sample_lhs([0.0, 0.0], [[-1.0, 0.0], [0.0, -2.0]], 4, 1)
 
 
+def test_lhs_huge_n_rejected() -> None:
+    with pytest.raises(ValueError, match="too many"):
+        uq.sample_lhs([0.0], [[1.0]], 50_000_000, 1)
+    with pytest.raises(ValueError, match="too many"):
+        uq.sample_mvn([0.0], [[1.0]], 50_000_000, 1)
+
+
 def test_passthrough_and_fy_hook() -> None:
     assert uq.passthrough([0.1, -0.2]) == [pytest.approx(0.1), pytest.approx(-0.2)]
     with pytest.raises(ValueError, match="non-finite"):

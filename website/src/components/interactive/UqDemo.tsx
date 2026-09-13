@@ -66,8 +66,8 @@ export function UqDemo() {
       if (!Number.isInteger(n) || n < 2 || n > MAX_SAMPLES)
         throw new Error(`bad n \`${nText}\` (expected an integer in [2, ${MAX_SAMPLES}])`);
       const seed = parseInt(seedText, 10);
-      if (!Number.isInteger(seed) || seed < 0)
-        throw new Error(`bad seed \`${seedText}\` (expected a non-negative integer)`);
+      if (!Number.isInteger(seed) || seed < 0 || seed >= 2 ** 53)
+        throw new Error(`bad seed \`${seedText}\` (expected a non-negative integer below 2^53)`);
       const out =
         mode === "lhs"
           ? wasm.sampleLhs(meanValues, covMatrix, n, seed)
@@ -155,6 +155,8 @@ export function UqDemo() {
             <Button
               onClick={() => {
                 setMode("mvn");
+                setResult(null);
+                setDrawMode(null);
                 clearError();
               }}
               variant={mode === "mvn" ? "default" : "outline"}
@@ -165,6 +167,8 @@ export function UqDemo() {
             <Button
               onClick={() => {
                 setMode("lhs");
+                setResult(null);
+                setDrawMode(null);
                 clearError();
               }}
               variant={mode === "lhs" ? "default" : "outline"}

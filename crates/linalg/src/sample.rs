@@ -76,6 +76,11 @@ pub const EIGEN_FLOOR_REL: f64 = 1e-12;
 /// being silently symmetrised.
 pub const SYMMETRY_TOL_REL: f64 = 1e-8;
 
+/// Shared draw-count cap for the MVN draw modes ([`sample_mvn`],
+/// [`sample_lhs`]; [`sample_lognormal`] goes through [`sample_mvn`]).
+/// Rejected before any allocation via [`SampleError::TooManySamples`].
+pub const MAX_SAMPLES: usize = 10_000_000;
+
 /// Errors surfaced by the sampling kernel. Every rejection names its cause;
 /// the factorisation path itself is reported, not errored (see
 /// [`FactorMethod`]).
@@ -109,6 +114,13 @@ pub enum SampleError {
     },
     /// `n == 0`: no samples requested.
     NoSamples,
+    /// `n` exceeds [`MAX_SAMPLES`]: rejected before any allocation.
+    TooManySamples {
+        /// Draw count requested.
+        n: usize,
+        /// Cap in force.
+        max: usize,
+    },
     /// The covariance has no positive eigenvalue, so even the eigen-clipping
     /// fallback cannot build a factor.
     NoPositiveEigenvalue,
@@ -134,6 +146,12 @@ impl std::fmt::Display for SampleError {
                  symmetrise caller-side or stay within {SYMMETRY_TOL_REL:.0e} relative"
             ),
             SampleError::NoSamples => write!(f, "sampling requested zero draws"),
+            SampleError::TooManySamples { n, max } => {
+                write!(
+                    f,
+                    "too many samples requested: {n} exceeds the cap of {max}"
+                )
+            }
             SampleError::NoPositiveEigenvalue => write!(
                 f,
                 "covariance has no positive eigenvalue; no sampling factor exists"
@@ -240,6 +258,12 @@ fn validate_block(mean: &[f64], cov: &[Vec<f64>], n: usize) -> Result<usize, Sam
     }
     if n == 0 {
         return Err(SampleError::NoSamples);
+    }
+    if n > MAX_SAMPLES {
+        return Err(SampleError::TooManySamples {
+            n,
+            max: MAX_SAMPLES,
+        });
     }
     if cov.len() != dim {
         return Err(SampleError::DimensionMismatch {
@@ -437,7 +461,11 @@ pub fn sample_lognormal(
 /// no new dependencies).
 ///
 /// Callers must keep `p` strictly inside `(0, 1)` (the LHS layer clamps its
-/// stratified uniforms); `p <= 0.0` returns `-inf`, `p >= 1.0` returns `+inf`.
+/// stratified uniforms into `(0, 1)`, so these edges are unreachable there).
+/// Outside `(0, 1)` there is no infinity guard: `p <= 0.0` and `p >= 1.0`
+/// fall through to the tail rationals and yield `NaN` (`p == 0.0` / `1.0`
+/// give `inf`/`inf`; negative `p` or `p > 1.0` give `NaN` via `ln` of a
+/// non-positive value), not `-inf` / `+inf`.
 fn inv_normal_cdf(p: f64) -> f64 {
     const A1: f64 = -3.969683028665376e+01;
     const A2: f64 = 2.209460984245205e+02;
@@ -1170,6 +1198,35 @@ mod tests {
             SampleError::NoPositiveEigenvalue
         );
         assert!(sample_cov(&sample_mvn(&mean, &cov, 1, SEED).unwrap().samples).is_err());
+    }
+
+    #[test]
+    fn draw_count_cap_rejects_huge_n() {
+        // Largest committed fixture is n = 50_000
+        // (fixtures/uq/lognormal_2x2.json); the cap must stay above it.
+        const _: () = assert!(
+            MAX_SAMPLES >= 50_000,
+            "MAX_SAMPLES must stay above the fixture max"
+        );
+        // Rejected in validate_block before any allocation, so these
+        // 11M-draw calls allocate nothing.
+        let (mean, cov) = cov_2x2();
+        let huge = 11_000_000usize;
+        assert!(huge > MAX_SAMPLES, "test draw count must exceed the cap");
+        assert_eq!(
+            sample_mvn(&mean, &cov, huge, SEED).unwrap_err(),
+            SampleError::TooManySamples {
+                n: huge,
+                max: MAX_SAMPLES
+            }
+        );
+        assert_eq!(
+            sample_lhs(&mean, &cov, huge, SEED).unwrap_err(),
+            SampleError::TooManySamples {
+                n: huge,
+                max: MAX_SAMPLES
+            }
+        );
     }
 
     #[test]

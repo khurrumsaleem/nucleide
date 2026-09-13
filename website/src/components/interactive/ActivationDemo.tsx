@@ -294,6 +294,8 @@ export function ActivationDemo() {
         return v;
       });
       const timeS = Number(voxelTime);
+      if (voxelTime.trim() === "")
+        throw new Error("Photon time is empty (expected seconds, not blank)");
       if (!Number.isFinite(timeS))
         throw new Error("Photon time must be a finite number of seconds");
       const nuclides = voxelNuclides.split(/[\s,;]+/).filter((t) => t.length > 0);

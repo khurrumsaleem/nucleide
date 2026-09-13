@@ -2164,6 +2164,9 @@ fn partisn_deck_from_json(deck: JsValue) -> Result<nucleide_cccc_io::PartisnDeck
 /// `deck` uses the exact keys `title`, `dim` (1|2|3), `zones` (each with
 /// exact keys `id`, `material`, `isotxs_labels`, `density`), and optional
 /// `source` (`null`/absent omits the SOURCE card).
+///
+/// An empty `zones` list renders by design (TITLE/DIM/END with no ZONE
+/// cards); callers must validate separately via [`partisn_validate`].
 #[wasm_bindgen(js_name = partisnRender)]
 pub fn partisn_render(deck: JsValue) -> Result<String, JsValue> {
     Ok(partisn_deck_from_json(deck)?.render())
@@ -2171,11 +2174,17 @@ pub fn partisn_render(deck: JsValue) -> Result<String, JsValue> {
 
 /// Validate a structured PARTISN deck dict against ISOTXS library text.
 ///
-/// Same exact deck keys as [`partisn_render`]. Throws when `dim` is not
-/// 1/2/3 or a zone names an ISOTXS label absent from the library.
+/// Same exact deck keys as [`partisn_render`]. Throws when `zones` is empty,
+/// when `dim` is not 1/2/3, or when a zone names an ISOTXS label absent from
+/// the library.
 #[wasm_bindgen(js_name = partisnValidate)]
 pub fn partisn_validate(deck: JsValue, isotxs_text: &str) -> Result<(), JsValue> {
     let rust_deck = partisn_deck_from_json(deck)?;
+    if rust_deck.zones.is_empty() {
+        return Err(js_err(
+            "PARTISN deck has no zones (empty zones list is vacuous)",
+        ));
+    }
     let lib = nucleide_cccc_io::IsotxsLib::parse(isotxs_text).map_err(js_err)?;
     rust_deck.validate(&lib).map_err(js_err)
 }
@@ -4142,6 +4151,11 @@ struct VoxelTagsResult {
 #[wasm_bindgen(js_name = voxelTagsFromTotals)]
 pub fn voxel_tags_from_totals(input: JsValue) -> Result<JsValue, JsValue> {
     let parsed: VoxelTagsInputJson = serde_wasm_bindgen::from_value(input).map_err(js_err)?;
+    if parsed.zone_of_voxel.is_empty() {
+        return Err(js_err(
+            "zone_of_voxel is empty (tagging zero voxels is vacuous)",
+        ));
+    }
     if parsed.zone_of_voxel.len() > MAX_VOXEL_TAGS {
         return Err(js_err(format!(
             "voxel count {} exceeds the demo cap of {MAX_VOXEL_TAGS}",
@@ -4215,6 +4229,15 @@ struct VoxelPhotonResult {
 #[wasm_bindgen(js_name = voxelPhotonSums)]
 pub fn voxel_photon_sums(input: JsValue) -> Result<JsValue, JsValue> {
     let parsed: VoxelPhotonInputJson = serde_wasm_bindgen::from_value(input).map_err(js_err)?;
+    if !parsed.time_s.is_finite() {
+        return Err(js_err(format!(
+            "timeS must be finite (got {})",
+            parsed.time_s
+        )));
+    }
+    if parsed.nuclides.is_empty() {
+        return Err(js_err("nuclides is empty (no rows can match)"));
+    }
     let source =
         nucleide_alara_io::photon::PhotonSource::from_str(&parsed.photon_text).map_err(js_err)?;
     let names: Vec<&str> = parsed.nuclides.iter().map(String::as_str).collect();
@@ -4413,6 +4436,17 @@ pub fn uq_sample(mean: Vec<f64>, cov: JsValue, n: usize, seed: f64) -> Result<Js
             "seed must be a finite non-negative integer (got {seed})"
         )));
     }
+    if seed >= 9_007_199_254_740_992.0 {
+        return Err(js_err(format!(
+            "seed must be below 2^53 for exact f64 integer precision (got {seed})"
+        )));
+    }
+    if n < 2 {
+        return Err(js_err(format!(
+            "n = {n} needs n >= 2 (sample moments need at least 2 draws; \
+             the kernel supports n = 1 via Rust/Python)"
+        )));
+    }
     if n > MAX_UQ_SAMPLES {
         return Err(js_err(format!(
             "n = {n} exceeds the demo cap of {MAX_UQ_SAMPLES} draws"
@@ -4455,6 +4489,17 @@ pub fn sample_lhs(mean: Vec<f64>, cov: JsValue, n: usize, seed: f64) -> Result<J
     if !seed.is_finite() || seed < 0.0 || seed.fract() != 0.0 {
         return Err(js_err(format!(
             "seed must be a finite non-negative integer (got {seed})"
+        )));
+    }
+    if seed >= 9_007_199_254_740_992.0 {
+        return Err(js_err(format!(
+            "seed must be below 2^53 for exact f64 integer precision (got {seed})"
+        )));
+    }
+    if n < 2 {
+        return Err(js_err(format!(
+            "n = {n} needs n >= 2 (sample moments need at least 2 draws; \
+             the kernel supports n = 1 via Rust/Python)"
         )));
     }
     if n > MAX_UQ_SAMPLES {

@@ -142,6 +142,17 @@ def _lhs_gate(fx: dict, label: str) -> tuple[list[str], str]:
     an equality null). Existing U1/U2/U5 gates are untouched.
     """
     mean, cov, n, k, seed = fx["mean"], fx["cov"], fx["n"], fx["k"], fx["seed"]
+    if n < 2:
+        note = f"{label}: n={n} < 2, sample covariance/moment SE undefined (needs n>=2)."
+        return (
+            [
+                label,
+                f"strata-exact + <= {k} SE (upper bound)",
+                "n<2: moments undefined",
+                _check(False, label),
+            ],
+            note,
+        )
     out = uq.sample_lhs(mean, cov, n, seed)
     dim = len(mean)
     samples = out["samples"]

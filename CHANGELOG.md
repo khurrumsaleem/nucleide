@@ -51,6 +51,25 @@ workspace crates from tags.
   browser (200-voxel demo cap) with a scatter/bar/heatmap/histogram chart
   bundle, with E2E coverage.
 
+### Fixed
+
+- Sampling kernel draw-count cap (`nucleide-linalg` `sample::MAX_SAMPLES` = 10M enforced in `validate_block` as `SampleError::TooManySamples` → `ValueError`, covering `sample_mvn`/`sample_lhs`/`sample_lognormal`).
+- Corrected `inv_normal_cdf` docs: inputs at/beyond `[0, 1]` yield `NaN`, not `∓inf` (unreachable — `sample_lhs` clamps into `(0, 1)`).
+- WASM UQ facades (`uqSample`/`sampleLhs`) reject `n < 2` with a
+  moments-need-`n >= 2` message instead of the confusing `sample_cov`
+  `DimensionMismatch`, and reject `seed >= 2^53` (f64 integer precision —
+  the saturating `as u64` cast would collide streams).
+- WASM `voxelTagsFromTotals` rejects empty `zone_of_voxel` (previously a
+  vacuous success); `voxelPhotonSums` rejects non-finite `timeS` and empty
+  `nuclides`; `partisnValidate` rejects empty `zones` (previously a vacuous
+  pass) while `partisnRender` keeps rendering zoneless decks by design
+  (callers validate separately).
+- UQ demo clears stale results when switching MVN/LHS and rejects
+  `seed >= 2^53` client-side; activation demo treats a blank voxel
+  cooling-time field as an error instead of silently querying `0.0`.
+- U6 validation gate reports FAIL instead of crashing with
+  `ZeroDivisionError` on a hypothetical `n < 2` fixture.
+
 ## [0.9.0] - 2026-09-13
 
 ### Added
