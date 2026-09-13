@@ -160,11 +160,15 @@ end`,
       { button: "Parse", output: "text=Materials:" },
       { button: "ORIGEN TAPE6" },
       { button: "Parse", output: "text=total activity:" },
+      { button: "Compare steps", output: "text=Per-step activities" },
+      { button: "Add snapshot", output: "text=Snapshot 2" },
+      {
+        button: "Compare steps",
+        output: "text=over 3 steps",
+        chart: ".js-plotly-plot",
+      },
       { button: "ORIGEN TAPE9" },
       { button: "Parse", output: "text=Entries:" },
-      { button: "ORIGEN TAPE6" },
-      { button: "Parse", output: "text=total activity:" },
-      { button: "Compare steps", output: "text=Per-step activities" },
       { button: "R2S workflow" },
       { button: "Parse", output: "text=Top schedule:" },
       { button: "R2S snapshot" },
@@ -181,7 +185,10 @@ NUCLIDE U235 92235 2
 1.1 2.2
 NUCLIDE PU239 94239 2
 4.4 5.5`,
-    extraSteps: [{ button: "Parse RTFLUX", output: "text=Flux kind:" }],
+    extraSteps: [
+      { button: "Parse RTFLUX", output: "text=Flux kind:" },
+      { button: "Parse RTFLUX", output: "text=Flux profile", chart: ".js-plotly-plot" },
+    ],
   },
   {
     path: "tutorials/interactive/mcpl-io",

@@ -11,6 +11,7 @@ from nucleide._internal import (
     uq_perturb_energies,
     uq_perturb_fission_yields,
     uq_sample_cov,
+    uq_sample_lhs,
     uq_sample_lognormal,
     uq_sample_mean,
     uq_sample_mvn,
@@ -18,6 +19,7 @@ from nucleide._internal import (
 
 __all__ = [
     "sample_mvn",
+    "sample_lhs",
     "sample_lognormal",
     "lognormal_mean",
     "lognormal_cov",
@@ -41,6 +43,21 @@ def sample_mvn(mean: list[float], cov: list[list[float]], n: int, seed: int) -> 
     identical samples.
     """
     return uq_sample_mvn(mean, cov, n, seed)
+
+
+def sample_lhs(mean: list[float], cov: list[list[float]], n: int, seed: int) -> dict[str, Any]:
+    """Draw ``n`` Latin-hypercube samples reproducibly from ``seed``.
+
+    Per dimension, one jittered uniform per stratum mapped through the
+    inverse-normal CDF, then the shared Cholesky/eigen-clip factor path and
+    ``x = μ + Bz`` application. ``cov`` is caller-supplied (no vendored
+    stores). Returns ``samples`` (list of ``n`` row lists), ``method``
+    (``"cholesky"`` or ``"eigen_clip"``), and the unclipped
+    ``min_eigen``/``max_eigen`` (``None`` on the Cholesky path). Identical
+    inputs always yield identical samples. A draw mode, not a perturbation
+    convention (``perturb_energies(..., "lhs")`` stays an error).
+    """
+    return uq_sample_lhs(mean, cov, n, seed)
 
 
 def sample_lognormal(

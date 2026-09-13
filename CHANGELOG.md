@@ -13,6 +13,27 @@ workspace crates from tags.
 
 ## [Unreleased]
 
+### Added
+
+- Seeded Latin-hypercube sampling (`nucleide-linalg` `sample_lhs` over
+  caller-supplied blocks: per-dimension one jittered draw per stratum via
+  Fisher–Yates permutation, hand-rolled inverse-normal CDF, shared
+  Cholesky/eigen-clip factor path with `x = μ + Bz`; thin Python
+  `nucleide.uq.sample_lhs` + WASM `sampleLhs` facades). Ships with its
+  separate U6 gate (`validation/uq_lite_vs_sandy.py`: G1
+  stratification-exact plus G2 moments within the IID bound as an upper
+  bound only) over synthetic `fixtures/uq/lhs_2x2.json`. A draw mode, not
+  a perturbation convention (`perturb_energies(..., "lhs")` stays an error).
+- Interactive deterministic demo: the RTFLUX section now renders a chart-only
+  per-point flux profile (one grouped-bar trace per energy group over the
+  capped `parseRtflux` values, following the ISOTXS grouped-bar precedent)
+  with E2E coverage.
+- Interactive activation demo: the ORIGEN TAPE6 per-step comparison now takes
+  a dynamic list of N pasted snapshots (add/remove, each re-parsed with the
+  same `parseOrigenTape6` reader) into a per-nuclide series chart over all
+  steps in the existing grouped log-bar bundle, with E2E coverage.
+  Multi-snapshot file grammar stays out — pasted snapshots only.
+
 ## [0.9.0] - 2026-09-13
 
 ### Added

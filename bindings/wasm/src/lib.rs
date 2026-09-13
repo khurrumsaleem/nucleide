@@ -4030,6 +4030,50 @@ pub fn uq_sample(mean: Vec<f64>, cov: JsValue, n: usize, seed: f64) -> Result<Js
     })
 }
 
+/// Draw seeded Latin-hypercube samples over a caller-supplied covariance
+/// block and report the sample moments alongside the inputs.
+///
+/// Thin facade over `nucleide-linalg` `sample` (`sample_lhs` +
+/// `sample_mean` + `sample_cov`): stratified uniforms (one jittered draw
+/// per stratum per dimension) through the hand-rolled inverse-normal CDF,
+/// then the shared factor path. `mean` is a plain array, `cov` a nested
+/// array, `n` the draw count (capped at [`MAX_UQ_SAMPLES`] for the browser),
+/// `seed` a plain number (integer-valued, passed through as `u64` — no
+/// BigInt types cross this boundary). Returns `{ samples, sampleMean,
+/// sampleCov, method, minEigen, maxEigen }` like [`uq_sample`].
+#[wasm_bindgen(js_name = sampleLhs)]
+pub fn sample_lhs(mean: Vec<f64>, cov: JsValue, n: usize, seed: f64) -> Result<JsValue, JsValue> {
+    let cov: Vec<Vec<f64>> = serde_wasm_bindgen::from_value(cov).map_err(js_err)?;
+    if !seed.is_finite() || seed < 0.0 || seed.fract() != 0.0 {
+        return Err(js_err(format!(
+            "seed must be a finite non-negative integer (got {seed})"
+        )));
+    }
+    if n > MAX_UQ_SAMPLES {
+        return Err(js_err(format!(
+            "n = {n} exceeds the demo cap of {MAX_UQ_SAMPLES} draws"
+        )));
+    }
+    let set = nucleide_linalg::sample::sample_lhs(&mean, &cov, n, seed as u64).map_err(js_err)?;
+    let sample_mean = nucleide_linalg::sample::sample_mean(&set.samples).map_err(js_err)?;
+    let sample_cov = nucleide_linalg::sample::sample_cov(&set.samples).map_err(js_err)?;
+    let (method, min_eigen, max_eigen) = match &set.method {
+        nucleide_linalg::sample::FactorMethod::Cholesky => ("cholesky".to_string(), None, None),
+        nucleide_linalg::sample::FactorMethod::EigenClip {
+            min_eigen,
+            max_eigen,
+        } => ("eigen_clip".to_string(), Some(*min_eigen), Some(*max_eigen)),
+    };
+    to_js(&UqSampleResult {
+        samples: set.samples,
+        sample_mean,
+        sample_cov,
+        method,
+        min_eigen,
+        max_eigen,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // MCPL particle lists (bytes-based; no filesystem in the browser)
 // ---------------------------------------------------------------------------

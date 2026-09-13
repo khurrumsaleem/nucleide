@@ -44,6 +44,13 @@
 //! closed-form moments are `E[y_i] = exp(mu_i + C_ii/2)` and
 //! `Cov(y_i, y_j) = exp(mu_i + mu_j + (C_ii + C_jj)/2) (exp(C_ij) - 1)`.
 //!
+//! Latin-hypercube sampling ([`sample_lhs`](crate::sample::sample_lhs)):
+//! stratified `U(0,1)` draws (one jittered draw per stratum per dimension,
+//! Fisher–Yates permutation via the same `StdRng`) mapped through a
+//! hand-rolled inverse-normal CDF on `f64`, then the shared [`sample_mvn`]
+//! factor path and `x = μ + Bz` application. LHS is a draw mode, not a
+//! [`PerturbConvention`]: `PerturbConvention::parse("lhs")` stays an error.
+//!
 //! Convergence diagnostics ([`check_convergence`](crate::sample::check_convergence)) compare the sample mean
 //! and unbiased sample covariance against the inputs that generated them —
 //! the same moment estimators SANDY's `Samples.get_mean` / `get_cov`
@@ -53,8 +60,7 @@
 //!
 //! Explicitly OUT: transport-coupled UQ, ERRORR/NJOY
 //! reimplementation, vendored covariance stores, MF32-resonance machinery,
-//! MF40, fission-yield perturbation (named-open in [`crate::decay`]), and
-//! Latin-hypercube sampling (needs a gate redesign, stays out).
+//! MF40, and fission-yield perturbation (named-open in [`crate::decay`]).
 
 use faer::{Mat, Side};
 use rand::rngs::StdRng;
@@ -224,24 +230,10 @@ pub struct SampleSet {
     pub method: FactorMethod,
 }
 
-/// Draw `n` samples `x ~ N(mean, cov)` reproducibly from `seed`.
-///
-/// Implements theory (U1): `x = mean + B z` with `B` the Cholesky factor
-/// (primary) or eigen-clip reconstruction (fallback, reported in
-/// [`SampleSet::method`]).
-///
-/// The same `(mean, cov, n, seed)` inputs always yield bit-identical
-/// `samples`: `StdRng::seed_from_u64` (ChaCha, no OS entropy) drives a
-/// Box–Muller normal generator, and the faer factorisation is deterministic.
-/// `cov` is symmetrised by averaging with its transpose when already
-/// symmetric within [`SYMMETRY_TOL_REL`]; larger asymmetries are
-/// [`SampleError::NonSymmetric`] errors, never silent.
-pub fn sample_mvn(
-    mean: &[f64],
-    cov: &[Vec<f64>],
-    n: usize,
-    seed: u64,
-) -> Result<SampleSet, SampleError> {
+/// Shared validation for the MVN draw modes ([`sample_mvn`], [`sample_lhs`]):
+/// non-empty mean, `n >= 1`, square/finite `cov`, symmetry within
+/// [`SYMMETRY_TOL_REL`]. Returns the problem dimension.
+fn validate_block(mean: &[f64], cov: &[Vec<f64>], n: usize) -> Result<usize, SampleError> {
     let dim = mean.len();
     if dim == 0 {
         return Err(SampleError::Empty);
@@ -288,15 +280,20 @@ pub fn sample_mvn(
     if dev > SYMMETRY_TOL_REL * scale {
         return Err(SampleError::NonSymmetric { deviation: dev });
     }
+    Ok(dim)
+}
 
+/// Shared sampling factor: Cholesky `cov = L Lᵀ` (primary) or the
+/// eigen-clipping reconstruction `B = U sqrt(clip(S))` (fallback). Callers
+/// share the reported [`FactorMethod`]; never silent.
+enum Factor {
+    LowerTriangular(Vec<Vec<f64>>),
+    Dense(Vec<Vec<f64>>),
+}
+
+fn factor_cov(cov: &[Vec<f64>], dim: usize) -> Result<(Factor, FactorMethod), SampleError> {
     let mat = Mat::<f64>::from_fn(dim, dim, |i, j| 0.5 * (cov[i][j] + cov[j][i]));
-
-    // Primary path: Cholesky. Fallback: eigen-clipping.
-    enum Factor {
-        LowerTriangular(Vec<Vec<f64>>),
-        Dense(Vec<Vec<f64>>),
-    }
-    let (factor, method) = match mat.as_ref().cholesky(Side::Lower) {
+    match mat.as_ref().cholesky(Side::Lower) {
         Ok(chol) => {
             let l = chol.compute_l();
             let mut rows = vec![vec![0.0; dim]; dim];
@@ -305,7 +302,7 @@ pub fn sample_mvn(
                     rows[i][j] = l[(i, j)];
                 }
             }
-            (Factor::LowerTriangular(rows), FactorMethod::Cholesky)
+            Ok((Factor::LowerTriangular(rows), FactorMethod::Cholesky))
         }
         Err(_) => {
             let eig = mat.as_ref().selfadjoint_eigendecomposition(Side::Lower);
@@ -323,15 +320,62 @@ pub fn sample_mvn(
                     rows[i][j] = u[(i, j)] * evals[j].max(floor).sqrt();
                 }
             }
-            (
+            Ok((
                 Factor::Dense(rows),
                 FactorMethod::EigenClip {
                     min_eigen,
                     max_eigen: max_eig,
                 },
-            )
+            ))
         }
-    };
+    }
+}
+
+/// Shared `x = μ + B z` application over one standard-normal vector.
+fn apply_factor(factor: &Factor, mean: &[f64], z: &[f64], x: &mut [f64]) {
+    let dim = mean.len();
+    match factor {
+        Factor::LowerTriangular(l) => {
+            for i in 0..dim {
+                let mut acc = mean[i];
+                for j in 0..=i {
+                    acc += l[i][j] * z[j];
+                }
+                x[i] = acc;
+            }
+        }
+        Factor::Dense(b) => {
+            for i in 0..dim {
+                let mut acc = mean[i];
+                for j in 0..dim {
+                    acc += b[i][j] * z[j];
+                }
+                x[i] = acc;
+            }
+        }
+    }
+}
+
+/// Draw `n` samples `x ~ N(mean, cov)` reproducibly from `seed`.
+///
+/// Implements theory (U1): `x = mean + B z` with `B` the Cholesky factor
+/// (primary) or eigen-clip reconstruction (fallback, reported in
+/// [`SampleSet::method`]).
+///
+/// The same `(mean, cov, n, seed)` inputs always yield bit-identical
+/// `samples`: `StdRng::seed_from_u64` (ChaCha, no OS entropy) drives a
+/// Box–Muller normal generator, and the faer factorisation is deterministic.
+/// `cov` is symmetrised by averaging with its transpose when already
+/// symmetric within [`SYMMETRY_TOL_REL`]; larger asymmetries are
+/// [`SampleError::NonSymmetric`] errors, never silent.
+pub fn sample_mvn(
+    mean: &[f64],
+    cov: &[Vec<f64>],
+    n: usize,
+    seed: u64,
+) -> Result<SampleSet, SampleError> {
+    let dim = validate_block(mean, cov, n)?;
+    let (factor, method) = factor_cov(cov, dim)?;
 
     let mut rng = StdRng::seed_from_u64(seed);
     let mut spare: Option<f64> = None;
@@ -351,26 +395,7 @@ pub fn sample_mvn(
     for _ in 0..n {
         let z: Vec<f64> = (0..dim).map(|_| normal()).collect();
         let mut x = vec![0.0; dim];
-        match &factor {
-            Factor::LowerTriangular(l) => {
-                for i in 0..dim {
-                    let mut acc = mean[i];
-                    for j in 0..=i {
-                        acc += l[i][j] * z[j];
-                    }
-                    x[i] = acc;
-                }
-            }
-            Factor::Dense(b) => {
-                for i in 0..dim {
-                    let mut acc = mean[i];
-                    for j in 0..dim {
-                        acc += b[i][j] * z[j];
-                    }
-                    x[i] = acc;
-                }
-            }
-        }
+        apply_factor(&factor, mean, &z, &mut x);
         samples.push(x);
     }
     Ok(SampleSet { samples, method })
@@ -404,6 +429,100 @@ pub fn sample_lognormal(
         }
     }
     Ok(set)
+}
+
+/// Inverse of the standard-normal CDF `Φ⁻¹(p)` for `p` in `(0, 1)`,
+/// hand-rolled on `f64` (Acklam/Beasley-Springer-Moro rational-approximation
+/// class — same arithmetic class as the Box–Muller closure in [`sample_mvn`];
+/// no new dependencies).
+///
+/// Callers must keep `p` strictly inside `(0, 1)` (the LHS layer clamps its
+/// stratified uniforms); `p <= 0.0` returns `-inf`, `p >= 1.0` returns `+inf`.
+fn inv_normal_cdf(p: f64) -> f64 {
+    const A1: f64 = -3.969683028665376e+01;
+    const A2: f64 = 2.209460984245205e+02;
+    const A3: f64 = -2.759285104752412e+02;
+    const A4: f64 = 1.38357751867269e+02;
+    const A5: f64 = -3.066479806614716e+01;
+    const A6: f64 = 2.506628277459239e+00;
+    const B1: f64 = -5.447609879822406e+01;
+    const B2: f64 = 1.615858368580409e+02;
+    const B3: f64 = -1.556989798598866e+02;
+    const B4: f64 = 6.680131188771972e+01;
+    const B5: f64 = -1.328068155288572e+01;
+    const C1: f64 = -7.784894002430293e-03;
+    const C2: f64 = -3.223964580411365e-01;
+    const C3: f64 = -2.400758277161838e+00;
+    const C4: f64 = -2.549732539343734e+00;
+    const C5: f64 = 4.374664141464968e+00;
+    const C6: f64 = 2.938163982698783e+00;
+    const D1: f64 = 7.784695709041462e-03;
+    const D2: f64 = 3.224671290700398e-01;
+    const D3: f64 = 2.445134137142996e+00;
+    const D4: f64 = 3.754408661907416e+00;
+    if p < 0.02425 {
+        let q = (-2.0 * p.ln()).sqrt();
+        (((((C1 * q + C2) * q + C3) * q + C4) * q + C5) * q + C6)
+            / ((((D1 * q + D2) * q + D3) * q + D4) * q + 1.0)
+    } else if p <= 0.97575 {
+        let q = p - 0.5;
+        let r = q * q;
+        (((((A1 * r + A2) * r + A3) * r + A4) * r + A5) * r + A6) * q
+            / (((((B1 * r + B2) * r + B3) * r + B4) * r + B5) * r + 1.0)
+    } else {
+        let q = (-2.0 * (1.0 - p).ln()).sqrt();
+        -((((((C1 * q + C2) * q + C3) * q + C4) * q + C5) * q + C6)
+            / ((((D1 * q + D2) * q + D3) * q + D4) * q + 1.0))
+    }
+}
+
+/// Draw `n` Latin-hypercube samples reproducibly from `seed`.
+///
+/// Implements theory (U7): per dimension, one jittered uniform per stratum
+/// (`u = (perm[i] + w) / n` with a Fisher–Yates permutation `perm` of
+/// `0..n` and `w ~ U(0,1)`, both from the seeded `StdRng`), mapped through
+/// the hand-rolled `inv_normal_cdf` to standard normals, then the shared
+/// factor path (Cholesky primary, eigen-clip fallback, reported in
+/// [`SampleSet::method`]) and `x = μ + Bz` application.
+///
+/// The same `(mean, cov, n, seed)` inputs always yield bit-identical
+/// `samples`. Stratified draws are a draw mode, not a [`PerturbConvention`]:
+/// `PerturbConvention::parse("lhs")` stays an error. Validation, symmetry
+/// handling, and finiteness errors are exactly the MVN ones.
+pub fn sample_lhs(
+    mean: &[f64],
+    cov: &[Vec<f64>],
+    n: usize,
+    seed: u64,
+) -> Result<SampleSet, SampleError> {
+    let dim = validate_block(mean, cov, n)?;
+    let (factor, method) = factor_cov(cov, dim)?;
+
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut cols: Vec<Vec<f64>> = Vec::with_capacity(dim);
+    for _ in 0..dim {
+        let mut perm: Vec<usize> = (0..n).collect();
+        for i in (1..n).rev() {
+            let k = rng.random_range(0..=i);
+            perm.swap(i, k);
+        }
+        let mut col = vec![0.0; n];
+        for (zi, s) in col.iter_mut().zip(perm.iter()) {
+            let jitter: f64 = rng.random();
+            let u = ((*s as f64 + jitter) / n as f64).clamp(f64::MIN_POSITIVE, 1.0 - f64::EPSILON);
+            *zi = inv_normal_cdf(u);
+        }
+        cols.push(col);
+    }
+
+    let mut samples = Vec::with_capacity(n);
+    for i in 0..n {
+        let z: Vec<f64> = cols.iter().map(|col| col[i]).collect();
+        let mut x = vec![0.0; dim];
+        apply_factor(&factor, mean, &z, &mut x);
+        samples.push(x);
+    }
+    Ok(SampleSet { samples, method })
 }
 
 /// Closed-form mean of the log-normal draw `y = exp(x)`,
@@ -890,6 +1009,131 @@ mod tests {
         }
         assert!(lognormal_mean(&[], &[]).is_err());
         assert!(lognormal_cov(&mu, &[vec![1.0]]).is_err());
+    }
+
+    #[test]
+    fn inv_normal_cdf_matches_reference_values() {
+        // Reference quantiles of the standard normal (independent
+        // erf-based values, not outputs of this implementation):
+        // Φ⁻¹(0.975) = 1.959963984540054, Φ⁻¹(0.025) = −1.959963984540054.
+        assert!(inv_normal_cdf(0.5).abs() < 1e-15);
+        assert!((inv_normal_cdf(0.975) - 1.959963984540054).abs() < 1e-6);
+        assert!((inv_normal_cdf(0.025) + 1.959963984540054).abs() < 1e-6);
+        // Antisymmetry + monotonicity spots across all three branches.
+        assert!((inv_normal_cdf(0.2) + inv_normal_cdf(0.8)).abs() < 1e-9);
+        assert!((inv_normal_cdf(0.01) + inv_normal_cdf(0.99)).abs() < 1e-9);
+        assert!(inv_normal_cdf(0.001) < 0.0 && inv_normal_cdf(0.999) > 0.0);
+        assert!(inv_normal_cdf(0.001) < inv_normal_cdf(0.5));
+        assert!(inv_normal_cdf(0.5) < inv_normal_cdf(0.999));
+    }
+
+    #[test]
+    fn lhs_draws_are_reproducible_and_reported() {
+        let (mean, cov) = cov_2x2();
+        let n = 512usize;
+        let a = sample_lhs(&mean, &cov, n, SEED).unwrap();
+        assert_eq!(a.method, FactorMethod::Cholesky);
+        assert_eq!(a.samples.len(), n);
+        assert!(a.samples.iter().all(|s| s.iter().all(|v| v.is_finite())));
+        let b = sample_lhs(&mean, &cov, n, SEED).unwrap();
+        assert_eq!(a.samples, b.samples);
+        let c = sample_lhs(&mean, &cov, n, SEED + 1).unwrap();
+        assert_ne!(a.samples, c.samples);
+        // Necessary (not sufficient) stratification symptom: the
+        // inverse-CDF map is strictly monotone, so `n` distinct uniforms
+        // per dimension give `n` distinct draws per dimension. The exact
+        // one-per-stratum gate needs Φ (via erf) and lives in the
+        // validation oracle, which has it.
+        for j in 0..2 {
+            let mut col: Vec<u64> = a.samples.iter().map(|s| s[j].to_bits()).collect();
+            col.sort_unstable();
+            col.dedup();
+            assert_eq!(col.len(), n, "dim {j} holds duplicate draws");
+        }
+    }
+
+    #[test]
+    fn lhs_rank_deficient_block_uses_eigen_clip_fallback() {
+        // Same shared factor path as sample_mvn: rank-1 input takes the
+        // eigen-clip fallback with named reporting.
+        let mean = vec![0.0, 0.0];
+        let cov = vec![vec![1.0, 1.0], vec![1.0, 1.0]];
+        let set = sample_lhs(&mean, &cov, 512, SEED).unwrap();
+        assert!(matches!(set.method, FactorMethod::EigenClip { .. }));
+        assert!(set.samples.iter().all(|s| s.iter().all(|v| v.is_finite())));
+    }
+
+    #[test]
+    fn lhs_malformed_inputs_name_their_cause() {
+        // Same validation (and the same errors) as the MVN draw mode.
+        let (mean, cov) = cov_2x2();
+        assert_eq!(
+            sample_lhs(&[], &[], 4, SEED).unwrap_err(),
+            SampleError::Empty
+        );
+        assert_eq!(
+            sample_lhs(&mean, &cov, 0, SEED).unwrap_err(),
+            SampleError::NoSamples
+        );
+        assert!(matches!(
+            sample_lhs(&mean, &[vec![1.0]], 4, SEED).unwrap_err(),
+            SampleError::DimensionMismatch { .. }
+        ));
+        assert!(matches!(
+            sample_lhs(&mean, &[vec![1.0], vec![1.0, 2.0]], 4, SEED).unwrap_err(),
+            SampleError::NonSquare { .. }
+        ));
+        assert_eq!(
+            sample_lhs(&[f64::NAN, 0.0], &cov, 4, SEED).unwrap_err(),
+            SampleError::NonFinite("mean")
+        );
+        let asym = vec![vec![1.0, 0.0], vec![0.5, 1.0]];
+        assert!(matches!(
+            sample_lhs(&mean, &asym, 4, SEED).unwrap_err(),
+            SampleError::NonSymmetric { .. }
+        ));
+        let neg = vec![vec![-1.0, 0.0], vec![0.0, -2.0]];
+        assert_eq!(
+            sample_lhs(&mean, &neg, 4, SEED).unwrap_err(),
+            SampleError::NoPositiveEigenvalue
+        );
+    }
+
+    #[test]
+    fn lhs_fixture_recovers_within_upper_bound() {
+        // Committed synthetic fixture (no evaluated data):
+        // fixtures/uq/lhs_2x2.json, schema {mean, cov, seed, n, k}.
+        // Stratified variance is smaller than IID by construction, so the
+        // gate is the IID k-SE bound as an *upper* bound (never an
+        // equality null); the exact stratification gate lives in the
+        // validation oracle.
+        let text = include_str!("../../../fixtures/uq/lhs_2x2.json");
+        let v: serde_json::Value = serde_json::from_str(text).unwrap();
+        let mean: Vec<f64> = serde_json::from_value(v["mean"].clone()).unwrap();
+        let cov: Vec<Vec<f64>> = serde_json::from_value(v["cov"].clone()).unwrap();
+        let seed = v["seed"].as_u64().unwrap();
+        let n = v["n"].as_u64().unwrap() as usize;
+        let k = v["k"].as_f64().unwrap();
+        let dim = mean.len();
+        let set = sample_lhs(&mean, &cov, n, seed).unwrap();
+        assert_eq!(set.method, FactorMethod::Cholesky);
+        let sm = sample_mean(&set.samples).unwrap();
+        let sc = sample_cov(&set.samples).unwrap();
+        for i in 0..dim {
+            let se = (cov[i][i] / n as f64).sqrt();
+            assert!(
+                (sm[i] - mean[i]).abs() <= k * se,
+                "lhs mean[{i}] exceeds the IID upper bound"
+            );
+            for j in 0..dim {
+                let se_cov =
+                    ((cov[i][i] * cov[j][j] + cov[i][j] * cov[i][j]) / (n - 1) as f64).sqrt();
+                assert!(
+                    (sc[i][j] - cov[i][j]).abs() <= k * se_cov,
+                    "lhs cov[{i}][{j}] exceeds the IID upper bound"
+                );
+            }
+        }
     }
 
     #[test]

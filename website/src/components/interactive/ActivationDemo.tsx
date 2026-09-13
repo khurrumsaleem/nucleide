@@ -93,6 +93,9 @@ U238 995.0 1.23e4
 Pu239 0.245 5.63e8
 Cs137 0.012 3.84e10`;
 
+const DEFAULT_STEP_SNAPSHOT =
+  "U235 10.0 8.0e5\nU238 994.0 1.2e4\nPu239 0.3 6.9e8\nCs137 0.02 6.4e10";
+
 const DEFAULT_ORIGEN_TAPE9 = `# SYNTHETIC ORIGEN TAPE9 sample - simplified decay constants for parser tests (not real ORIGEN data).
 U235 3.1209e-17
 U238 4.9161e-18
@@ -146,12 +149,12 @@ export function ActivationDemo() {
   const [tape9, setTape9] = useState<OrigenTape9Summary | null>(null);
   const [r2s, setR2s] = useState<R2sSummary | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotBundleJson | null>(null);
-  const [stepB, setStepB] = useState(
-    "U235 10.0 8.0e5\nU238 994.0 1.2e4\nPu239 0.3 6.9e8\nCs137 0.02 6.4e10",
-  );
-  const [stepSeries, setStepSeries] = useState<{ nuclide: string; a: number; b: number }[] | null>(
-    null,
-  );
+  const [snapshots, setSnapshots] = useState<string[]>([DEFAULT_STEP_SNAPSHOT]);
+  const [stepSeries, setStepSeries] = useState<{
+    nuclides: string[];
+    steps: string[];
+    values: number[][];
+  } | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [loadingSample, setLoadingSample] = useState(false);
 
@@ -463,67 +466,95 @@ export function ActivationDemo() {
                   ORIGEN per-step comparison (N snapshots → series)
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Step A is the parsed TAPE6 above; paste step B below. Multi-snapshot grammar stays
-                  RECORD (Python-only).
+                  Step 1 is the parsed TAPE6 above; each pasted snapshot below is parsed with the
+                  same reader and becomes one more step. Multi-snapshot file grammar stays out —
+                  pasted snapshots only.
                 </p>
-                <Textarea
-                  value={stepB}
-                  onChange={(e) => {
-                    setStepB(e.target.value);
-                    clearError();
-                  }}
-                  className="font-mono text-xs"
-                />
-                <Button
-                  onClick={() => {
-                    if (!wasm) return;
-                    try {
-                      const b = wasm.parseOrigenTape6(stepB);
-                      const names = Array.from(
-                        new Set([
-                          ...tape6.records.map((r) => r.nuclide),
-                          ...b.records.map((r) => r.nuclide),
-                        ]),
-                      );
-                      const at = (rows: { nuclide: string; activity_bq: number }[], n: string) =>
-                        rows.find((r) => r.nuclide === n)?.activity_bq ?? 0;
-                      setStepSeries(
-                        names.map((n) => ({
-                          nuclide: n,
-                          a: at(tape6.records, n),
-                          b: at(b.records, n),
-                        })),
-                      );
+                {snapshots.map((snap, i) => (
+                  <div key={i} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium">
+                        Snapshot {i + 1} → Step {i + 2}
+                      </p>
+                      {snapshots.length > 1 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setSnapshots(snapshots.filter((_, j) => j !== i));
+                            clearError();
+                          }}
+                        >
+                          Remove snapshot {i + 1}
+                        </Button>
+                      )}
+                    </div>
+                    <Textarea
+                      value={snap}
+                      onChange={(e) => {
+                        setSnapshots(snapshots.map((s, j) => (j === i ? e.target.value : s)));
+                        clearError();
+                      }}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                ))}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSnapshots([...snapshots, DEFAULT_STEP_SNAPSHOT]);
                       clearError();
-                    } catch (e) {
-                      setLocalError(e instanceof Error ? e.message : String(e));
-                      setStepSeries(null);
-                    }
-                  }}
-                >
-                  Compare steps
-                </Button>
+                    }}
+                  >
+                    Add snapshot
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (!wasm) return;
+                      try {
+                        const parsed = snapshots.map((s) => wasm.parseOrigenTape6(s));
+                        const names = Array.from(
+                          new Set([
+                            ...tape6.records.map((r) => r.nuclide),
+                            ...parsed.flatMap((p) => p.records.map((r) => r.nuclide)),
+                          ]),
+                        );
+                        const at = (rows: { nuclide: string; activity_bq: number }[], n: string) =>
+                          rows.find((r) => r.nuclide === n)?.activity_bq ?? 0;
+                        const steps = ["Step 1", ...parsed.map((_, k) => `Step ${k + 2}`)];
+                        setStepSeries({
+                          nuclides: names,
+                          steps,
+                          values: names.map((n) => [
+                            at(tape6.records, n),
+                            ...parsed.map((p) => at(p.records, n)),
+                          ]),
+                        });
+                        clearError();
+                      } catch (e) {
+                        setLocalError(e instanceof Error ? e.message : String(e));
+                        setStepSeries(null);
+                      }
+                    }}
+                  >
+                    Compare steps
+                  </Button>
+                </div>
                 {stepSeries && (
                   <>
                     <p className="text-sm">
-                      Per-step activities across {stepSeries.length} nuclides
+                      Per-step activities across {stepSeries.nuclides.length} nuclides over{" "}
+                      {stepSeries.steps.length} steps
                     </p>
                     <Plotly
                       aspect="video"
-                      data={[
-                        {
-                          type: "bar",
-                          name: "Step A",
-                          x: stepSeries.map((s) => s.nuclide),
-                          y: stepSeries.map((s) => s.a),
-                        },
-                        {
-                          type: "bar",
-                          name: "Step B",
-                          x: stepSeries.map((s) => s.nuclide),
-                          y: stepSeries.map((s) => s.b),
-                        },
-                      ]}
+                      data={stepSeries.steps.map((label, k) => ({
+                        type: "bar" as const,
+                        name: label,
+                        x: stepSeries.nuclides,
+                        y: stepSeries.values.map((row) => row[k]),
+                      }))}
                       layout={{
                         barmode: "group",
                         xaxis: { title: { text: "Nuclide" } },

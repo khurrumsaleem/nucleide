@@ -43,6 +43,24 @@ export function DeterministicDemo() {
 
   const displayError = error ?? localError;
 
+  // Per-point profile over the capped `values` (file order: `groups` values
+  // per spatial point): one grouped-bar trace per energy group, following the
+  // ISOTXS grouped-bar precedent above.
+  const rtfluxProfile =
+    rtflux && rtflux.groups > 0 && rtflux.values.length >= rtflux.groups
+      ? (() => {
+          const npoints = Math.floor(rtflux.values.length / rtflux.groups);
+          const points = Array.from({ length: npoints }, (_, p) => `p${p + 1}`);
+          const traces = Array.from({ length: rtflux.groups }, (_, g) => ({
+            type: "bar" as const,
+            name: `g${g + 1}`,
+            x: points,
+            y: Array.from({ length: npoints }, (_, p) => rtflux.values[p * rtflux.groups + g]),
+          }));
+          return { npoints, traces };
+        })()
+      : null;
+
   return (
     <div className="rounded-xl border border-border/50 bg-background p-4 space-y-4">
       {!ready && <p className="text-sm text-muted-foreground">Loading Nucleide WASM…</p>}
@@ -153,10 +171,36 @@ export function DeterministicDemo() {
               </Button>
             </div>
             {rtflux && (
-              <p className="text-sm">
-                Flux kind: <span className="font-mono">{rtflux.kind}</span>, groups: {rtflux.groups}
-                , points: {rtflux.npoints}
-              </p>
+              <div className="space-y-3">
+                <p className="text-sm">
+                  Flux kind: <span className="font-mono">{rtflux.kind}</span>, groups:{" "}
+                  {rtflux.groups}, points: {rtflux.npoints}
+                </p>
+                {rtfluxProfile && (
+                  <>
+                    <p className="text-sm">
+                      Flux profile across {rtfluxProfile.npoints} points × {rtflux.groups} groups
+                    </p>
+                    <Plotly
+                      aspect="video"
+                      data={rtfluxProfile.traces}
+                      layout={{
+                        barmode: "group",
+                        xaxis: { title: { text: "Spatial point" } },
+                        yaxis: { title: { text: "Flux" } },
+                        margin: { t: 16, r: 16, b: 48, l: 64 },
+                        legend: { orientation: "h", y: -0.25 },
+                      }}
+                    />
+                    {rtflux.truncated && (
+                      <p className="text-xs text-muted-foreground">
+                        Values capped at the {rtflux.values.length}-value demo cap; the chart shows
+                        the leading points only.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </div>
         </>

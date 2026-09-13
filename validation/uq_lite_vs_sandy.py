@@ -11,8 +11,11 @@ Two tiers:
    recovery on `fixtures/uq/lognormal_2x2.json` (separate gate: the MVN
    k-SE gates are not valid after the exp transform, so U5 checks ln(y)
    against the log-space block plus the sample mean of y against the
-   closed-form E[y_i]). No evaluated data: every
-   input is a synthetic round value.
+   closed-form E[y_i]), U6 Latin-hypercube stratification + moments on
+   `fixtures/uq/lhs_2x2.json` (separate gate: the IID k-SE null is wrong
+   for stratified draws, so U6 checks exact one-per-stratum recovery plus
+   moments within the IID bound as an upper bound only). No evaluated
+   data: every input is a synthetic round value.
 2. SANDY cross-check: the same nucleide draws wrapped in
    ``sandy.samples.Samples`` (rows = variables, columns = realizations) with
    ``get_mean``/``get_cov`` compared against ``nucleide.uq`` ``sample_mean``/
@@ -104,8 +107,83 @@ def _lognormal_gate(fx: dict, label: str) -> tuple[list[str], str]:
     return [label, f"<= {k} SE", f"{worst:.3f}/{worst_ln:.3f} SE", _check(ok, label)], note
 
 
+def _cholesky(cov: list[list[float]]) -> list[list[float]]:
+    """Lower Cholesky factor of a small positive-definite block (stdlib only)."""
+    dim = len(cov)
+    lower = [[0.0] * dim for _ in range(dim)]
+    for i in range(dim):
+        for j in range(i + 1):
+            acc = sum(lower[i][m] * lower[j][m] for m in range(j))
+            if i == j:
+                lower[i][j] = math.sqrt(cov[i][i] - acc)
+            else:
+                lower[i][j] = (cov[i][j] - acc) / lower[j][j]
+    return lower
+
+
+def _forward_sub(lower: list[list[float]], vec: list[float]) -> list[float]:
+    """Solve ``lower @ z = vec`` by forward substitution."""
+    dim = len(vec)
+    out = [0.0] * dim
+    for i in range(dim):
+        out[i] = (vec[i] - sum(lower[i][j] * out[j] for j in range(i))) / lower[i][i]
+    return out
+
+
+def _lhs_gate(fx: dict, label: str) -> tuple[list[str], str]:
+    """Separate LHS gate (the IID k-SE null is wrong for stratified draws).
+
+    G1 stratification-exact: standardize the draws with the Cholesky
+    factor (the gate asserts the cholesky path first), map back through
+    the erf-based normal CDF, and require each dimension to hit each of
+    the n strata exactly once at the pinned seed. G2 LHS-valid moment
+    bound: sample mean/covariance within k IID standard errors as an
+    *upper* bound (stratified variance is smaller by construction, never
+    an equality null). Existing U1/U2/U5 gates are untouched.
+    """
+    mean, cov, n, k, seed = fx["mean"], fx["cov"], fx["n"], fx["k"], fx["seed"]
+    out = uq.sample_lhs(mean, cov, n, seed)
+    dim = len(mean)
+    samples = out["samples"]
+
+    def _phi(z: float) -> float:
+        return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+    lower = _cholesky(cov)
+    strata_ok = True
+    for j in range(dim):
+        got = sorted(
+            min(int(_phi(_forward_sub(lower, [s[i] - mean[i] for i in range(dim)])[j]) * n), n - 1)
+            for s in samples
+        )
+        if got != list(range(n)):
+            strata_ok = False
+    sm = uq.sample_mean(samples)
+    sc = uq.sample_cov(samples)
+    worst = 0.0
+    for i in range(dim):
+        worst = max(worst, abs(sm[i] - mean[i]) / (math.sqrt(cov[i][i] / n) or 1.0))
+        for j in range(dim):
+            se = math.sqrt((cov[i][i] * cov[j][j] + cov[i][j] ** 2) / (n - 1))
+            worst = max(worst, abs(sc[i][j] - cov[i][j]) / (se or 1.0))
+    ok = out["method"] == "cholesky" and strata_ok and worst <= k
+    note = (
+        f"{label}: method {out['method']}, stratification-exact {strata_ok}, "
+        f"moment worst {worst:.3f} SE as an upper bound (k = {k})."
+    )
+    return (
+        [
+            label,
+            f"strata-exact + <= {k} SE (upper bound)",
+            f"{strata_ok}/{worst:.3f} SE",
+            _check(ok, label),
+        ],
+        note,
+    )
+
+
 def tier1() -> tuple[list[list[str]], list[str]]:
-    """Synthetic gates U1-U5 (always run)."""
+    """Synthetic gates U1-U6 (always run)."""
     rows: list[list[str]] = []
     notes: list[str] = []
 
@@ -139,6 +217,10 @@ def tier1() -> tuple[list[list[str]], list[str]]:
     rows.append(["U4 eigen-clip path", "eigen_clip", out["method"], _check(ok, "U4 path")])
 
     row, note = _lognormal_gate(_load("lognormal_2x2.json"), "U5 lognormal recovery")
+    rows.append(row)
+    notes.append(note)
+
+    row, note = _lhs_gate(_load("lhs_2x2.json"), "U6 LHS stratification+moments")
     rows.append(row)
     notes.append(note)
     return rows, notes

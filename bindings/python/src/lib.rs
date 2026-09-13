@@ -6181,6 +6181,41 @@ fn uq_sample_lognormal(
     Ok(d.into_any().unbind())
 }
 
+/// Seeded Latin-hypercube draws over a caller-supplied covariance block.
+///
+/// Stratified `U(0,1)` draws (one jittered draw per stratum per dimension)
+/// through the hand-rolled inverse-normal CDF, then the shared MVN factor
+/// path and `x = μ + Bz` application. Returns the same dict shape as
+/// [`uq_sample_mvn`]. Thin wrapper over `nucleide-linalg` `sample`.
+#[pyfunction]
+fn uq_sample_lhs(
+    py: Python<'_>,
+    mean: Vec<f64>,
+    cov: Vec<Vec<f64>>,
+    n: usize,
+    seed: u64,
+) -> PyResult<Py<PyAny>> {
+    use pyo3::types::PyDict;
+    let set = nucleide_linalg::sample::sample_lhs(&mean, &cov, n, seed).map_err(uq_sample_err)?;
+    let d = PyDict::new(py);
+    d.set_item("samples", set.samples)?;
+    d.set_item("method", set.method.name())?;
+    match &set.method {
+        nucleide_linalg::sample::FactorMethod::Cholesky => {
+            d.set_item("min_eigen", py.None())?;
+            d.set_item("max_eigen", py.None())?;
+        }
+        nucleide_linalg::sample::FactorMethod::EigenClip {
+            min_eigen,
+            max_eigen,
+        } => {
+            d.set_item("min_eigen", *min_eigen)?;
+            d.set_item("max_eigen", *max_eigen)?;
+        }
+    }
+    Ok(d.into_any().unbind())
+}
+
 /// Closed-form log-normal mean `E[y_i] = exp(mu_i + C_ii/2)` over the
 /// log-space `(mean_log, cov)` parameters.
 #[pyfunction]
@@ -6984,6 +7019,7 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(spectroscopy_parse_lines_tsv, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_read_decay_lines, m)?)?;
     m.add_function(wrap_pyfunction!(uq_sample_mvn, m)?)?;
+    m.add_function(wrap_pyfunction!(uq_sample_lhs, m)?)?;
     m.add_function(wrap_pyfunction!(uq_sample_lognormal, m)?)?;
     m.add_function(wrap_pyfunction!(uq_lognormal_mean, m)?)?;
     m.add_function(wrap_pyfunction!(uq_lognormal_cov, m)?)?;

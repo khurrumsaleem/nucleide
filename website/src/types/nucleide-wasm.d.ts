@@ -798,4 +798,5 @@ export interface WasmApi {
   ssw2mcpl(sswBytes: Uint8Array, surfs: number[], kinds: string[], options?: unknown): Uint8Array;
   mcpl2ssw(mcplBytes: Uint8Array, referenceSswBytes: Uint8Array, surface?: number): Uint8Array;
   uqSample(mean: number[], cov: number[][], n: number, seed: number): UqSampleResult;
+  sampleLhs(mean: number[], cov: number[][], n: number, seed: number): UqSampleResult;
 }

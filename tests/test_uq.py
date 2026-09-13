@@ -145,6 +145,97 @@ def test_lognormal_fixture_moments_match_closed_form() -> None:
         assert abs(sm_y[i] - expected[i]) <= k * se
 
 
+def test_sample_lhs_is_seeded_reproducible() -> None:
+    fx = _load("lhs_2x2.json")
+    a = uq.sample_lhs(fx["mean"], fx["cov"], 512, fx["seed"])
+    b = uq.sample_lhs(fx["mean"], fx["cov"], 512, fx["seed"])
+    assert a["samples"] == b["samples"]
+    assert a["method"] == "cholesky"
+    assert a["min_eigen"] is None and a["max_eigen"] is None
+    assert len(a["samples"]) == 512
+    assert all(math.isfinite(v) for s in a["samples"] for v in s)
+    c = uq.sample_lhs(fx["mean"], fx["cov"], 512, fx["seed"] + 1)
+    assert c["samples"] != a["samples"]
+
+
+def _cholesky(cov: list[list[float]]) -> list[list[float]]:
+    """Lower Cholesky factor of a small positive-definite block (stdlib only)."""
+    dim = len(cov)
+    lower = [[0.0] * dim for _ in range(dim)]
+    for i in range(dim):
+        for j in range(i + 1):
+            acc = sum(lower[i][m] * lower[j][m] for m in range(j))
+            if i == j:
+                lower[i][j] = math.sqrt(cov[i][i] - acc)
+            else:
+                lower[i][j] = (cov[i][j] - acc) / lower[j][j]
+    return lower
+
+
+def _forward_sub(lower: list[list[float]], vec: list[float]) -> list[float]:
+    """Solve ``lower @ z = vec`` by forward substitution."""
+    dim = len(vec)
+    out = [0.0] * dim
+    for i in range(dim):
+        out[i] = (vec[i] - sum(lower[i][j] * out[j] for j in range(i))) / lower[i][i]
+    return out
+
+
+def test_lhs_fixture_stratification_exact_and_moment_bound() -> None:
+    # Separate LHS gate (same shape as the validation oracle): G1 exact
+    # one-per-stratum recovery per dimension at the pinned seed (draws
+    # standardized with the Cholesky factor, then mapped back through the
+    # erf-based normal CDF), G2 moments within k IID standard errors as an
+    # *upper* bound (never an equality null).
+    fx = _load("lhs_2x2.json")
+    mean, cov, n, k, seed = fx["mean"], fx["cov"], fx["n"], fx["k"], fx["seed"]
+    out = uq.sample_lhs(mean, cov, n, seed)
+    assert out["method"] == "cholesky"
+    samples = out["samples"]
+    assert len(samples) == n and all(len(s) == len(mean) for s in samples)
+    dim = len(mean)
+
+    def _phi(z: float) -> float:
+        return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+    lower = _cholesky(cov)
+    for j in range(dim):
+        got = sorted(
+            min(int(_phi(_forward_sub(lower, [s[i] - mean[i] for i in range(dim)])[j]) * n), n - 1)
+            for s in samples
+        )
+        assert got == list(range(n)), f"dim {j} misses a stratum"
+    sm = uq.sample_mean(samples)
+    sc = uq.sample_cov(samples)
+    for i in range(dim):
+        se = math.sqrt(cov[i][i] / n)
+        assert abs(sm[i] - mean[i]) <= k * se
+        for j in range(dim):
+            se_cov = math.sqrt((cov[i][i] * cov[j][j] + cov[i][j] ** 2) / (n - 1))
+            assert abs(sc[i][j] - cov[i][j]) <= k * se_cov
+
+
+def test_lhs_rank_deficient_block_uses_eigen_clip() -> None:
+    out = uq.sample_lhs([0.0, 0.0], [[1.0, 1.0], [1.0, 1.0]], 512, 20260913)
+    assert out["method"] == "eigen_clip"
+    assert out["min_eigen"] == pytest.approx(0.0, abs=1e-9)
+    assert out["max_eigen"] == pytest.approx(2.0, rel=1e-9)
+    assert all(math.isfinite(v) for s in out["samples"] for v in s)
+
+
+def test_lhs_malformed_inputs_raise() -> None:
+    with pytest.raises(ValueError, match="empty"):
+        uq.sample_lhs([], [], 4, 1)
+    with pytest.raises(ValueError, match="zero draws"):
+        uq.sample_lhs([0.0], [[1.0]], 0, 1)
+    with pytest.raises(ValueError, match="dimension mismatch"):
+        uq.sample_lhs([0.0, 0.0], [[1.0]], 4, 1)
+    with pytest.raises(ValueError, match="asymmetric"):
+        uq.sample_lhs([0.0, 0.0], [[1.0, 0.0], [0.5, 1.0]], 4, 1)
+    with pytest.raises(ValueError, match="no positive eigenvalue"):
+        uq.sample_lhs([0.0, 0.0], [[-1.0, 0.0], [0.0, -2.0]], 4, 1)
+
+
 def test_passthrough_and_fy_hook() -> None:
     assert uq.passthrough([0.1, -0.2]) == [pytest.approx(0.1), pytest.approx(-0.2)]
     with pytest.raises(ValueError, match="non-finite"):

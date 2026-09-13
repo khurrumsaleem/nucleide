@@ -31,9 +31,10 @@ activity against cooling time (one trace per zone). The **ORIGEN
 TAPE5/TAPE6/TAPE9** tabs parse the scoped ORIGEN input echo, output
 inventory, and decay-constant table. TAPE5 flux-vs-step renders as a scatter
 chart and TAPE6 per-nuclide activity as a log bar chart (chart-only); the
-TAPE6 tab's **Compare steps** button parses a second pasted snapshot into an
-N-snapshot series chart (multi-snapshot grammar stays RECORD). RTFLUX profile
-and ORIGEN per-step full views stay RECORD.
+TAPE6 tab's **Compare steps** button re-parses each pasted snapshot below it
+with the same reader into an N-step per-nuclide series chart (same grouped
+log-bar bundle; multi-snapshot file grammar stays out — pasted snapshots
+only).
 
 ## R2S workflow
 

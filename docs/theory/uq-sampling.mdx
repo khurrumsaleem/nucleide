@@ -153,6 +153,30 @@ additionally caps values above 2 at 2 for relative-unit samples centered
 at 1 — no analogue here, since branches renormalise and energies are
 absolute.
 
+Latin-hypercube draws reuse the (U1) factor path with a stratified normal
+source:
+
+$$
+u_{j,i} = (\pi_j(i) + w_{j,i})/n, \quad z_{j,i} = \Phi^{-1}(u_{j,i}), \quad x_i = \mu + B z_i.
+\tag{U7}
+$$
+
+Per dimension $j$, one jittered uniform per stratum: $\pi_j$ is a
+Fisher–Yates permutation of $0..n-1$ and $w_{j,i} \sim U(0,1)$, both from
+the seeded `StdRng` (ChaCha8); $\Phi^{-1}$ is the hand-rolled
+inverse-normal CDF on `f64` (Acklam/Beasley-Springer-Moro
+rational-approximation class — same arithmetic class as the Box–Muller
+closure<Citation id="box-muller-1958" />); then the shared factor path
+(Cholesky primary, eigen-clip fallback, reported never silent) and
+$x = \mu + Bz$. LHS is a draw mode, not a perturbation convention. The
+pinned $k$-SE IID gates (U3) are the wrong null for stratified draws —
+LHS variance is smaller than IID by construction — so the separate gate
+is: **G1 stratification-exact** (each dimension hits each of the $n$
+strata exactly once at the pinned seed) plus **G2 LHS-valid moment bound**
+(sample mean/covariance within $k$ IID standard errors from (U3) as an
+*upper* bound, never an equality null). Tier-2 SANDY `get_mean`/`get_cov`
+1e-9 agreement is estimator identities, draw-independent<Citation id="fiorito-2017" />.
+
 ## Algorithm
 
 `sample_mvn` validates (non-empty, square, finite, symmetric within
@@ -161,7 +185,10 @@ factorises (Cholesky, else eigen-clip with the taken path reported, never
 silent), fills a Box–Muller stream from the seed, and applies (U1).
 `sample_lognormal` reuses that path and stream, then applies $y = \exp(x)$
 (`f64::exp` is the only addition); `lognormal_mean` / `lognormal_cov`
-spell the closed-form (U6) moments.
+spell the closed-form (U6) moments. `sample_lhs` reuses the same
+validation, factor path, and $x = \mu + Bz$ application with the
+stratified (U7) normal source (per-dimension Fisher–Yates permutation plus
+jitter from the seeded `StdRng`, hand-rolled $\Phi^{-1}$).
 `sample_mean` / `sample_cov` implement (U2); `check_convergence`
 implements (U3) with caller tolerances. `perturb_branches` implements
 (U5); `perturb_energies` implements
@@ -187,13 +214,21 @@ recovers the log-space block within the MVN $k$-SE gate and the sample mean
 of $y$ recovers $\mathrm{E}[y]$ within $k$ standard errors ($k = 5$) — the
 MVN gates are not reused after the $\exp$ transform.
 
+The `fixtures/uq/lhs_2x2.json` block (mean $[1, 2]$, $C$ as above,
+$n = 5000$, $k = 5$, seed 20260916) takes the Cholesky path at the pinned
+seed and satisfies the separate U6 gate (theory U7): G1 exact
+one-per-stratum recovery per dimension plus G2 sample mean/covariance
+within the $k$ IID standard-error upper bound (moment worst 1.064 SE at
+the pinned seed).
+
 ## Assumptions and limitations
 
 - Inputs are caller-supplied blocks; no covariance library is read or
   shipped, and no ENDF/ERRORR parsing exists here.
 - Fission-yield perturbation is a named-open hook (waits on FY tapes);
-  MF32/MF40 resonance machinery and transport coupling are explicitly out,
-  and Latin-hypercube sampling stays out (needs a gate redesign).
+  MF32/MF40 resonance machinery and transport coupling are explicitly out.
+  Latin-hypercube sampling over caller-supplied blocks is in (`sample_lhs`,
+  theory U7, separate G1/G2 gate); tape-driven LHS workflows stay out.
 - Draws are not interchangeable with SANDY's: the published SANDY scheme
   factorises the correlation structure with Cholesky, but the current
   SANDY implementation uses SVD behind a different RNG stream — same
@@ -202,9 +237,11 @@ MVN gates are not reused after the $\exp$ transform.
 ## Related work beyond Nucleide
 
 - SANDY samples MF31–MF35/MF8 covariances from ENDF-6 tapes (including
-  decay data and fission yields) with NJOY/ERRORR preprocessing, Latin
-  hypercube options, and variance-decomposition sensitivity indices — all
-  beyond this kernel's caller-block scope. Log-normal sampling is covered
+  decay data and fission yields) with NJOY/ERRORR preprocessing and
+  variance-decomposition sensitivity indices — beyond this kernel's
+  caller-block scope. Latin-hypercube parity is closed over
+  caller-supplied blocks (`sample_lhs`, U7, G1/G2 gate); tape-driven LHS
+  workflows stay out. Log-normal sampling is covered
   here only over caller-supplied blocks ($y = \exp(x)$ post-transform with
   log-space mean/covariance semantics); tape-driven log-normal workflows
   stay out.
