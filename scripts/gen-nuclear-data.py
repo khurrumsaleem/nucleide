@@ -40,6 +40,16 @@ Each table is derived from a primary evaluated source — no hand-copied values:
   energy, one row keyed by the full state-bearing nucid:
   ``m = m_ground(AME2020) + ELIS[eV]/1e6/931.49410242``.  Ground rows are
   preserved verbatim; no NUBASE import (ENDF excitation energies only).
+- ``fission_yields.tsv``: fission product yields from the ENDF/B-VIII.0
+  neutron-induced (``nfy-*``) and spontaneous (``sfy-*``) fission-yield
+  sublibraries (MF8/MT454 independent + MF8/MT459 cumulative records: per
+  incident-energy set, one row per ``(ZAFP, FPS, Y, DY)`` product).  The
+  FPS isomer flag maps to a GNDS ``_m{state}`` suffix exactly like the
+  decay-branch RFS mapping.  Both sublibraries are unchanged carries of
+  ENDF/B-VII.1 (per their README.txt); the vintage and the
+  Mattera-Sonzogni correction stance are recorded in the table header.
+  Upstream: https://www.nndc.bnl.gov/endf-b8.0/
+  (``zips/ENDF-B-VIII.0_nfy.zip``, ``zips/ENDF-B-VIII.0_sfy.zip``).
 - ``half_life.tsv``: ``T1/2`` in seconds for every ENDF/B-VIII.0 decay tape
   with a usable MF8/MT457 NDK half-life (stable tapes flagged ``NST != 0``
   and zero-half-life evaluation dummies yield no rows — the same
@@ -84,7 +94,9 @@ All inputs are local checkouts (see help for download URLs); nothing is
 fetched over the network.  Exit nonzero if any hard spot-check fails.
 Pass only the ``--dose-*`` flags (plus ``--out``) for a dose-only run;
 pass only the ENDF/NIST flags for the legacy tables; pass only
-``--endf-decay8`` (plus ``--out``) for the VIII.0 branch/half-life/isomer tables.
+``--endf-decay8`` (plus ``--out``) for the VIII.0 branch/half-life/isomer
+tables; pass only ``--endf-nfpy``/``--endf-sfpy`` (plus ``--out``) for the
+fission-yield table.
 """
 
 from __future__ import annotations
@@ -734,6 +746,244 @@ ISOMER_ELIS_SPOTS_EV = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# ENDF/B-VIII.0 fission-yield sublibraries (nfy/sfy tapes).
+#
+# Record layout (verified against every tape in both sublibraries): the
+# MF8/MT454 (independent) and MF8/MT459 (cumulative) sections open with
+# ``[MAT, 8,MT/ ZA, AWR, LE+1, 0, 0, 0]`` (LE+1 = number of incident-energy
+# sets), then one block per set: a CONT record ``(E, 0.0, 2, 0, 4*NFP, NFP)``
+# followed by 4*NFP packed values — NFP rows of ``(ZAFP, FPS, Y, DY)`` at 4
+# values per row, 6 ENDF fields per 66-char line.  Note the England tapes
+# carry ``4*NFP``/``NFP`` where ENDF-102 prints ``NFP``/0; both sublibraries
+# parse exactly to their section end with the layout above.
+#
+# The FPS product-state flag maps to a GNDS ``_m{FPS}`` suffix with the same
+# convention the decay-branch generator uses for the NDK RFS flag.
+# ---------------------------------------------------------------------------
+
+FY_TAPE_RE = re.compile(r"^(nfy|sfy)-(\d+)_([A-Za-z]+)_(\d+)(m\d+)?\.endf$")
+
+#: ENDF/B-VIII.0 fission-yield sublibrary source pins (same pattern as the
+#: DECAY8 pin above).  Download URLs + MD5s of the zips as served, verified
+#: 2026-09-13; the writer below reproduces the committed
+#: fission_yields.tsv byte-identically from an unpack of these artifacts.
+NFY_ZIP_URL = "https://www.nndc.bnl.gov/endf-b8.0/zips/ENDF-B-VIII.0_nfy.zip"
+NFY_ZIP_MD5 = "96cd2ac9ea9eecbd8bf6ec0af069fca2"
+SFY_ZIP_URL = "https://www.nndc.bnl.gov/endf-b8.0/zips/ENDF-B-VIII.0_sfy.zip"
+SFY_ZIP_MD5 = "f79ea0a091c87e6447f80bcc5d26aa3b"
+
+
+def fy_tape_id(fname: str) -> tuple[str, int, str, int, int] | None:
+    """Return (origin, Z, symbol, A, state) from an FY tape filename."""
+    m = FY_TAPE_RE.match(os.path.basename(fname))
+    if not m:
+        return None
+    prefix, _zdir, sym, a, msuf = m.groups()
+    z = Z_OF.get(sym)
+    if z is None or z != int(_zdir):
+        return None
+    return ("n" if prefix == "nfy" else "sf", z, sym, int(a), int(msuf[1:]) if msuf else 0)
+
+
+def fy_section_sets(
+    lines: list[str], mt: int
+) -> list[tuple[float, list[tuple[float, float, float, float]]]]:
+    """Parse one MF8/MT454|459 section into ``(E_eV, [(ZAFP, FPS, Y, DY)])`` sets."""
+    sec = section_lines(lines, 8, mt)
+    if len(sec) < 2:
+        return []
+    head = fields(sec[0])
+    lep1 = int(head[2])
+    sets: list[tuple[float, list[tuple[float, float, float, float]]]] = []
+    i = 1
+    for _ in range(lep1):
+        cont = fields(sec[i])
+        i += 1
+        energy, n1, nfp = cont[0], int(cont[4]), int(cont[5])
+        vals: list[float] = []
+        while len(vals) < n1 and i < len(sec):
+            vals.extend(fields(sec[i]))
+            i += 1
+        if len(vals) < n1 or n1 != 4 * nfp:
+            raise ValueError(f"FY set at E={energy:.6g}: N1={n1} NFP={nfp} values={len(vals)}")
+        prods = [tuple(vals[j : j + 4]) for j in range(0, n1, 4)]
+        sets.append((energy, prods))
+    return sets
+
+
+def gen_fission_yields(
+    nfy_dir: str, sfy_dir: str
+) -> tuple[list[tuple[str, str, str, float, str, float, float]], list[str]]:
+    """Build (parent, origin, kind, energy_eV, daughter, Y, dY) rows from FY tapes.
+
+    ``origin`` is ``n`` (neutron-induced tapes) or ``sf`` (spontaneous);
+    ``kind`` is ``independent`` (MT454) or ``cumulative`` (MT459).  Every
+    product row on the tapes is kept verbatim, including zero-yield ones
+    (which carry dY = 0, the no-uncertainty sentinel).  Also returns the log.
+    """
+    rows: list[tuple[str, str, str, float, str, float, float]] = []
+    log: list[str] = []
+    n_dy0 = n_dy0_nonzero_y = n_negative = 0
+    for origin, fdir in (("n", nfy_dir), ("sf", sfy_dir)):
+        n_tapes = 0
+        for fname in sorted(os.listdir(fdir)):
+            ident = fy_tape_id(fname)
+            if ident is None:
+                continue
+            _origin, z, sym, a, state = ident
+            lines = read_lines(os.path.join(fdir, fname))
+            sec8 = section_lines(lines, 8, 454) + section_lines(lines, 8, 459)
+            if not sec8:
+                log.append(f"skip {fname}: no MF8/MT454|459 section")
+                continue
+            head = fields(sec8[0])
+            try:
+                assert int(head[0]) == z * 1000 + a, f"ZA mismatch in {fname}"
+            except (AssertionError, IndexError, ValueError) as exc:
+                log.append(f"skip {fname}: {exc}")
+                continue
+            parent = gnds(sym, a, state)
+            n_tapes += 1
+            for mt, kind in ((454, "independent"), (459, "cumulative")):
+                for energy, prods in fy_section_sets(lines, mt):
+                    for zafp, fps, y, dy in prods:
+                        zz, aa = int(zafp) // 1000, int(zafp) % 1000
+                        fps_i = int(fps)
+                        if not 1 <= zz <= 118 or not zz <= aa <= 999 or not 0 <= fps_i <= 9:
+                            log.append(f"drop {fname}: invalid product ZAFP={zafp} FPS={fps}")
+                            continue
+                        if dy == 0.0:
+                            n_dy0 += 1
+                            if y != 0.0:
+                                n_dy0_nonzero_y += 1
+                        if y < 0.0 or dy < 0.0:
+                            n_negative += 1
+                            log.append(
+                                f"drop {fname}: negative yield/uncertainty at {zafp} m{fps_i}"
+                            )
+                            continue
+                        rows.append(
+                            (parent, origin, kind, energy, gnds(SYMBOLS[zz - 1], aa, fps_i), y, dy)
+                        )
+        log.append(f"{origin} tapes={n_tapes}")
+    log.append(
+        f"rows={len(rows)} dY_zero={n_dy0} dY_zero_with_nonzero_Y={n_dy0_nonzero_y} "
+        f"negative_dropped={n_negative}"
+    )
+    return rows, log
+
+
+# Spot-checks on the fission-yield table.  Failure aborts the run.  All
+# values are read off the ENDF/B-VIII.0 tapes themselves: U-235 thermal is
+# the England ENDF-349 evaluation, Pu-239 thermal is the Chadwick-Kawano
+# evaluation, Cf-252 spontaneous is the England sfy evaluation.  Energies
+# are the tape's own incident-energy grid (Cf-252 spontaneous uses E = 0).
+FY_SPOTS = [
+    # (parent, origin, kind, energy_eV, daughter, expected_Y)
+    ("U235", "n", "independent", 0.0253, "Xe135", 0.000785125),
+    ("U235", "n", "independent", 0.0253, "Xe135_m1", 0.00178122),
+    ("U235", "n", "independent", 0.0253, "Kr85", 0.000255332),
+    ("U235", "n", "cumulative", 0.0253, "Xe135", 0.065385),
+    ("U235", "n", "cumulative", 0.0253, "Cs137", 0.0618832),
+    ("Pu239", "n", "independent", 0.0253, "Xe135", 0.00314131),
+    ("U238", "n", "independent", 5.0e5, "Xe135", 0.000111541),
+    ("Cf252", "sf", "independent", 0.0, "Xe135", 0.00186145),
+]
+
+# Independent-yield sets whose per-set yield sum must approach 2.0 (each
+# fission produces two fragments).  (parent, origin, energy_eV, expected_sum).
+FY_SUM_SPOTS = [
+    ("U235", "n", 0.0253, 2.0),
+    ("U235", "n", 1.4e7, 2.0),
+    ("Pu239", "n", 0.0253, 2.0),
+    ("U238", "n", 5.0e5, 2.0),
+    ("Cf252", "sf", 0.0, 2.0),
+]
+
+
+def run_fission_yields(out_dir: str, nfy_dir: str, sfy_dir: str) -> int:
+    """Generate ``fission_yields.tsv`` from the ENDF/B-VIII.0 FY sublibraries.
+
+    Nonzero on spot failure.  Yields and uncertainties are emitted with
+    ``repr`` (shortest round-trip) so the writer reproduces the committed
+    table byte-identically; energies use ``%.6g`` (round-trip asserted).
+    """
+    rows, log = gen_fission_yields(nfy_dir, sfy_dir)
+    by_key: dict[tuple[str, str, str, float], dict[str, tuple[float, float]]] = {}
+    for parent, origin, kind, energy, daughter, y, dy in rows:
+        by_key.setdefault((parent, origin, kind, energy), {})[daughter] = (y, dy)
+
+    for parent, origin, kind, energy, daughter, expected in FY_SPOTS:
+        label = f"{parent}[{origin}/{kind}]@{energy:.6g} -> {daughter}"
+        got = by_key.get((parent, origin, kind, energy), {}).get(daughter)
+        if got is None:
+            print(f"SPOT FAIL: {label} missing from fission yields")
+            return 1
+        if abs(got[0] - expected) / max(abs(expected), 1e-30) > 1e-6:
+            print(f"SPOT FAIL: {label}={got[0]:.6g} != {expected:.6g}")
+            return 1
+        print(f"spot ok: fissyield  {label} {got[0]:.6g}")
+
+    for parent, origin, energy, expected in FY_SUM_SPOTS:
+        label = f"{parent}[{origin}]@{energy:.6g} independent sum"
+        prods = by_key.get((parent, origin, "independent", energy), {})
+        if not prods:
+            print(f"SPOT FAIL: {label}: no independent set")
+            return 1
+        total = sum(y for y, _dy in prods.values())
+        if abs(total - expected) > 1e-3:
+            print(f"SPOT FAIL: {label} {total:.8f} != {expected}")
+            return 1
+        print(f"spot ok: fissum     {label} {total:.8f}")
+
+    n_sets = len(by_key)
+    n_parents = len({r[0] for r in rows})
+    print(f"rows: fission_yields={len(rows)} parents={n_parents} energy_sets={n_sets}")
+    for line in log:
+        print(f"note: {line}")
+
+    for _parent, _origin, _kind, energy, _daughter, _y, _dy in rows:
+        assert float(f"{energy:.6g}") == energy, f"energy not %.6g round-trip: {energy}"
+    header = [
+        "parent_GNDS\torigin\tkind\tenergy_eV\tdaughter_GNDS\tyield\tdY",
+        "Fission product yields from the ENDF/B-VIII.0 neutron-induced (nfy)",
+        "and spontaneous (sfy) fission-yield sublibraries. Each MF8/MT454",
+        "(independent) and MF8/MT459 (cumulative) energy set contributes one",
+        "row per (ZAFP, FPS) product: ZAFP = 1000*Z + A of the product, FPS its",
+        "isomeric state (GNDS _m{FPS} suffix, same convention as the",
+        "decay-branch RFS mapping), Y the yield fraction, dY its uncertainty.",
+        "Every tape row is kept verbatim, including zero-yield products: in",
+        "this sublibrary dY = 0 is the no-uncertainty sentinel and occurs",
+        "exactly on the zero-yield rows, so consumers needing an uncertainty",
+        "should read 0 as not evaluated (never a zero-width distribution).",
+        "Vintage: per the tapes' README.txt both sublibraries are unchanged",
+        "carries of ENDF/B-VII.1 (CHANGELOG: no changes since ENDF/B-VII.1),",
+        "i.e. the England et al. ENDF-349 evaluations (EVAL-JUL89) except",
+        "Pu-239 (Chadwick-Kawano, EVAL-NOV11). The Mattera-Sonzogni",
+        "correction to the ENDF cumulative-yield inconsistencies is NOT",
+        "applied: values are verbatim from the tapes as distributed.",
+        "Basis note: this table and decay_branches.tsv/half_life.tsv use",
+        "ENDF/B-VIII.0 sublibraries (the FY ones carry VII.1 evaluations).",
+        "Redistributability: ENDF/B-VIII.0 is a US government work (NNDC/BNL),",
+        "the same basis as the decay store (see decay_branches.tsv header).",
+        "Screening-level only: use evaluated libraries for transport; not for",
+        "safety calculations (no warranty).",
+        f"Source: {NFY_ZIP_URL}",
+        f"Source zip MD5 (as served): {NFY_ZIP_MD5}",
+        f"Source: {SFY_ZIP_URL}",
+        f"Source zip MD5 (as served): {SFY_ZIP_MD5}",
+        "Regenerate: python3 scripts/gen-nuclear-data.py --endf-nfpy <nfy dir>"
+        " --endf-sfpy <sfy dir> --out <dir>.",
+    ]
+    path = os.path.join(out_dir, "fission_yields.tsv")
+    with open(path, "w") as fh:
+        fh.write("\n".join("# " + h for h in header) + "\n")
+        for parent, origin, kind, energy, daughter, y, dy in sorted(rows):
+            fh.write(f"{parent}\t{origin}\t{kind}\t{energy:.6g}\t{daughter}\t{y!r}\t{dy!r}\n")
+    return 0
+
+
 CELL = r"((?:[^<]|<i>|</i>)*?)"
 NIST_ROW_RE = re.compile(
     r"<td>\s*(?P<iso>[A-Za-z\d]+)\s*"
@@ -1184,6 +1434,22 @@ def main() -> int:
         "path); only isomer rows are re-appended.",
     )
     ap.add_argument(
+        "--endf-nfpy",
+        required=False,
+        default=None,
+        help="ENDF/B-VIII.0 neutron-induced fission-yield tapes dir for "
+        "fission_yields.tsv (download: https://www.nndc.bnl.gov/endf-b8.0/ "
+        "zips/ENDF-B-VIII.0_nfy.zip; pass together with --endf-sfpy)",
+    )
+    ap.add_argument(
+        "--endf-sfpy",
+        required=False,
+        default=None,
+        help="ENDF/B-VIII.0 spontaneous fission-yield tapes dir for "
+        "fission_yields.tsv (download: https://www.nndc.bnl.gov/endf-b8.0/ "
+        "zips/ENDF-B-VIII.0_sfy.zip; pass together with --endf-nfpy)",
+    )
+    ap.add_argument(
         "--nist-html",
         required=False,
         default=None,
@@ -1224,18 +1490,26 @@ def main() -> int:
 
     legacy = [args.endf_neutrons, args.endf_decay, args.nist_html]
     dose_args = [args.dose_air, args.dose_soil, args.dose_ingest, args.dose_inhale]
+    fy_args = [args.endf_nfpy, args.endf_sfpy]
     if (
         all(v is None for v in legacy)
         and all(v is None for v in dose_args)
         and args.endf_decay8 is None
+        and all(v is None for v in fy_args)
     ):
-        print("nothing to do: pass ENDF/NIST flags, --endf-decay8, and/or --dose-* flags")
+        print(
+            "nothing to do: pass ENDF/NIST flags, --endf-decay8, --endf-nfpy/--endf-sfpy,"
+            " and/or --dose-* flags"
+        )
         return 2
     if any(v is None for v in legacy) and not all(v is None for v in legacy):
         print("legacy tables need --endf-neutrons, --endf-decay, and --nist-html together")
         return 2
     if any(v is None for v in dose_args) and not all(v is None for v in dose_args):
         print("dose table needs --dose-air, --dose-soil, --dose-ingest, --dose-inhale together")
+        return 2
+    if any(v is None for v in fy_args) and not all(v is None for v in fy_args):
+        print("fission-yield table needs --endf-nfpy and --endf-sfpy together")
         return 2
 
     if all(v is None for v in dose_args):
@@ -1283,11 +1557,27 @@ def main() -> int:
             ],
             dose_rows,
         )
-        if all(v is None for v in legacy) and args.endf_decay8 is None:
+        if (
+            all(v is None for v in legacy)
+            and args.endf_decay8 is None
+            and all(v is None for v in fy_args)
+        ):
             return 0
 
     if args.endf_decay8 is not None:
         rc = run_decay8(args.out, args.endf_decay8)
+        if rc != 0:
+            return rc
+        if (
+            all(v is None for v in legacy)
+            and all(v is None for v in dose_args)
+            and all(v is None for v in fy_args)
+        ):
+            return 0
+
+    if not all(v is None for v in fy_args):
+        assert args.endf_nfpy and args.endf_sfpy
+        rc = run_fission_yields(args.out, args.endf_nfpy, args.endf_sfpy)
         if rc != 0:
             return rc
         if all(v is None for v in legacy) and all(v is None for v in dose_args):

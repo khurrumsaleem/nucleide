@@ -4222,6 +4222,69 @@ fn decay_branch_fraction(parent: &str, progeny: &str) -> PyResult<Option<f64>> {
     ))
 }
 
+/// Evaluated fission product yields for a nuclide name.
+///
+/// One `(energy_eV, [(daughter GNDS name, yield, uncertainty), ...])` tuple
+/// per incident-energy set, lowest energy first; empty when the parent has
+/// no evaluation for the requested `origin`/`kind`. `origin` is `n`
+/// (neutron-induced, default) or `sf` (spontaneous); `kind` is
+/// `independent` (MF8/MT454, default — what depletion consumes) or
+/// `cumulative` (MF8/MT459). An uncertainty of `0.0` means the tape
+/// evaluates none (the zero-yield rows of this sublibrary).
+type PyFissionYieldSets = Vec<(f64, Vec<(String, f64, f64)>)>;
+
+#[pyfunction]
+#[pyo3(signature = (parent, origin="n", kind="independent"))]
+fn fission_yields(parent: &str, origin: &str, kind: &str) -> PyResult<PyFissionYieldSets> {
+    NuclideId::from_name(parent).map_err(wrap_nucid_err)?;
+    let origin = nucleide_nuclei::data::FissionYieldOrigin::parse(origin).ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "unknown fission-yield origin `{origin}` (expected `n` or `sf`)"
+        ))
+    })?;
+    let kind = nucleide_nuclei::data::FissionYieldKind::parse(kind).ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "unknown fission-yield kind `{kind}` (expected `independent` or `cumulative`)"
+        ))
+    })?;
+    Ok(
+        nucleide_nuclei::data::fission_yields_by_name(parent, origin, kind)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|set| {
+                (
+                    set.energy_ev,
+                    set.products
+                        .into_iter()
+                        .map(|p| {
+                            (
+                                nucleide_nuclei::NuclideId::from_nucid(p.progeny).to_name(),
+                                p.yield_fraction,
+                                p.uncertainty,
+                            )
+                        })
+                        .collect(),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// Independent neutron-induced fission yield of one daughter (GNDS names).
+///
+/// Uses the parent's lowest-energy yield set — the OpenMC
+/// `get_default_fission_yields` depletion convention. `None` when either
+/// nuclide is outside the table; the uncertainty and the other energy sets
+/// are available through `fission_yields`.
+#[pyfunction]
+fn fission_yield(parent: &str, progeny: &str) -> PyResult<Option<f64>> {
+    NuclideId::from_name(parent).map_err(wrap_nucid_err)?;
+    NuclideId::from_name(progeny).map_err(wrap_nucid_err)?;
+    Ok(nucleide_nuclei::data::fission_yield_by_name(
+        parent, progeny,
+    ))
+}
+
 /// Normalize a nuclide name in any accepted dialect to canonical GNDS form.
 ///
 /// Accepts symbol-first (`Pu241`, `Pu-241`, `Ba137m`), mass-first (`241Pu`,
@@ -6932,6 +6995,8 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decay_energy, m)?)?;
     m.add_function(wrap_pyfunction!(decay_branches, m)?)?;
     m.add_function(wrap_pyfunction!(decay_branch_fraction, m)?)?;
+    m.add_function(wrap_pyfunction!(fission_yields, m)?)?;
+    m.add_function(wrap_pyfunction!(fission_yield, m)?)?;
     m.add_function(wrap_pyfunction!(normalize_nuclide, m)?)?;
     m.add_function(wrap_pyfunction!(decay_heat, m)?)?;
     m.add_function(wrap_pyfunction!(dose_factor, m)?)?;

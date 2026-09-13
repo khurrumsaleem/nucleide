@@ -192,7 +192,7 @@ post-expansion mass fractions in the emission bridge and R2S snapshot adapter
 
 ## Data sources
 
-Nucleide embeds eight reference tables at compile time and parses them lazily on
+Nucleide embeds nine reference tables at compile time and parses them lazily on
 first access.
 
 ### Atomic masses
@@ -272,6 +272,36 @@ RFS daughter state flag, BR branching fraction):
 </Callout>
 
 See `decay_branches` in the [Python API](../reference/python-api.mdx#nucleidenuclei).
+
+### Fission yields
+
+Fission product yields (`fission_yields`, table `fission_yield_table`) from
+the ENDF/B-VIII.0 neutron-induced (`nfy`) and spontaneous (`sfy`)
+fission-yield sublibraries<Citation id="brown-2018" /> (MF8/MT454 independent
+and MF8/MT459 cumulative records; one row per `(ZAFP, FPS, Y, dY)` product
+per incident-energy set):
+
+- **Source**: both sublibraries are *unchanged carries of ENDF/B-VII.1
+  evaluations* per the tapes' README.txt — the England et al. ENDF-349
+  evaluations (EVAL-JUL89) except Pu-239 (Chadwick–Kawano, EVAL-NOV11). The
+  Mattera–Sonzogni cumulative-yield correction is **not** applied; values
+  are verbatim from the tapes, and `dY = 0` is the no-uncertainty sentinel
+  (it occurs exactly on the zero-yield rows of this sublibrary).
+- **Coverage**: 151,490 rows over 36 parents and 122 incident-energy sets;
+  the FPS isomeric-state flag maps to a GNDS `_m{state}` suffix with the
+  same convention as the decay-branch RFS flag. Independent sets sum to
+  ≈ 2.0 (two fragments per fission); cumulative sets add precursor
+  decay-chain feed (summing far above 2).
+- **File**: `crates/nuclei/src/data/fission_yields.tsv`.
+- **Units**: yields as fractions (`Y`, `dY`); energies in eV (spontaneous
+  sets use `E = 0`).
+- **Scope**: screening-level chain data — the depletion matrix consumes the
+  lowest-energy independent set (OpenMC `get_default_fission_yields`
+  convention), and `crates/depletion` falls back to this library when a
+  chain XML omits `<neutron_fission_yields>` for a fissionable parent.
+
+See `fission_yields`/`fission_yield` in the
+[Python API](../reference/python-api.mdx#nucleidenuclei).
 
 ### Simple cross sections
 

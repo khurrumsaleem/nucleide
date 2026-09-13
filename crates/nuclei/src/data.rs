@@ -26,6 +26,10 @@
 //!   matrices skip `sf` gains); zero-half-life and stable-flagged tapes
 //!   yield no rows, so effectively-stable entries stay absent, matching the
 //!   half-life table's stable-absent convention.
+//!   *unchanged carries of ENDF/B-VII.1 evaluations* per their README.txt —
+//!   mostly England et al. ENDF-349 (EVAL-JUL89), plus the Chadwick–Kawano
+//!   Pu-239 evaluation — with the Mattera–Sonzogni cumulative-yield
+//!   correction **not** applied; values are verbatim from the tapes.
 //! - Simple cross sections (`simple_xs.tsv`): **total** microscopic cross
 //!   sections in barns. Thermal values combine NIST NCNR 2200 m/s bound
 //!   scattering/absorption converted to free-atom totals via
@@ -76,6 +80,14 @@
 //! - `data/decay_branches.tsv`: `parent_GNDS` → (`progeny_GNDS`, `bf`,
 //!   `mode`) per kept branch (5 068 rows over 3 541 parents; SF/fission
 //!   branches dropped, so strong SF emitters sum to `1 - BR(SF)`).
+//! - `data/fission_yields.tsv`: (`parent_GNDS`, `origin`, `kind`,
+//!   `energy_eV`) → per-product (`daughter_GNDS`, `Y`, `dY`) rows from the
+//!   ENDF/B-VIII.0 neutron-induced and spontaneous fission-yield
+//!   sublibraries (151 490 rows over 36 parents and 122 incident-energy
+//!   sets; MF8/MT454 independent + MF8/MT459 cumulative, values verbatim —
+//!   both sublibraries are unchanged carries of ENDF/B-VII.1 evaluations
+//!   per the tapes' README.txt). `dY = 0` is the no-uncertainty sentinel
+//!   and occurs exactly on the zero-yield rows of this sublibrary.
 //! - `data/simple_xs.tsv`: `GNDS name` → (`thermal_barn`, `fast14mev_barn`)
 //!   total cross sections (241 rows; resonance nuclides without a NIST row
 //!   and isomers are absent by construction).
@@ -118,6 +130,7 @@ const SCATTERING_LENGTHS_TSV: &str = include_str!("data/scattering_lengths.tsv")
 const DECAY_ENERGY_TSV: &str = include_str!("data/decay_energy.tsv");
 const DECAY_BRANCHES_TSV: &str = include_str!("data/decay_branches.tsv");
 const DOSE_FACTORS_TSV: &str = include_str!("data/dose_factors.tsv");
+const FISSION_YIELDS_TSV: &str = include_str!("data/fission_yields.tsv");
 
 static MASSES: OnceLock<BTreeMap<u32, f64>> = OnceLock::new();
 static ABUNDANCES: OnceLock<BTreeMap<u32, f64>> = OnceLock::new();
@@ -128,6 +141,7 @@ static DECAY_ENERGIES: OnceLock<BTreeMap<u32, f64>> = OnceLock::new();
 static DECAY_BRANCHES: OnceLock<BTreeMap<u32, Vec<DecayBranch>>> = OnceLock::new();
 static DOSE_FACTORS: OnceLock<BTreeMap<(u32, DosePathway, DoseSource), DoseEntry>> =
     OnceLock::new();
+static FISSION_YIELDS: OnceLock<BTreeMap<FissionYieldKey, Vec<FissionYieldSet>>> = OnceLock::new();
 
 /// MeV per unified atomic mass unit `c²` (2022 CODATA consistent with
 /// AME2020 usage).
@@ -491,6 +505,266 @@ pub fn branching_fraction(parent: u32, progeny: u32) -> Option<f64> {
 /// Branching fraction from `parent` to `progeny` (GNDS names), if tabulated.
 pub fn branching_fraction_by_name(parent: &str, progeny: &str) -> Option<f64> {
     branching_fraction(
+        NuclideId::from_name(parent).ok()?.nucid(),
+        NuclideId::from_name(progeny).ok()?.nucid(),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Fission product yields
+// ---------------------------------------------------------------------------
+
+/// Fission-yield origin: neutron-induced or spontaneous fission.
+///
+/// Tokens (`n`/`sf`) match the depletion-chain decay vocabulary (`sf` is the
+/// spontaneous-fission mode token).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum FissionYieldOrigin {
+    /// Neutron-induced fission (the ENDF `nfy` tapes).
+    #[default]
+    NeutronInduced,
+    /// Spontaneous fission (the ENDF `sfy` tapes).
+    Spontaneous,
+}
+
+impl FissionYieldOrigin {
+    /// Canonical table token (`n`/`sf`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NeutronInduced => "n",
+            Self::Spontaneous => "sf",
+        }
+    }
+
+    /// Parse an origin token (case-insensitive; `n`/`neutron`/`sf`/
+    /// `spontaneous`).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "n" | "neutron" | "neutron-induced" => Some(Self::NeutronInduced),
+            "sf" | "spontaneous" => Some(Self::Spontaneous),
+            _ => None,
+        }
+    }
+}
+
+/// Fission-yield kind: independent or cumulative product yields.
+///
+/// Independent yields (MF8/MT454) are what depletion matrices consume;
+/// cumulative yields (MF8/MT459) add the precursor decay-chain feed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub enum FissionYieldKind {
+    /// Independent fission product yields (MF8/MT454).
+    #[default]
+    Independent,
+    /// Cumulative fission product yields (MF8/MT459).
+    Cumulative,
+}
+
+impl FissionYieldKind {
+    /// Canonical table token (`independent`/`cumulative`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Independent => "independent",
+            Self::Cumulative => "cumulative",
+        }
+    }
+
+    /// Parse a kind token (case-insensitive).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "independent" | "i" => Some(Self::Independent),
+            "cumulative" | "c" => Some(Self::Cumulative),
+            _ => None,
+        }
+    }
+}
+
+/// One evaluated fission-product row: daughter, yield fraction, uncertainty.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FissionYieldProduct {
+    /// Daughter nucid (full state-bearing id; the tape's FPS flag sets the
+    /// state, so isomeric products carry `_m1`/`_m2` ids).
+    pub progeny: u32,
+    /// Yield fraction Y (evaluated value, verbatim from the tape).
+    pub yield_fraction: f64,
+    /// Evaluated 1-sigma uncertainty dY \[fraction\].
+    ///
+    /// `0.0` is the no-uncertainty sentinel: in this sublibrary it occurs
+    /// exactly on the zero-yield rows, so consumers needing an uncertainty
+    /// should read `0.0` as "not evaluated", never as a zero-width
+    /// distribution.
+    pub uncertainty: f64,
+}
+
+/// Fission product yields at one incident neutron energy.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FissionYieldSet {
+    /// Incident neutron energy \[eV\]; `0.0` for spontaneous fission.
+    pub energy_ev: f64,
+    /// Product rows of this energy set, in tape (ZAFP, then FPS) order.
+    pub products: Vec<FissionYieldProduct>,
+}
+
+/// Table key of [`fission_yield_table`]: parent nucid, origin, kind.
+type FissionYieldKey = (u32, FissionYieldOrigin, FissionYieldKind);
+
+/// Parse `parent_GNDS \t origin \t kind \t energy_eV \t daughter_GNDS \t Y \t dY`
+/// rows into `(parent, origin, kind)`-keyed energy-set lists.
+///
+/// Malformed rows are skipped silently, matching [`parse_masses`].  Sets are
+/// sorted by ascending incident energy (stable: tape product order is kept
+/// within a set).
+fn parse_fission_yields(tsv: &str) -> BTreeMap<FissionYieldKey, Vec<FissionYieldSet>> {
+    let mut sets: BTreeMap<FissionYieldKey, Vec<(f64, usize, FissionYieldProduct)>> =
+        BTreeMap::new();
+    for line in tsv
+        .lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        let mut cols = line.split('\t');
+        let (
+            Some(parent),
+            Some(origin),
+            Some(kind),
+            Some(energy),
+            Some(daughter),
+            Some(y),
+            Some(dy),
+        ) = (
+            cols.next(),
+            cols.next(),
+            cols.next(),
+            cols.next(),
+            cols.next(),
+            cols.next(),
+            cols.next(),
+        )
+        else {
+            continue;
+        };
+        let (Ok(p), Some(o), Some(k), Ok(e), Ok(d), Ok(y), Ok(dy)) = (
+            NuclideId::from_name(parent).map(|id| id.nucid()),
+            FissionYieldOrigin::parse(origin),
+            FissionYieldKind::parse(kind),
+            energy.parse::<f64>(),
+            NuclideId::from_name(daughter).map(|id| id.nucid()),
+            y.parse::<f64>(),
+            dy.parse::<f64>(),
+        ) else {
+            continue;
+        };
+        let entry = sets.entry((p, o, k)).or_default();
+        entry.push((
+            e,
+            entry.len(),
+            FissionYieldProduct {
+                progeny: d,
+                yield_fraction: y,
+                uncertainty: dy,
+            },
+        ));
+    }
+    sets.into_iter()
+        .map(|(key, mut rows)| {
+            rows.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            (
+                key,
+                rows.into_iter()
+                    .fold(Vec::<FissionYieldSet>::new(), |mut acc, (e, _i, prod)| {
+                        match acc.last_mut() {
+                            Some(set) if set.energy_ev == e => set.products.push(prod),
+                            _ => acc.push(FissionYieldSet {
+                                energy_ev: e,
+                                products: vec![prod],
+                            }),
+                        }
+                        acc
+                    }),
+            )
+        })
+        .collect()
+}
+
+fn fission_yield_map() -> &'static BTreeMap<FissionYieldKey, Vec<FissionYieldSet>> {
+    FISSION_YIELDS.get_or_init(|| parse_fission_yields(FISSION_YIELDS_TSV))
+}
+
+/// The full fission-yield table, keyed by `(parent nucid, origin, kind)`.
+///
+/// 151 490 rows over 36 parents and 122 incident-energy sets from the
+/// ENDF/B-VIII.0 fission-yield sublibraries (unchanged carries of
+/// ENDF/B-VII.1 evaluations per the tapes' README.txt); each value is the
+/// list of energy sets, sorted by ascending incident energy.
+pub fn fission_yield_table() -> &'static BTreeMap<FissionYieldKey, Vec<FissionYieldSet>> {
+    fission_yield_map()
+}
+
+/// Evaluated fission product yields of the given parent `nucid`.
+///
+/// Returns the energy-set list for the requested `origin` and `kind`, or
+/// `None` when the parent has no such evaluation (e.g. non-fissionable
+/// nuclides).  The lowest-energy set of the `Independent` × `NeutronInduced`
+/// block is the depletion convention — see [`default_fission_yields`].
+pub fn fission_yields(
+    parent: u32,
+    origin: FissionYieldOrigin,
+    kind: FissionYieldKind,
+) -> Option<Vec<FissionYieldSet>> {
+    fission_yield_map().get(&(parent, origin, kind)).cloned()
+}
+
+/// Evaluated fission product yields of a named nuclide (see
+/// [`NuclideId::from_name`]).
+pub fn fission_yields_by_name(
+    parent: &str,
+    origin: FissionYieldOrigin,
+    kind: FissionYieldKind,
+) -> Option<Vec<FissionYieldSet>> {
+    fission_yields(NuclideId::from_name(parent).ok()?.nucid(), origin, kind)
+}
+
+/// Lowest-energy independent neutron-induced yield set of the given parent
+/// `nucid`.
+///
+/// This is the depletion-chain convention — OpenMC's
+/// `get_default_fission_yields` drives fission production with the yield
+/// set at the lowest incident neutron energy.  Returns `None` when the
+/// parent has no neutron-induced independent evaluation (e.g. `Cm247`).
+pub fn default_fission_yields(parent: u32) -> Option<FissionYieldSet> {
+    fission_yield_map()
+        .get(&(
+            parent,
+            FissionYieldOrigin::NeutronInduced,
+            FissionYieldKind::Independent,
+        ))?
+        .first()
+        .cloned()
+}
+
+/// Lowest-energy independent neutron-induced yield set of a named nuclide
+/// (see [`default_fission_yields`]).
+pub fn default_fission_yields_by_name(parent: &str) -> Option<FissionYieldSet> {
+    default_fission_yields(NuclideId::from_name(parent).ok()?.nucid())
+}
+
+/// Independent neutron-induced yield of one daughter at the parent's
+/// lowest-energy set (see [`default_fission_yields`]).
+///
+/// Mirrors [`branching_fraction`]: the bare fraction; the uncertainty and
+/// the other energy sets are available through [`fission_yields`].
+/// Returns `None` when either nuclide is outside the table.
+pub fn fission_yield(parent: u32, progeny: u32) -> Option<f64> {
+    default_fission_yields(parent)?
+        .products
+        .iter()
+        .find(|p| p.progeny == progeny)
+        .map(|p| p.yield_fraction)
+}
+
+/// Independent neutron-induced yield of one daughter (GNDS names) at the
+/// parent's lowest-energy set.
+pub fn fission_yield_by_name(parent: &str, progeny: &str) -> Option<f64> {
+    fission_yield(
         NuclideId::from_name(parent).ok()?.nucid(),
         NuclideId::from_name(progeny).ok()?.nucid(),
     )
@@ -1516,6 +1790,157 @@ mod tests {
         assert_eq!(table_rows, rows);
         assert_eq!(rows, 5068);
         assert_eq!(decay_branch_table().len(), 3541);
+    }
+
+    #[test]
+    fn fission_yield_row_count_matches_table() {
+        let rows = FISSION_YIELDS_TSV
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .count();
+        let table = fission_yield_table();
+        let table_rows: usize = table.values().map(Vec::len).sum();
+        let set_products: usize = table
+            .values()
+            .flat_map(|sets| sets.iter())
+            .map(|s| s.products.len())
+            .sum();
+        assert_eq!(set_products, rows);
+        assert_eq!(rows, 151_490);
+        assert_eq!(table.len(), 80);
+        assert_eq!(table_rows, 122);
+    }
+
+    #[test]
+    fn fission_yield_u235_thermal_spot_values() {
+        // Hard values read off the ENDF/B-VIII.0 U-235 tape (England
+        // ENDF-349 evaluation), thermal (0.0253 eV) set.
+        let u235 = NuclideId::from_name("U235").unwrap().nucid();
+        let xe135 = NuclideId::from_name("Xe135").unwrap().nucid();
+        let sets = fission_yields(
+            u235,
+            FissionYieldOrigin::NeutronInduced,
+            FissionYieldKind::Independent,
+        )
+        .unwrap();
+        assert_eq!(sets.len(), 3); // 0.0253, 5e5, 1.4e7 eV
+        let thermal = &sets[0];
+        assert_eq!(thermal.energy_ev, 0.0253);
+        let xe = thermal
+            .products
+            .iter()
+            .find(|p| p.progeny == xe135)
+            .unwrap();
+        assert_eq!(xe.yield_fraction, 0.000_785_125);
+        assert_eq!(xe.uncertainty, 4.710_75e-05);
+        // The independent set sums to ~2.0: two fragments per fission.
+        let total: f64 = thermal.products.iter().map(|p| p.yield_fraction).sum();
+        assert!((total - 2.0).abs() < 1e-6, "{total}");
+        // Asymmetric split: the A <= 116 light peak carries ~1.0.
+        let light: f64 = thermal
+            .products
+            .iter()
+            .filter(|p| NuclideId::from_nucid(p.progeny).a() <= 116)
+            .map(|p| p.yield_fraction)
+            .sum();
+        assert!((light - 1.0).abs() < 1e-3, "{light}");
+    }
+
+    #[test]
+    fn fission_yield_isomer_and_cumulative_spots() {
+        use FissionYieldKind as K;
+        use FissionYieldOrigin as O;
+        // FPS = 1 maps to the GNDS _m1 suffix (Xe135_m1 thermal row).
+        let xe_m1 = fission_yield_by_name("U235", "Xe135_m1");
+        assert_eq!(xe_m1, Some(0.001_781_22));
+        // Cumulative Xe135 (MT459) is the classic ~6.6% value.
+        let cum = fission_yields_by_name("U235", O::NeutronInduced, K::Cumulative).unwrap();
+        assert_eq!(cum[0].energy_ev, 0.0253);
+        let xe135 = NuclideId::from_name("Xe135").unwrap().nucid();
+        let row = cum[0].products.iter().find(|p| p.progeny == xe135).unwrap();
+        assert_eq!(row.yield_fraction, 0.065_385);
+        assert_eq!(row.uncertainty, 0.000_457_695);
+        // Cumulative sets do NOT sum to 2.0 (precursor chains feed in).
+        let total: f64 = cum[0].products.iter().map(|p| p.yield_fraction).sum();
+        assert!(total > 4.0, "{total}");
+    }
+
+    #[test]
+    fn fission_yield_parents_origins_and_energies() {
+        use FissionYieldKind as K;
+        use FissionYieldOrigin as O;
+        // Pu-239 thermal (Chadwick-Kawano evaluation): 4 energy sets.
+        let pu = fission_yields_by_name("Pu239", O::NeutronInduced, K::Independent).unwrap();
+        assert_eq!(pu.len(), 4);
+        assert_eq!(pu[0].energy_ev, 0.0253);
+        let xe135 = NuclideId::from_name("Xe135").unwrap().nucid();
+        let row = pu[0].products.iter().find(|p| p.progeny == xe135).unwrap();
+        assert_eq!(row.yield_fraction, 0.003_141_31);
+        assert_eq!(row.uncertainty, 0.000_125_652);
+        // Cf-252 spontaneous: single E = 0 set.
+        let cf = fission_yields_by_name("Cf252", O::Spontaneous, K::Independent).unwrap();
+        assert_eq!(cf.len(), 1);
+        assert_eq!(cf[0].energy_ev, 0.0);
+        let row = cf[0].products.iter().find(|p| p.progeny == xe135).unwrap();
+        assert_eq!(row.yield_fraction, 0.001_861_45);
+        // U-238 lives in BOTH sublibraries: its neutron-induced default is
+        // the 5e5 eV set (there is no thermal nfy evaluation), never the
+        // spontaneous E = 0 set.
+        let u238 = NuclideId::from_name("U238").unwrap().nucid();
+        let default = default_fission_yields(u238).unwrap();
+        assert_eq!(default.energy_ev, 500_000.0);
+        assert!(fission_yields(u238, O::Spontaneous, K::Independent).is_some());
+        // U-238 fast set from the tape (14 MeV; the 5e5 spot pins fast[0]).
+        let fast = fission_yields(u238, O::NeutronInduced, K::Independent).unwrap();
+        assert_eq!(fast.len(), 2);
+        assert_eq!(fast[0].energy_ev, 500_000.0);
+        assert_eq!(fast[1].energy_ev, 1.4e7);
+        let row = fast[1]
+            .products
+            .iter()
+            .find(|p| p.progeny == xe135)
+            .unwrap();
+        assert_eq!(row.yield_fraction, 0.001_329_1);
+        assert_eq!(row.uncertainty, 1.462_01e-04);
+    }
+
+    #[test]
+    fn fission_yield_default_and_singular_lookups() {
+        let u235 = NuclideId::from_name("U235").unwrap().nucid();
+        let xe135 = NuclideId::from_name("Xe135").unwrap().nucid();
+        let default = default_fission_yields(u235).unwrap();
+        assert_eq!(default.energy_ev, 0.0253);
+        assert_eq!(fission_yield(u235, xe135), Some(0.000_785_125));
+        assert_eq!(fission_yield_by_name("U235", "Xe135"), Some(0.000_785_125));
+        assert_eq!(fission_yield_by_name("U235", "Fe56"), None);
+        assert_eq!(default_fission_yields_by_name("Fe56"), None);
+        // Parents outside the library (non-fissionable or unevaluated).
+        assert_eq!(
+            fission_yields_by_name("Fe56", Default::default(), Default::default()),
+            None
+        );
+        assert_eq!(default_fission_yields_by_name("Cm247"), None);
+        assert_eq!(
+            fission_yields_by_name("Xx999", Default::default(), Default::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn fission_yield_origin_kind_tokens() {
+        use FissionYieldKind as K;
+        use FissionYieldOrigin as O;
+        assert_eq!(O::parse("n"), Some(O::NeutronInduced));
+        assert_eq!(O::parse("SF"), Some(O::Spontaneous));
+        assert_eq!(O::parse("spontaneous"), Some(O::Spontaneous));
+        assert_eq!(O::parse("x"), None);
+        assert_eq!(O::NeutronInduced.as_str(), "n");
+        assert_eq!(O::Spontaneous.as_str(), "sf");
+        assert_eq!(K::parse("independent"), Some(K::Independent));
+        assert_eq!(K::parse("Cumulative"), Some(K::Cumulative));
+        assert_eq!(K::parse("x"), None);
+        assert_eq!(K::Independent.as_str(), "independent");
+        assert_eq!(K::Cumulative.as_str(), "cumulative");
     }
 
     #[test]

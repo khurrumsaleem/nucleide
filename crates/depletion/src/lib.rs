@@ -573,6 +573,67 @@ mod tests {
     }
 
     #[test]
+    fn fission_yields_fall_back_to_builtin_library() {
+        // A fissionable nuclide with no <neutron_fission_yields> borrows
+        // the built-in ENDF/B-VIII.0 library at its lowest-energy
+        // independent set (OpenMC get_default_fission_yields), filtered to
+        // chain members. U-235 thermal independent Xe135 = 7.85125e-4.
+        let xml = r#"<depletion_chain>
+  <nuclide name="U235" reactions="1">
+    <reaction type="fission" Q="2.0e8"/>
+  </nuclide>
+  <nuclide name="I135" reactions="0"/>
+  <nuclide name="Xe135" reactions="0"/>
+</depletion_chain>"#;
+        let chain = Chain::from_xml(xml).unwrap();
+        let u235 = &chain.nuclides[chain.index_of("U235").unwrap()];
+        assert_eq!(u235.neutron_fission_yields.len(), 1);
+        let fy = &u235.neutron_fission_yields[0];
+        assert_eq!(fy.energy, 0.0253);
+        // Only the two in-chain products with nonzero yields survive.
+        assert_eq!(fy.products.len(), 2);
+        assert_eq!(fy.products["I135"], 0.029_273_7);
+        assert_eq!(fy.products["Xe135"], 0.000_785_125);
+        // The matrix builder picks the fallback set up like explicit yields.
+        let mut rates = ReactionRates::new();
+        rates
+            .entry(0usize)
+            .or_default()
+            .insert("fission".to_string(), 1e-5);
+        let sys = DepletionSystem::build(chain, &rates).unwrap();
+        let dense = sys.matrix_for_dt(1.0).unwrap().to_dense();
+        assert!((dense[1][0].re - 0.029_273_7e-5).abs() < 1e-22);
+    }
+
+    #[test]
+    fn fission_yields_missing_everywhere_errors() {
+        // Cm247 has no ENDF/B-VIII.0 fission-yield evaluation: a chain that
+        // fissions it without yields is structurally incomplete.
+        let xml = r#"<depletion_chain>
+  <nuclide name="Cm247" reactions="1">
+    <reaction type="fission" Q="2.0e8"/>
+  </nuclide>
+</depletion_chain>"#;
+        match Chain::from_xml(xml) {
+            Err(Error::BadStructure(m)) => assert!(m.contains("Cm247")),
+            other => panic!("expected BadStructure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fission_yields_fallback_skips_nonfissionable() {
+        // Non-fissionable nuclides without yields stay empty (no library
+        // lookup, no error) — stable nuclides and "A"/"B" test names alike.
+        let xml = r#"<depletion_chain>
+  <nuclide name="A" reactions="0"/>
+  <nuclide name="U238" reactions="0"/>
+</depletion_chain>"#;
+        let chain = Chain::from_xml(xml).unwrap();
+        assert!(chain.nuclides[0].neutron_fission_yields.is_empty());
+        assert!(chain.nuclides[1].neutron_fission_yields.is_empty());
+    }
+
+    #[test]
     fn coverage_chain_error_display_and_accessors() {
         // chain.rs Display arms (Io/Xml/UnknownNuclide/BadStructure/InvalidHalfLife).
         let errs = vec![

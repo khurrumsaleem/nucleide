@@ -261,6 +261,34 @@ DECAY_BRANCH_SPOTS = {
     "He8": (0.1191, [("Li8", "beta-", 0.84), ("Li7", "beta-", 0.16)]),
 }
 
+#: Evaluated fission product yields read off the ENDF/B-VIII.0 fission-yield
+#: tapes (independent MF8/MT454 and cumulative MF8/MT459), mirroring the
+#: ``DECAY_BRANCH_SPOTS`` pattern.  Both sublibraries are unchanged carries
+#: of ENDF/B-VII.1 evaluations per their README.txt (England et al. ENDF-349,
+#: except the Chadwick-Kawano Pu-239 evaluation); the Mattera-Sonzogni
+#: correction is not applied.  ``(parent, origin, kind, energy_eV, daughter,
+#: expected_Y)`` — U-238's lowest neutron-induced set is 500 keV (it has no
+#: thermal nfy evaluation), and Cf-252's spontaneous set is E = 0.
+FISSION_YIELD_SPOTS = [
+    ("U235", "n", "independent", 0.0253, "Xe135", 0.000785125),
+    ("U235", "n", "independent", 0.0253, "Xe135_m1", 0.00178122),
+    ("U235", "n", "independent", 0.0253, "Kr85", 0.000255332),
+    ("U235", "n", "cumulative", 0.0253, "Xe135", 0.065385),
+    ("U235", "n", "cumulative", 0.0253, "Cs137", 0.0618832),
+    ("Pu239", "n", "independent", 0.0253, "Xe135", 0.00314131),
+    ("U238", "n", "independent", 5.0e5, "Xe135", 0.000111541),
+    ("Cf252", "sf", "independent", 0.0, "Xe135", 0.00186145),
+]
+
+#: Independent-yield sets whose per-set yield sum must approach 2.0 (two
+#: fragments per fission).  ``(parent, origin, energy_eV)``.
+FISSION_YIELD_SUM_SPOTS = [
+    ("U235", "n", 0.0253),
+    ("Pu239", "n", 0.0253),
+    ("U238", "n", 5.0e5),
+    ("Cf252", "sf", 0.0),
+]
+
 
 def _pyne_simple_xs_source():
     """Return PyNE's KAERI simple-xs source, or raise SkipCheck with a reason."""
@@ -413,6 +441,100 @@ def compare_decay_energies() -> dict:
         "stable_none": nucleide.nuclei.decay_energy("Fe56") is None,
         "max_rel": max(diffs) if diffs else float("nan"),
     }
+
+
+def compare_fission_yields() -> dict:
+    """Compare `fission_yields` against ENDF/B-VIII.0 tape spot values."""
+    rows: list[list[str]] = []
+    diffs: list[float] = []
+    missing: list[str] = []
+    for parent, origin, kind, energy, daughter, spot in FISSION_YIELD_SPOTS:
+        label = f"{parent}[{origin}/{kind}]@{energy:.6g} -> {daughter}"
+        sets = nucleide.nuclei.fission_yields(parent, origin=origin, kind=kind)
+        by_energy = {e: {n: (y, dy) for n, y, dy in prods} for e, prods in sets}
+        entry = by_energy.get(energy)
+        if entry is None or daughter not in entry:
+            missing.append(label)
+            rows.append([label, "None", fmt(spot), "n/a"])
+            continue
+        got = entry[daughter][0]
+        diffs.append(rel_diff(got, spot))
+        rows.append([label, fmt(got), fmt(spot), fmt(diffs[-1])])
+    for parent, origin, energy in FISSION_YIELD_SUM_SPOTS:
+        label = f"{parent}[{origin}]@{energy:.6g} independent sum"
+        sets = nucleide.nuclei.fission_yields(parent, origin=origin, kind="independent")
+        prods = dict(sets).get(energy)
+        if prods is None:
+            missing.append(label)
+            rows.append([label, "None", "2.0", "n/a"])
+            continue
+        total = sum(y for _, y, _ in prods)
+        diffs.append(rel_diff(total, 2.0))
+        rows.append([label, fmt(total), "2.0", fmt(diffs[-1])])
+    return {
+        "rows": rows,
+        "missing": missing,
+        "max_rel": max(diffs) if diffs else float("nan"),
+    }
+
+
+def compare_fission_yields_openmc() -> dict:
+    """Cross-check the committed table vs OpenMC's ENDF reader, when tapes exist.
+
+    OpenMC's ``FissionProductYields.from_endf`` reads MF8/MT454 (independent)
+    preferentially; the probe needs the ENDF/B-VIII.0 nfy tapes on disk. They
+    are not part of the container inputs (``validation/.cache/`` holds only
+    the CASL chain), so this SKIP is expected there — recorded loudly.
+    """
+    rows: list[list[str]] = []
+    diffs: list[float] = []
+    skipped: list[str] = []
+    if not HAS_OPENMC:
+        skipped.append(OPENMC_SKIP or "OpenMC oracle skipped: openmc.data unavailable.")
+        return {"rows": rows, "diffs": diffs, "skipped": skipped, "available": False}
+    import glob
+    import os
+
+    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
+    tapes = sorted(glob.glob(os.path.join(cache_dir, "**", "nfy-*.endf"), recursive=True))
+    if not tapes:
+        skipped.append(
+            "OpenMC fission-yield cross-check skipped: ENDF/B-VIII.0 nfy tapes are not "
+            "present under validation/.cache (the container cache holds only the CASL "
+            "chain); the tape spot gates above still pin the committed table."
+        )
+        return {"rows": rows, "diffs": diffs, "skipped": skipped, "available": False}
+    try:
+        u235_tape = next(t for t in tapes if "U_235" in t)
+        fpy = openmc.data.FissionProductYields.from_endf(u235_tape)
+        energy0 = float(fpy.energies[0])
+        set0 = fpy[0]
+        om_nuclides = list(set0["nuclides"])
+        om_yields = [float(v) for v in set0["yields"]]
+        pairs = list(zip(om_nuclides, om_yields, strict=True))
+    except Exception as exc:
+        note = f"OpenMC fission-yield cross-check skipped: openmc.data FY read failed ({exc})."
+        skipped.append(note)
+        return {"rows": rows, "diffs": diffs, "skipped": skipped, "available": False}
+    # OpenMC may serve independent (sum ~2) or cumulative (sum >>2) values;
+    # pick the matching kind instead of assuming the MT.
+    om_sum = sum(v for _, v in pairs)
+    kind = "independent" if abs(om_sum - 2.0) < 0.1 else "cumulative"
+    nuc_sets = nucleide.nuclei.fission_yields("U235", kind=kind)
+    by_energy = {e: {n: y for n, y, _ in prods} for e, prods in nuc_sets}
+    entry = by_energy.get(energy0)
+    if entry is None:
+        note = f"OpenMC fission-yield cross-check skipped: no Nucleide {kind} set at E={energy0}."
+        skipped.append(note)
+        return {"rows": rows, "diffs": diffs, "skipped": skipped, "available": False}
+    for name, om_val in pairs:
+        nuc_val = entry.get(name)
+        if nuc_val is None or om_val == 0.0:
+            continue
+        diffs.append(rel_diff(nuc_val, om_val))
+    if diffs:
+        rows.append([f"U235 {kind} @{energy0:.6g}", f"n={len(diffs)}", "max rel", fmt(max(diffs))])
+    return {"rows": rows, "diffs": diffs, "skipped": skipped, "available": bool(diffs)}
 
 
 def main() -> int:
@@ -631,11 +753,39 @@ def main() -> int:
         br_stats["rows"],
     )
 
+    fy_stats = compare_fission_yields()
+    report.heading("Fission yields vs ENDF/B-VIII.0 tape spot values")
+    report.prose(
+        "Nucleide `fission_yields` (independent MF8/MT454 and cumulative"
+        " MF8/MT459 sets) vs values read off the ENDF/B-VIII.0"
+        " neutron-induced/spontaneous fission-yield tapes they were"
+        " generated from. Both sublibraries are unchanged carries of"
+        " ENDF/B-VII.1 evaluations per their README.txt (England et al."
+        " ENDF-349, except the Chadwick-Kawano Pu-239 evaluation), and the"
+        " Mattera-Sonzogni cumulative-yield correction is not applied."
+        " Independent sets sum to ~2.0 (two fragments per fission); U-238's"
+        " lowest neutron-induced set is 500 keV, and Cf-252's spontaneous"
+        " set is E = 0."
+    )
+    report.table(
+        ["Set -> daughter", "Nucleide", "Spot", "Rel diff"],
+        fy_stats["rows"],
+    )
+    fy_om = compare_fission_yields_openmc()
+    for note in fy_om["skipped"]:
+        print(f"SKIPPED fission_yields: {note}")
+        report.prose(f"SKIPPED fission_yields: {note}")
+    if fy_om["rows"]:
+        report.table(["Cross-check", "n", "Metric", "Value"], fy_om["rows"])
+
     if xs_stats["available"]:
         print(f"simple_xs vs PyNE: max rel diff {fmt(max(xs_stats['diffs']))}")  # type: ignore[arg-type]
     print(f"scattering vs NIST: max abs diff {fmt(scat_stats['max_abs'])} fm")
     print(f"decay_energy vs spots: max rel diff {fmt(de_stats['max_rel'])}")
     print(f"decay_branches vs spots: max rel diff {fmt(br_stats['max_rel'])}")
+    print(f"fission_yields vs spots: max rel diff {fmt(fy_stats['max_rel'])}")
+    if fy_om["available"]:
+        print(f"fission_yields vs OpenMC: max rel diff {fmt(max(fy_om['diffs']))}")  # type: ignore[arg-type]
 
     emit_report(report)
 
@@ -656,6 +806,9 @@ def main() -> int:
         return 1
     if br_stats["missing"] or br_stats["max_rel"] > 1.0e-6:
         print("FAIL: decay-branch spot check vs ENDF/B-VIII.0 failed", file=sys.stderr)
+        return 1
+    if fy_stats["missing"] or fy_stats["max_rel"] > 1.0e-6:
+        print("FAIL: fission-yield spot check vs ENDF/B-VIII.0 tapes failed", file=sys.stderr)
         return 1
     return 0
 

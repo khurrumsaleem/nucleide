@@ -203,6 +203,45 @@ impl Chain {
             return Err(Error::BadStructure("chain has no nuclides".into()));
         }
 
+        // Fission-yield fallback: a fissionable nuclide with no
+        // <neutron_fission_yields> element borrows the built-in
+        // ENDF/B-VIII.0 fission-yield library at its lowest-energy
+        // independent set — the OpenMC `get_default_fission_yields`
+        // convention the matrix builder already follows for explicit
+        // yields. Products are filtered to chain members (as OpenMC's
+        // chain generator does) and zero-yield rows carry no information.
+        let names: std::collections::HashSet<String> =
+            nuclides.iter().map(|n| n.name.clone()).collect();
+        for nuc in &mut nuclides {
+            if !nuc.neutron_fission_yields.is_empty()
+                || !nuc.reactions.iter().any(|r| r.kind == "fission")
+            {
+                continue;
+            }
+            let Some(set) = nucleide_nuclei::data::default_fission_yields_by_name(&nuc.name) else {
+                return Err(Error::BadStructure(format!(
+                    "fissionable nuclide `{}` has no <neutron_fission_yields> and the \
+                     built-in ENDF/B-VIII.0 fission-yield library has none either",
+                    nuc.name
+                )));
+            };
+            let products = set
+                .products
+                .iter()
+                .filter(|p| p.yield_fraction != 0.0)
+                .filter_map(|p| {
+                    let name = nucleide_nuclei::NuclideId::from_nucid(p.progeny).to_name();
+                    names
+                        .contains(name.as_str())
+                        .then_some((name, p.yield_fraction))
+                })
+                .collect();
+            nuc.neutron_fission_yields = vec![FissionYields {
+                energy: set.energy_ev,
+                products,
+            }];
+        }
+
         // Decay branching ratios are used verbatim from the file, mirroring
         // OpenMC's `Chain.from_xml` (renormalization happens only when OpenMC
         // *generates* a chain from ENDF, not when it reads one).
