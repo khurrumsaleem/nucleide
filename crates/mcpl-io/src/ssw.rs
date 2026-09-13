@@ -287,6 +287,7 @@ pub struct Mcpl2SswOptions {
 
 /// Errors raised by SSW ↔ MCPL conversion.
 #[derive(Error, Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum SswError {
     /// MCPL encode failure inside [`ssw2mcpl_bytes`].
     #[error(transparent)]

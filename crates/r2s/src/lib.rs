@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Rigorous two-step (R2S) shutdown-dose-rate orchestration.
 //!
 //! Combines neutron flux meshes (`mcnp-io`), ALARA activation decks

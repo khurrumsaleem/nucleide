@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Numeric backend isolation layer.
 //!
 //! The workspace depends on this crate — never on `faer` (or any other LA
@@ -28,14 +29,21 @@ pub mod decay;
 /// sampler keeps its own Cholesky/eigen factor path).
 pub mod lstsq;
 
+pub use decay::DecayError;
 /// Complex scalar used throughout the facade.
 pub use faer::complex_native::c64 as C64;
+pub use lstsq::LstsqError;
+pub use sample::SampleError;
 
 /// Zero constant for the scalar type.
 pub const C64_ZERO: C64 = C64 { re: 0.0, im: 0.0 };
 
+/// Result alias for the `linalg` crate.
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors surfaced by the numeric backend.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Matrix construction or factorization failed inside the backend.
     Backend(String),
@@ -77,7 +85,7 @@ impl Pattern {
     /// Build a pattern from `(row, col)` pairs. Duplicate coordinates are
     /// collapsed by position (values must be supplied accordingly — the
     /// depletion matrix builder pre-sums duplicates before calling this).
-    pub fn from_entries(n: usize, entries: &[(usize, usize)]) -> Result<Self, Error> {
+    pub fn from_entries(n: usize, entries: &[(usize, usize)]) -> Result<Self> {
         let (symbolic, order) =
             faer::sparse::SymbolicSparseColMat::<usize>::try_new_from_indices(n, n, entries)
                 .map_err(|e| Error::Backend(e.to_string()))?;
@@ -107,7 +115,7 @@ impl ComplexCsc {
     /// Assemble a matrix on `pattern`. `values_in_entry_order[k]` belongs to
     /// entry `k` as given to [`Pattern::from_entries`]; permutation to CSC
     /// order happens here.
-    pub fn from_entries(pattern: &Pattern, values_in_entry_order: &[C64]) -> Result<Self, Error> {
+    pub fn from_entries(pattern: &Pattern, values_in_entry_order: &[C64]) -> Result<Self> {
         if values_in_entry_order.len() != pattern.nnz {
             return Err(Error::Shape {
                 expected: pattern.nnz,
@@ -128,7 +136,7 @@ impl ComplexCsc {
 
     /// Build from full triplets (duplicates allowed upstream but pre-summed
     /// here defensively).
-    pub fn from_triplets(n: usize, triplets: &[(usize, usize, C64)]) -> Result<Self, Error> {
+    pub fn from_triplets(n: usize, triplets: &[(usize, usize, C64)]) -> Result<Self> {
         faer::sparse::SparseColMat::<usize, C64>::try_new_from_triplets(n, n, triplets)
             .map(|m| Self {
                 inner: Arc::new(m),
@@ -173,7 +181,7 @@ pub struct SymbolicLu {
 impl SymbolicLu {
     /// Symbolic LU analysis of `pattern`; the analysis is reused for the
     /// numeric factorization of every matrix assembled on the same pattern.
-    pub fn try_new(pattern: &Pattern) -> Result<Self, Error> {
+    pub fn try_new(pattern: &Pattern) -> Result<Self> {
         Ok(Self {
             inner: faer::sparse::linalg::solvers::SymbolicLu::try_new((*pattern.symbolic).as_ref())
                 .map_err(|e| Error::Backend(e.to_string()))?,
@@ -192,7 +200,7 @@ impl ComplexLu {
     /// Numeric factorization reusing the symbolic analysis of the pattern.
     ///
     /// Errors if the matrix dimension does not match the symbolic analysis.
-    pub fn try_new_with_symbolic(sym: &SymbolicLu, mat: &ComplexCsc) -> Result<Self, Error> {
+    pub fn try_new_with_symbolic(sym: &SymbolicLu, mat: &ComplexCsc) -> Result<Self> {
         if mat.nrows() != sym.n {
             return Err(Error::Shape {
                 expected: sym.n,
@@ -210,7 +218,7 @@ impl ComplexLu {
     }
 
     /// Solve `A x = rhs`, returning a new vector.
-    pub fn solve(&self, rhs: &[C64]) -> Result<Vec<C64>, Error> {
+    pub fn solve(&self, rhs: &[C64]) -> Result<Vec<C64>> {
         if rhs.len() != self.n {
             return Err(Error::Shape {
                 expected: self.n,
@@ -223,7 +231,7 @@ impl ComplexLu {
     }
 
     /// Solve `A x = x` in place, overwriting `x` with the solution.
-    pub fn solve_in_place(&self, x: &mut [C64]) -> Result<(), Error> {
+    pub fn solve_in_place(&self, x: &mut [C64]) -> Result<()> {
         if x.len() != self.n {
             return Err(Error::Shape {
                 expected: self.n,

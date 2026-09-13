@@ -43,8 +43,12 @@ impl fmt::Display for CoordSys {
     }
 }
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while reading USRBIN output.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Underlying file access failed.
     Io(String),
@@ -189,7 +193,7 @@ impl UsrbinTally {
 }
 
 /// Read and parse all USRBIN tallies from a `.lis` file on disk.
-pub fn read_usrbin_file(path: impl AsRef<Path>) -> Result<Vec<UsrbinTally>, Error> {
+pub fn read_usrbin_file(path: impl AsRef<Path>) -> Result<Vec<UsrbinTally>> {
     let path = path.as_ref();
     let text = std::fs::read_to_string(path)
         .map_err(|e| Error::Io(format!("{}: {}", path.display(), e)))?;
@@ -197,7 +201,7 @@ pub fn read_usrbin_file(path: impl AsRef<Path>) -> Result<Vec<UsrbinTally>, Erro
 }
 
 /// Parse all USRBIN tallies from `.lis` text in memory.
-pub fn parse_usrbin(text: &str) -> Result<Vec<UsrbinTally>, Error> {
+pub fn parse_usrbin(text: &str) -> Result<Vec<UsrbinTally>> {
     let mut reader = Reader {
         lines: text.lines(),
     };
@@ -230,12 +234,12 @@ impl<'a> Reader<'a> {
         self.lines.next()
     }
 
-    fn expect(&mut self, context: &'static str) -> Result<&'a str, Error> {
+    fn expect(&mut self, context: &'static str) -> Result<&'a str> {
         self.readline().ok_or(Error::Truncated { context })
     }
 }
 
-fn parse_tally(reader: &mut Reader<'_>) -> Result<UsrbinTally, Error> {
+fn parse_tally(reader: &mut Reader<'_>) -> Result<UsrbinTally> {
     // Header: `   Cartesian binning n.   1  "single_n  " , generalized
     // particle n.    8` — three double-quote-separated segments carry the
     // coordinate system, tally name, and trailing particle number.
@@ -316,7 +320,7 @@ fn read_block(
     into: &mut Vec<f64>,
     reader: &mut Reader<'_>,
     expected_len: usize,
-) -> Result<(), Error> {
+) -> Result<()> {
     read_floats(first, into)?;
     while into.len() < expected_len {
         let line = reader.expect("usrbin datum")?;
@@ -327,7 +331,7 @@ fn read_block(
 
 /// Parse one `X/Y/Z coordinate:` line: min at token 3, max at 5, bin
 /// count at 7, width at 10.
-fn parse_dim(line: &str) -> Result<DimInfo, Error> {
+fn parse_dim(line: &str) -> Result<DimInfo> {
     let tokens: Vec<&str> = line.split_whitespace().collect();
     if tokens.len() < 11 {
         return Err(Error::BadDimensionLine(line.trim_end().to_string()));
@@ -344,7 +348,7 @@ fn parse_dim(line: &str) -> Result<DimInfo, Error> {
     })
 }
 
-fn read_floats(line: &str, into: &mut Vec<f64>) -> Result<(), Error> {
+fn read_floats(line: &str, into: &mut Vec<f64>) -> Result<()> {
     for token in line.split_whitespace() {
         let value = token.parse::<f64>().map_err(|_| Error::BadNumber {
             context: "usrbin datum",

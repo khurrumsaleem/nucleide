@@ -10,6 +10,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors raised while reading or cross-linking ALARA inputs and outputs.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Filesystem failure while reading an ALARA input or output file.
     #[error("io error: {0}")]

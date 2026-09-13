@@ -207,6 +207,7 @@ fn theta48() -> &'static [C64; 24] {
 
 /// Errors from CRAM evaluation.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Backend/factorization failure.
     Linalg(String),

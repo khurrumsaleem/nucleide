@@ -15,8 +15,12 @@ use std::path::Path;
 use nucleide_nuclei::dialects;
 use nucleide_nuclei::NuclideId;
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while parsing or converting xsdir data.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     Io(String),
     /// A required header word/section was missing or malformed.
@@ -57,14 +61,14 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-fn num_f64(field: &'static str, text: &str) -> Result<f64, Error> {
+fn num_f64(field: &'static str, text: &str) -> Result<f64> {
     text.parse::<f64>().map_err(|_| Error::BadNumber {
         field,
         text: text.to_string(),
     })
 }
 
-fn num_i64(field: &'static str, text: &str) -> Result<i64, Error> {
+fn num_i64(field: &'static str, text: &str) -> Result<i64> {
     text.parse::<i64>().map_err(|_| Error::BadNumber {
         field,
         text: text.to_string(),
@@ -141,7 +145,7 @@ impl XsdirTable {
 
     /// Serpent directory-entry line. Reproduces the reference formatting exactly,
     /// including Python-style `{:.11e}` exponent padding.
-    pub fn to_serpent(&self, directory: &str) -> Result<String, Error> {
+    pub fn to_serpent(&self, directory: &str) -> Result<String> {
         let stype = self.serpent_type().ok_or(Error::MissingTemperature)?; // same failure class as upstream None deref
         let temp_k = self.temperature.ok_or(Error::MissingTemperature)? / 8.617_342_3e-11;
         let dir = if directory.is_empty() {
@@ -198,7 +202,7 @@ pub struct Xsdir {
 
 impl Xsdir {
     /// Read and parse an xsdir file from disk.
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path)
             .map_err(|e| Error::Io(format!("{}: {}", path.display(), e)))?;
@@ -213,7 +217,7 @@ impl Xsdir {
     /// `DATAPATH=`; line 2 must be `atomic weight ratios`; AWR pairs run
     /// until an odd-count line or the `directory` marker; a blank line
     /// terminates the directory entries.
-    pub fn parse(text: &str) -> Result<Self, Error> {
+    pub fn parse(text: &str) -> Result<Self> {
         let mut lines = text.lines();
 
         // First section: optional DATAPATH=... (may itself be blank).
@@ -351,7 +355,7 @@ impl Xsdir {
     }
 
     /// Serpent xsdata lines for all continuous-energy tables.
-    pub fn xsdata_lines(&self) -> Result<Vec<String>, Error> {
+    pub fn xsdata_lines(&self) -> Result<Vec<String>> {
         self.tables
             .iter()
             .filter(|t| t.serpent_type() == Some(1))
@@ -360,7 +364,7 @@ impl Xsdir {
     }
 
     /// Write a Serpent xsdata file for all continuous-energy tables.
-    pub fn write_xsdata(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+    pub fn write_xsdata(&self, path: impl AsRef<Path>) -> Result<()> {
         let body = self.xsdata_lines()?;
         let mut out = String::new();
         for line in body {

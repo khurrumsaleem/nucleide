@@ -7,6 +7,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors raised while reading CCCC files or writing PARTISN decks.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Filesystem failure while reading an input file.
     #[error("io error: {0}")]

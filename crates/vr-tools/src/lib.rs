@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Monte Carlo variance-reduction utilities built on [`mcnp_io`] meshtal data.
 //!
 //! - [`magic`] — MAGIC weight-window generation operating on native
@@ -11,29 +12,59 @@ pub mod sampling;
 pub use magic::{magic, magic_with, MagicOutput, MagicParams, MagicSelection};
 pub use sampling::{AliasTable, MeshSourceSampler, Mode, SampledVoxel};
 
+/// Result alias for the `vr-tools` crate.
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised by variance-reduction tools.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Tally carries no volume elements.
     EmptyTally,
     /// A requested array has the wrong length.
-    LengthMismatch { expected: usize, got: usize },
+    LengthMismatch {
+        /// Expected element count.
+        expected: usize,
+        /// Actual element count.
+        got: usize,
+    },
     /// Every flux value feeding one energy bin is non-positive, so the
     /// MAGIC normalization `value / (2 * max)` would divide by zero.
     /// (Rather than silently emitting `inf`/`nan`, this is an error.)
-    ZeroMaxFlux { energy_group: usize },
+    ZeroMaxFlux {
+        /// Index of the energy bin with no positive flux.
+        energy_group: usize,
+    },
     /// PDF input is empty.
     EmptyPdf,
     /// PDF contains a negative entry.
-    NegativePdf { index: usize, value: f64 },
+    NegativePdf {
+        /// Index of the negative entry.
+        index: usize,
+        /// The offending value.
+        value: f64,
+    },
     /// PDF contains a non-finite (NaN/infinite) entry.
-    NonFinitePdf { index: usize },
+    NonFinitePdf {
+        /// Index of the non-finite entry.
+        index: usize,
+    },
     /// PDF sums to zero (or negatively); cannot normalize.
     ZeroSumPdf,
     /// Tally or user density contains a negative value.
-    NegativeTally { index: usize, value: f64 },
+    NegativeTally {
+        /// Index of the negative value.
+        index: usize,
+        /// The offending value.
+        value: f64,
+    },
     /// Tally array contains a non-finite (NaN/infinite) value.
-    NonFiniteTally { field: &'static str, index: usize },
+    NonFiniteTally {
+        /// Name of the tally field holding the value.
+        field: &'static str,
+        /// Index of the non-finite entry.
+        index: usize,
+    },
 }
 
 impl std::fmt::Display for Error {

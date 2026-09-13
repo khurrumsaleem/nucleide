@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Materials: compositions, mixing, and serialization for nuclear engineering.
 //!
 //! A [`Material`] is a map from [`NuclideId`] to a stored mass in grams,
@@ -56,6 +57,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors produced by material construction, conversion, and export.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// A nuclide name could not be parsed.
     #[error("invalid nuclide name `{name}`")]

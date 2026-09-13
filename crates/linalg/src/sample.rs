@@ -85,6 +85,7 @@ pub const MAX_SAMPLES: usize = 10_000_000;
 /// the factorisation path itself is reported, not errored (see
 /// [`FactorMethod`]).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum SampleError {
     /// `mean` (or the sample set) is empty.
     Empty,

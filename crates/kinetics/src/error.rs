@@ -2,10 +2,14 @@
 
 use thiserror::Error;
 
+/// Result alias for the `kinetics` crate.
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while validating kinetic data, reactivity schedules, time
 /// grids, or solver options — and when a requested analysis has no solution
 /// (prompt-supercritical prompt jump, non-delayed-supercritical period).
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// No precursor groups supplied (`betas`/`lambdas` empty).
     #[error("kinetics: at least one precursor group is required")]

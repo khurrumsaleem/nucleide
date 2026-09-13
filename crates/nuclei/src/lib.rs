@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Nuclide identification and naming conventions.
 //!
 //! Canonical representation is the `nucid`: a single
@@ -21,6 +22,10 @@ pub mod dialects;
 pub mod particles;
 pub mod rxname;
 
+pub use dialects::DialectError;
+pub use particles::Error as ParticlesError;
+pub use rxname::Error as RxnameError;
+
 /// Element symbols indexed by atomic number (`ELEMENTS[z]`); index 0 is unused.
 pub const ELEMENTS: [&str; 119] = [
     "", "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne", "Na", "Mg", "Al", "Si", "P", "S",
@@ -33,8 +38,12 @@ pub const ELEMENTS: [&str; 119] = [
     "Nh", "Fl", "Mc", "Lv", "Ts", "Og",
 ];
 
+/// Result alias for the `nuclei` crate.
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors from nuclide parsing/validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// Atomic number outside 1..=118.
     BadZ(u32),
@@ -88,7 +97,7 @@ impl NuclideId {
     /// Enforces `1 <= Z <= 118`, `Z <= A <= 999`, and `S <= 9`. The
     /// `A <= 999` bound keeps the packed value within `u32` and preserves
     /// the 3-digit AAA invariant used by the zzaaam/zzllaaam dialects.
-    pub const fn new(z: u32, a: u32, state: u32) -> Result<Self, Error> {
+    pub const fn new(z: u32, a: u32, state: u32) -> Result<Self> {
         if z == 0 || z > 118 {
             return Err(Error::BadZ(z));
         }
@@ -130,7 +139,7 @@ impl NuclideId {
     /// single-digit state can explain them) fail with [`Error::BadState`].
     /// Out-of-domain integers fail with the matching [`Error`] instead of
     /// producing an id whose name rendering falls back to the diagnostic form.
-    pub const fn try_from_nucid(nucid: u32) -> Result<Self, Error> {
+    pub const fn try_from_nucid(nucid: u32) -> Result<Self> {
         let tail = nucid % 10_000;
         if tail > 9 {
             return Err(Error::BadState(tail));
@@ -194,7 +203,7 @@ impl NuclideId {
     }
 
     /// Build from a six-digit ZZAAAM integer.
-    pub fn from_zzaaam(v: u32) -> Result<Self, Error> {
+    pub fn from_zzaaam(v: u32) -> Result<Self> {
         let state = v % 10;
         let rest = v / 10;
         let a = rest % 1_000;
@@ -207,7 +216,7 @@ impl NuclideId {
     ///
     /// Dashes are ignored and metastable markers are case-insensitive, so
     /// this matches PyNE's `name_to_id` normalization for the common forms.
-    pub fn from_name(name: &str) -> Result<Self, Error> {
+    pub fn from_name(name: &str) -> Result<Self> {
         let trimmed = name.trim();
         let cleaned: String = trimmed.chars().filter(|&c| c != '-').collect();
         let upper = cleaned.to_ascii_uppercase();
@@ -275,7 +284,7 @@ impl fmt::Display for NuclideId {
 
 impl std::str::FromStr for NuclideId {
     type Err = Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         NuclideId::from_name(s)
     }
 }

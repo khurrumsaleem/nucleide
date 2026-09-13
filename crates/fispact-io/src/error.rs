@@ -7,6 +7,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors raised while parsing FISPACT-II `.fis` output.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Filesystem failure while reading an output file.
     #[error("io error: {0}")]

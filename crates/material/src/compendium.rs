@@ -23,6 +23,7 @@ use nucleide_nuclei::NuclideId;
 
 /// Errors from compendium loading.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Reading the compendium file failed.
     Io(String),

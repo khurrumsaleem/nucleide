@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Parsers for [Serpent](https://mon-jeu.vtt.fi/) Monte Carlo MATLAB-style
 //! output files (`*_res.m`, `*_dep.m`, `*_det.m`).
 //!
@@ -44,7 +45,9 @@ pub use res::parse_res;
 /// A single MATLAB value: a double or a character string.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    /// A numeric (double) value.
     Num(f64),
+    /// A character string value.
     Str(String),
 }
 
@@ -180,8 +183,11 @@ impl Matrix {
 /// One variable's worth of parsed Serpent output.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Entry {
+    /// A single scalar value.
     Scalar(Value),
+    /// A one-dimensional vector of values.
     Vector(Vec<Value>),
+    /// A two-dimensional matrix of values.
     Matrix(Matrix),
 }
 
@@ -391,6 +397,7 @@ pub fn from_file<P: AsRef<Path>>(path: P, kind: Kind) -> Result<Table> {
 
 /// Local error type for parsing and typed lookups.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// Underlying file I/O failure.
     Io(std::io::Error),

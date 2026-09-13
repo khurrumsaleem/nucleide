@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! FISPACT-II output parser producing ALARA-compatible response frames.
 //!
 //! Reads FISPACT-II `.fis` inventory tables into

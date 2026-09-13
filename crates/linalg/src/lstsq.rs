@@ -22,6 +22,7 @@ use faer::Mat;
 
 /// Errors surfaced by [`weighted_lstsq`]. Every rejection names its cause.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum LstsqError {
     /// No rows supplied, or the leading row is empty.
     Empty,

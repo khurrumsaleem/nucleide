@@ -27,8 +27,12 @@ pub enum Format {
     I8LittleEndian,
 }
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while parsing PTRAC files.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     Io(String),
     /// Big-endian or otherwise unsupported layout.
@@ -147,7 +151,7 @@ pub struct PtracFile {
 
 impl PtracFile {
     /// Read a file and parse its headers.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let data =
             std::fs::read(path).map_err(|e| Error::Io(format!("{}: {}", path.display(), e)))?;
@@ -155,7 +159,7 @@ impl PtracFile {
     }
 
     /// Parse PTRAC bytes in memory.
-    pub fn from_bytes(data: Vec<u8>) -> Result<Self, Error> {
+    pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         let mut c = Cursor::new(&data, 0);
 
         // Sentinel probe. The opening record stores -1 either as i32
@@ -294,7 +298,7 @@ impl PtracFile {
     /// Loop structure mirrors the reference writer: an NPS integer record primes
     /// each history; float event records then chain via their first value
     /// until it reads 9000 (end-of-history sentinel).
-    pub fn events(&self) -> Result<Vec<Event>, Error> {
+    pub fn events(&self) -> Result<Vec<Event>> {
         let mut c = Cursor::new(&self.data, self.events_start);
         c.set_width(self.format);
         let mut out = Vec::new();
@@ -360,7 +364,7 @@ fn classify(event_type: i64) -> &'static str {
 }
 
 /// Classify the number width from the sentinel record's byte pattern.
-fn probe_sentinel(c: &Cursor<'_>) -> Result<Format, Error> {
+fn probe_sentinel(c: &Cursor<'_>) -> Result<Format> {
     let lead = c.peek_i32()?;
     if lead != 4 {
         return Err(Error::Unsupported(format!(
@@ -414,7 +418,7 @@ impl<'a> Cursor<'a> {
         self.data.len().saturating_sub(self.pos)
     }
 
-    fn peek_i32(&self) -> Result<i32, Error> {
+    fn peek_i32(&self) -> Result<i32> {
         let b = self
             .data
             .get(self.pos..self.pos + 4)
@@ -422,7 +426,7 @@ impl<'a> Cursor<'a> {
         Ok(i32::from_le_bytes(b.try_into().expect("4 bytes")))
     }
 
-    fn take(&mut self, n: usize) -> Result<&'a [u8], Error> {
+    fn take(&mut self, n: usize) -> Result<&'a [u8]> {
         let b = self
             .data
             .get(self.pos..self.pos + n)
@@ -431,13 +435,13 @@ impl<'a> Cursor<'a> {
         Ok(b)
     }
 
-    fn read_marker(&mut self) -> Result<usize, Error> {
+    fn read_marker(&mut self) -> Result<usize> {
         let b = self.take(4)?;
         Ok(i32::from_le_bytes(b.try_into().expect("4 bytes")) as usize)
     }
 
     /// `[len][payload][len]` → payload slice.
-    fn record(&mut self) -> Result<&'a [u8], Error> {
+    fn record(&mut self) -> Result<&'a [u8]> {
         let lead = self.read_marker()?;
         let payload = self.take(lead)?;
         let trailer = self.read_marker()?;
@@ -449,11 +453,11 @@ impl<'a> Cursor<'a> {
         Ok(payload)
     }
 
-    fn read_string(&mut self) -> Result<String, Error> {
+    fn read_string(&mut self) -> Result<String> {
         Ok(String::from_utf8_lossy(self.record()?).into_owned())
     }
 
-    fn read_float_record(&mut self) -> Result<Vec<f64>, Error> {
+    fn read_float_record(&mut self) -> Result<Vec<f64>> {
         let p = self.record()?;
         Ok(p.chunks_exact(self.flt_w)
             .map(|b| match self.flt_w {
@@ -463,7 +467,7 @@ impl<'a> Cursor<'a> {
             .collect())
     }
 
-    fn read_fixed_floats(&mut self, n: usize) -> Result<Vec<f64>, Error> {
+    fn read_fixed_floats(&mut self, n: usize) -> Result<Vec<f64>> {
         let mut out = Vec::with_capacity(n);
         let payload = self.record()?;
         let want = n * self.flt_w;
@@ -479,7 +483,7 @@ impl<'a> Cursor<'a> {
         Ok(out)
     }
 
-    fn read_int_record(&mut self) -> Result<Vec<i64>, Error> {
+    fn read_int_record(&mut self) -> Result<Vec<i64>> {
         let p = self.record()?;
         Ok(p.chunks_exact(self.int_w)
             .map(|b| match self.int_w {
@@ -489,7 +493,7 @@ impl<'a> Cursor<'a> {
             .collect())
     }
 
-    fn read_fixed_i32(&mut self, n: usize) -> Result<Vec<i32>, Error> {
+    fn read_fixed_i32(&mut self, n: usize) -> Result<Vec<i32>> {
         let payload = self.record()?;
         if payload.len() < n * 4 {
             return Err(Error::Truncated);
@@ -503,7 +507,7 @@ impl<'a> Cursor<'a> {
     /// 8-byte-file counts: MCNP6 puts the first count in 4 bytes then ten
     /// 8-byte counts; others use eleven 8-byte counts; trailing 4-byte
     /// extras fill to the record end either way.
-    fn read_counts_mixed(&mut self, mcnp6: bool) -> Result<[i64; 11], Error> {
+    fn read_counts_mixed(&mut self, mcnp6: bool) -> Result<[i64; 11]> {
         let payload = self.record()?;
         let mut out = [0i64; 11];
         if mcnp6 {
@@ -541,7 +545,7 @@ impl<'a> Cursor<'a> {
 
     /// 8-byte-file id list: first `n_q` ids are 8-byte, remaining `n_i` are
     /// 4-byte.
-    fn read_mixed_ids(&mut self, n_q: usize, n_i: usize) -> Result<Vec<i32>, Error> {
+    fn read_mixed_ids(&mut self, n_q: usize, n_i: usize) -> Result<Vec<i32>> {
         let payload = self.record()?;
         let mut out = Vec::with_capacity(n_q + n_i);
         let q_bytes = n_q * 8;

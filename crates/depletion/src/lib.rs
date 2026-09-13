@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Depletion: CRAM solver, chain files, results.
 //!
 //! Key decisions:
@@ -15,7 +16,7 @@ pub use bateman::{
     solve_with_method, solve_with_method_symbolic, BatemanCache, FallbackReason, Method,
 };
 pub use chain::{Chain, ChainNuclide, DecayMode, Error, FissionYields, Reaction};
-pub use cram::{cram, cram_with_symbolic, Order};
+pub use cram::{cram, cram_with_symbolic, Error as CramError, Order};
 pub use integrate::{
     activity_vec, decay_constants, decay_energies_by_name, decay_energies_mev, decay_energy_mev,
     decay_heat_vec, integrate, integrate_with_method, integrate_with_method_counted, Integrator,
@@ -27,6 +28,9 @@ pub use inventory::{
     SECONDS_PER_YEAR,
 };
 pub use matrix::{DepletionSystem, ReactionRates};
+
+/// Result alias for the `depletion` crate.
+pub type Result<T> = std::result::Result<T, Error>;
 
 use std::collections::BTreeMap;
 
@@ -50,7 +54,7 @@ pub fn deplete_with_method(
     method: Method,
     n0: &BTreeMap<String, f64>,
     dt: f64,
-) -> Result<DepletionResult, Error> {
+) -> Result<DepletionResult> {
     let n = sys.chain.len();
     let mut n0_vec = vec![0.0; n];
     for (name, value) in n0 {
@@ -84,7 +88,7 @@ pub fn deplete(
     order: Order,
     n0: &BTreeMap<String, f64>,
     dt: f64,
-) -> Result<DepletionResult, Error> {
+) -> Result<DepletionResult> {
     deplete_with_method(sys, Method::Cram(order), n0, dt)
 }
 

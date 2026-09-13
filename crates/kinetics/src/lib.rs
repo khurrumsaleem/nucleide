@@ -45,7 +45,7 @@ pub mod params;
 pub mod reactivity;
 pub mod solve;
 
-pub use error::Error;
+pub use error::{Error, Result};
 pub use inhour::{residual as inhour_residual, rho_of_omega, stable_period};
 pub use params::KineticParams;
 pub use reactivity::Reactivity;

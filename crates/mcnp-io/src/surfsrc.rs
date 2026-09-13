@@ -20,8 +20,12 @@ use std::path::Path;
 
 use crate::fortran::{self, read_record, RecordSink};
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while reading or writing SSW data.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     Io(String),
     /// Leading/trailing record-length markers disagreed.
@@ -237,7 +241,7 @@ pub struct SurfSrc {
 
 impl SurfSrc {
     /// Open a file and eagerly read its header block.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let data =
             std::fs::read(path).map_err(|e| Error::Io(format!("{}: {}", path.display(), e)))?;
@@ -248,7 +252,7 @@ impl SurfSrc {
     }
 
     /// Parse a surface-source file from its raw bytes.
-    pub fn from_bytes(data: Vec<u8>) -> Result<Self, Error> {
+    pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         let mut cursor = std::io::Cursor::new(&data);
         let header = read_header(&mut cursor)?;
         Ok(SurfSrc {
@@ -259,7 +263,7 @@ impl SurfSrc {
     }
 
     /// Read all track records following the header.
-    pub fn read_tracklist(&self) -> Result<Vec<TrackData>, Error> {
+    pub fn read_tracklist(&self) -> Result<Vec<TrackData>> {
         let mut cursor = std::io::Cursor::new(&self.data);
         skip_header_records(&mut cursor, &self.header)?;
         let ncrd_abs = self.header.ncrd.unsigned_abs() as usize;
@@ -316,7 +320,7 @@ fn build_track(record: Vec<f64>) -> TrackData {
 
 /// Re-read (and discard) the header records so a fresh file cursor lands at
 /// the start of the tracklist.
-fn skip_header_records<R: Read>(f: &mut R, h: &SurfSrcHeader) -> Result<(), Error> {
+fn skip_header_records<R: Read>(f: &mut R, h: &SurfSrcHeader) -> Result<()> {
     let _ = read_record(f)?; // header (or first of two for SF_00001)
     if h.kod.contains("SF_00001") {
         let _ = read_record(f)?; // second header record
@@ -363,7 +367,7 @@ fn cmp_surflist(a: &[SourceSurf], b: &[SourceSurf]) -> Ordering {
 }
 
 /// Parse the full header block (4+ Fortran records) from a stream.
-fn read_header<R: Read>(f: &mut R) -> Result<SurfSrcHeader, Error> {
+fn read_header<R: Read>(f: &mut R) -> Result<SurfSrcHeader> {
     let mut header_rec = read_record(f)?;
     let kod = header_rec.get_string(8);
 
@@ -591,7 +595,7 @@ fn put_table_1(out: &mut Vec<u8>, h: &SurfSrcHeader, layout: &Layout) {
 
 /// Writes the optional table-2 record; errors if the header promises one but
 /// its fields are missing.
-fn put_table_2(out: &mut Vec<u8>, h: &SurfSrcHeader) -> Result<(), Error> {
+fn put_table_2(out: &mut Vec<u8>, h: &SurfSrcHeader) -> Result<()> {
     let (Some(niwr), Some(mipts), Some(kjaq)) = (h.niwr, h.mipts, h.kjaq) else {
         return Err(Error::MissingTable2);
     };
@@ -641,7 +645,7 @@ enum Layout {
     Mcnp5,
 }
 
-fn detect_layout(h: &SurfSrcHeader) -> Result<Layout, Error> {
+fn detect_layout(h: &SurfSrcHeader) -> Result<Layout> {
     if h.kod.contains("SF_00001") {
         Ok(Layout::SplitHeader)
     } else if h.ver.contains("2.6.0") {
@@ -656,7 +660,7 @@ fn detect_layout(h: &SurfSrcHeader) -> Result<Layout, Error> {
 impl SurfSrcHeader {
     /// Serialize just the header block (all records up to and including the
     /// summary), validating version support and table-2 availability.
-    pub fn header_block(&self) -> Result<Vec<u8>, Error> {
+    pub fn header_block(&self) -> Result<Vec<u8>> {
         let layout = detect_layout(self)?;
         if self.orignp1 < 0 && !self.has_table2() {
             return Err(Error::MissingTable2);
@@ -672,7 +676,7 @@ impl SurfSrcHeader {
     }
 }
 
-fn validate_for_write(h: &SurfSrcHeader) -> Result<(), Error> {
+fn validate_for_write(h: &SurfSrcHeader) -> Result<()> {
     detect_layout(h)?;
     if h.orignp1 < 0 && !h.has_table2() {
         return Err(Error::MissingTable2);
@@ -680,7 +684,7 @@ fn validate_for_write(h: &SurfSrcHeader) -> Result<(), Error> {
     Ok(())
 }
 
-fn emit_block(out: &mut Vec<u8>, h: &SurfSrcHeader, layout: &Layout) -> Result<(), Error> {
+fn emit_block(out: &mut Vec<u8>, h: &SurfSrcHeader, layout: &Layout) -> Result<()> {
     put_header(out, h, layout);
     put_table_1(out, h, layout);
     if h.orignp1 < 0 {
@@ -697,11 +701,7 @@ fn emit_block(out: &mut Vec<u8>, h: &SurfSrcHeader, layout: &Layout) -> Result<(
 /// tracklist length must equal `nrss` and every track record width must equal
 /// `abs(ncrd)`; otherwise a validation error is returned before any bytes are
 /// produced.
-pub fn write_to<W: Write>(
-    w: &mut W,
-    header: &SurfSrcHeader,
-    tracks: &[TrackData],
-) -> Result<(), Error> {
+pub fn write_to<W: Write>(w: &mut W, header: &SurfSrcHeader, tracks: &[TrackData]) -> Result<()> {
     let bytes = encode_file(header, tracks)?;
     w.write_all(&bytes).map_err(|e| Error::Io(e.to_string()))
 }
@@ -711,12 +711,12 @@ pub fn write_to_path<P: AsRef<Path>>(
     path: P,
     header: &SurfSrcHeader,
     tracks: &[TrackData],
-) -> Result<(), Error> {
+) -> Result<()> {
     let bytes = encode_file(header, tracks)?;
     std::fs::write(path, bytes).map_err(|e| Error::Io(e.to_string()))
 }
 
-fn encode_file(header: &SurfSrcHeader, tracks: &[TrackData]) -> Result<Vec<u8>, Error> {
+fn encode_file(header: &SurfSrcHeader, tracks: &[TrackData]) -> Result<Vec<u8>> {
     validate_for_write(header)?;
     let ncrd_abs = header.ncrd.unsigned_abs() as usize;
     if tracks.len() as u64 != header.nrss.max(0) as u64 {
@@ -781,14 +781,14 @@ fn encode_file(header: &SurfSrcHeader, tracks: &[TrackData]) -> Result<Vec<u8>, 
 ///
 /// Reads every input header, rejects incompatible sets, then writes `output`
 /// with the summed header and concatenated (nps-shifted) tracklists.
-pub fn combine_files<P: AsRef<Path>>(inputs: &[P], output: impl AsRef<Path>) -> Result<(), Error> {
+pub fn combine_files<P: AsRef<Path>>(inputs: &[P], output: impl AsRef<Path>) -> Result<()> {
     if inputs.is_empty() {
         return Err(Error::Incompatible("need at least one input file".into()));
     }
     let srcs: Vec<SurfSrc> = inputs
         .iter()
         .map(SurfSrc::open)
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>>>()?;
     let first = &srcs[0].header;
     for other in srcs.iter().skip(1) {
         check_compatible(first, &other.header)?;
@@ -833,7 +833,7 @@ pub fn combine_files<P: AsRef<Path>>(inputs: &[P], output: impl AsRef<Path>) -> 
 }
 
 /// Header compatibility for combining (`_compare_compatible`).
-fn check_compatible(first: &SurfSrcHeader, other: &SurfSrcHeader) -> Result<(), Error> {
+fn check_compatible(first: &SurfSrcHeader, other: &SurfSrcHeader) -> Result<()> {
     let bad = |what: &str| Error::Incompatible(what.to_string());
     if other.kod != first.kod {
         return Err(bad(&format!(

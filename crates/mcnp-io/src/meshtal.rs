@@ -19,7 +19,7 @@ pub enum ParticleKind {
 }
 
 impl ParticleKind {
-    fn parse(line: &str) -> Result<Self, Error> {
+    fn parse(line: &str) -> Result<Self> {
         if line.contains("neutron") {
             Ok(ParticleKind::Neutron)
         } else if line.contains("photon") {
@@ -38,8 +38,12 @@ impl ParticleKind {
     }
 }
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while parsing meshtal text.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     Io(String),
     /// File did not start with a recognizable MCNP header.
@@ -71,7 +75,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-fn f64_of(context: &'static str, token: &str) -> Result<f64, Error> {
+fn f64_of(context: &'static str, token: &str) -> Result<f64> {
     token.parse::<f64>().map_err(|_| Error::BadNumber {
         context,
         text: token.to_string(),
@@ -166,7 +170,7 @@ const DOSE_RESPONSE_LINE: &str = "This mesh tally is modified by a dose response
 
 impl Meshtal {
     /// Read and parse a meshtal file from disk.
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path)
             .map_err(|e| Error::Io(format!("{}: {}", path.display(), e)))?;
@@ -174,7 +178,7 @@ impl Meshtal {
     }
 
     /// Parse meshtal text in memory.
-    pub fn parse(text: &str) -> Result<Self, Error> {
+    pub fn parse(text: &str) -> Result<Self> {
         let mut lines = text.lines();
 
         // Header: version / ld / title / histories.
@@ -238,7 +242,7 @@ impl Meshtal {
 fn parse_tally_block(
     tally_number: u32,
     it: &mut std::iter::Peekable<std::str::Lines<'_>>,
-) -> Result<MeshTallyData, Error> {
+) -> Result<MeshTallyData> {
     let bad = |m: &str| Error::BadTallyBlock(format!("tally {tally_number}: {m}"));
 
     // Particle line + optional dose-response line.
@@ -260,7 +264,7 @@ fn parse_tally_block(
         }
     }
 
-    let mut next_bounds = |prefix: &'static str| -> Result<Vec<f64>, Error> {
+    let mut next_bounds = |prefix: &'static str| -> Result<Vec<f64>> {
         let l = it
             .next()
             .ok_or_else(|| bad("truncated in bounds section"))?;
@@ -275,7 +279,7 @@ fn parse_tally_block(
         let vals: Vec<f64> = w[start..]
             .iter()
             .map(|t| f64_of("bounds", t))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>>>()?;
         Ok(vals)
     };
     let x_bounds = next_bounds("direction:")?;
@@ -296,7 +300,7 @@ fn parse_tally_block(
         .enumerate()
         .map(|(i, name)| (name.to_string(), i))
         .collect();
-    let col = |name: &str| -> Result<usize, Error> {
+    let col = |name: &str| -> Result<usize> {
         column_idx
             .get(name)
             .copied()
@@ -314,7 +318,7 @@ fn parse_tally_block(
     let num_egs = e_bounds.len() - 1;
 
     // Data rows: one block per energy group, then totals when grouped.
-    let mut read_block = |which: &'static str| -> Result<(Vec<f64>, Vec<f64>), Error> {
+    let mut read_block = |which: &'static str| -> Result<(Vec<f64>, Vec<f64>)> {
         let mut res = Vec::with_capacity(n_cells);
         let mut err = Vec::with_capacity(n_cells);
         for _ in 0..n_cells {

@@ -31,8 +31,12 @@ use std::fmt;
 use nucleide_nuclei::data as nuc_data;
 use nucleide_nuclei::{dialects, NuclideId};
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while generating FLUKA cards.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Nuclide → FLUKA-name resolution failed (see [`nucleide_nuclei::dialects`]).
     Naming(dialects::DialectError),
@@ -240,7 +244,7 @@ impl From<u32> for FlukaNuc {
 
 impl FlukaNuc {
     /// Resolve to the FLUKA table name for this nucleus.
-    pub fn fluka_name(&self) -> Result<&'static str, Error> {
+    pub fn fluka_name(&self) -> Result<&'static str> {
         match self {
             FlukaNuc::Nuclide(nuc) => dialects::id_to_fluka(*nuc).map_err(Error::Naming),
             FlukaNuc::Element(z) => fluka_element_name(*z).ok_or(Error::UnknownElementZ(*z)),
@@ -400,7 +404,7 @@ pub fn material_line(
 ///
 /// Build the `MATERIAL` card string for an element or isotope: the z number comes from
 /// the nuclide/element, the atomic mass from [`FlukaNuc::atomic_mass`].
-pub fn material_str(fid: u32, nuc: impl Into<FlukaNuc>, density: f64) -> Result<String, Error> {
+pub fn material_str(fid: u32, nuc: impl Into<FlukaNuc>, density: f64) -> Result<String> {
     let nuc = nuc.into();
     let fluka_name = nuc.fluka_name()?;
     if is_fluka_builtin(fluka_name) {
@@ -433,7 +437,7 @@ pub fn compound_str(
     density: f64,
     frac_type: FracType,
     components: &[Component],
-) -> Result<String, Error> {
+) -> Result<String> {
     if components.is_empty() {
         return Err(Error::EmptyCompound);
     }
@@ -444,7 +448,7 @@ pub fn compound_str(
     let names: Vec<&'static str> = sorted
         .iter()
         .map(|c| c.nuc.fluka_name())
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<_>>()?;
 
     let frac_sign = match frac_type {
         FracType::Mass => "-",

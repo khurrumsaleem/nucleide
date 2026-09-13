@@ -2,10 +2,14 @@
 
 use thiserror::Error;
 
+/// Result alias for the `spectroscopy` crate.
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while smoothing spectra, counting peaks, calibrating
 /// energy/efficiency, parsing `.spe` text, evaluating X-ray lines, or
 /// rendering SDEF decay-source cards.
 #[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Rectangular smoothing width is below 3 (got `{0}`).
     #[error("spectroscopy: smoothing width {0} is less than 3")]

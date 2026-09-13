@@ -75,6 +75,7 @@ impl ChainNuclide {
 
 /// Errors from chain parsing and matrix construction.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Underlying file I/O failure.
     Io(String),

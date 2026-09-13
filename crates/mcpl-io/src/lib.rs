@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! MCPL Monte Carlo Particle List read/write.
 //!
 //! Implements the binary format described in Kittelmann et al.,
@@ -62,6 +63,8 @@
 
 pub mod ssw;
 
+pub use ssw::SswError;
+
 use std::io::{Read, Write};
 use std::path::Path;
 
@@ -76,8 +79,12 @@ pub const MAGIC: [u8; 4] = *b"MCPL";
 /// Reader tolerance for unit directions (matches upstream `1.0e-5`).
 pub const UNIT_TOL: f64 = 1.0e-5;
 
+/// Result alias for the `mcpl-io` crate.
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while reading or writing MCPL data.
 #[derive(Error, Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Underlying filesystem, gzip, or stream failure with context.
     #[error("io error: {0}")]
@@ -274,7 +281,7 @@ impl Header {
         n
     }
 
-    fn validate_for_write(&self) -> Result<(), Error> {
+    fn validate_for_write(&self) -> Result<()> {
         if let Some(w) = self.universal_weight {
             if !(w.is_finite() && w > 0.0) {
                 return Err(Error::BadUniversalWeight(w));
@@ -295,7 +302,7 @@ impl Header {
     }
 
     /// Serialize just the header block (everything up to the first particle).
-    pub fn header_block(&self) -> Result<Vec<u8>, Error> {
+    pub fn header_block(&self) -> Result<Vec<u8>> {
         self.validate_for_write()?;
         let mut out = Vec::new();
         out.extend_from_slice(&MAGIC);
@@ -338,7 +345,7 @@ impl Header {
     }
 }
 
-fn put_string(out: &mut Vec<u8>, what: &str, s: &str) -> Result<(), Error> {
+fn put_string(out: &mut Vec<u8>, what: &str, s: &str) -> Result<()> {
     if s.as_bytes().contains(&0) {
         return Err(Error::EmbeddedNul(what.to_string()));
     }
@@ -367,7 +374,7 @@ pub struct McplFile {
 
 impl McplFile {
     /// Open a file (`.gz` suffix reads through gzip transparently).
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let raw = std::fs::read(path).map_err(|e| Error::Io(format!("{}: {e}", path.display())))?;
         let data = maybe_gunzip(path, raw)?;
@@ -378,7 +385,7 @@ impl McplFile {
     }
 
     /// Parse uncompressed MCPL bytes.
-    pub fn from_bytes(data: Vec<u8>) -> Result<Self, Error> {
+    pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         let (header, header_len) = read_header(&data)?;
         Ok(McplFile {
             path: None,
@@ -394,7 +401,7 @@ impl McplFile {
     }
 
     /// Decode all particle records.
-    pub fn particles(&self) -> Result<Vec<Particle>, Error> {
+    pub fn particles(&self) -> Result<Vec<Particle>> {
         let size = self.header.particle_size();
         let n = self.header.nparticles as usize;
         let want_end =
@@ -426,7 +433,7 @@ impl McplFile {
     }
 }
 
-fn maybe_gunzip(path: &Path, raw: Vec<u8>) -> Result<Vec<u8>, Error> {
+fn maybe_gunzip(path: &Path, raw: Vec<u8>) -> Result<Vec<u8>> {
     if path.extension().is_some_and(|e| e == "gz") {
         let mut dec = flate2::read::GzDecoder::new(&raw[..]);
         let mut out = Vec::new();
@@ -513,7 +520,7 @@ impl<'a> Cursor<'a> {
         Cursor { buf, pos: 0 }
     }
 
-    fn take(&mut self, n: usize, what: &str) -> Result<&'a [u8], Error> {
+    fn take(&mut self, n: usize, what: &str) -> Result<&'a [u8]> {
         let end = self
             .pos
             .checked_add(n)
@@ -526,27 +533,27 @@ impl<'a> Cursor<'a> {
         Ok(s)
     }
 
-    fn u32(&mut self, what: &str) -> Result<u32, Error> {
+    fn u32(&mut self, what: &str) -> Result<u32> {
         Ok(u32::from_le_bytes(self.take(4, what)?.try_into().unwrap()))
     }
 
-    fn u64(&mut self, what: &str) -> Result<u64, Error> {
+    fn u64(&mut self, what: &str) -> Result<u64> {
         Ok(u64::from_le_bytes(self.take(8, what)?.try_into().unwrap()))
     }
 
-    fn f32(&mut self, what: &str) -> Result<f64, Error> {
+    fn f32(&mut self, what: &str) -> Result<f64> {
         Ok(f32::from_le_bytes(self.take(4, what)?.try_into().unwrap()) as f64)
     }
 
-    fn f64(&mut self, what: &str) -> Result<f64, Error> {
+    fn f64(&mut self, what: &str) -> Result<f64> {
         Ok(f64::from_le_bytes(self.take(8, what)?.try_into().unwrap()))
     }
 
-    fn i32(&mut self, what: &str) -> Result<i32, Error> {
+    fn i32(&mut self, what: &str) -> Result<i32> {
         Ok(i32::from_le_bytes(self.take(4, what)?.try_into().unwrap()))
     }
 
-    fn string(&mut self, what: &str) -> Result<String, Error> {
+    fn string(&mut self, what: &str) -> Result<String> {
         let n = self.u32(what)? as usize;
         let raw = self.take(n, what)?;
         if raw.contains(&0) {
@@ -556,7 +563,7 @@ impl<'a> Cursor<'a> {
     }
 }
 
-fn read_header(data: &[u8]) -> Result<(Header, usize), Error> {
+fn read_header(data: &[u8]) -> Result<(Header, usize)> {
     let mut c = Cursor::new(data);
     let magic = c.take(4, "magic")?;
     if magic != MAGIC {
@@ -670,7 +677,7 @@ fn read_header(data: &[u8]) -> Result<(Header, usize), Error> {
 
 /// Validate every `stat:sum:` comment (upstream syntax, enforced on open
 /// and on write) and reject duplicated keys (upstream errors at open time).
-fn validate_statsum_comments(comments: &[String]) -> Result<(), Error> {
+fn validate_statsum_comments(comments: &[String]) -> Result<()> {
     let mut seen: Vec<&str> = Vec::new();
     for (i, cmt) in comments.iter().enumerate() {
         if !cmt.starts_with("stat:sum:") {
@@ -690,7 +697,7 @@ fn validate_statsum_comments(comments: &[String]) -> Result<(), Error> {
 /// 24 chars holding a finite `-1` or `>= 0` double over `[0-9.\-+eE ]`).
 /// Returns the key. Anything else starting with `stat:` (but not
 /// `stat:sum:`) is only reserved prose upstream and passes through here.
-pub fn statsum_validate(comment: &str) -> Result<&str, String> {
+pub fn statsum_validate(comment: &str) -> std::result::Result<&str, String> {
     let rest = comment
         .strip_prefix("stat:sum:")
         .ok_or_else(|| "missing stat:sum: prefix".to_string())?;
@@ -743,7 +750,7 @@ pub fn statsum_validate(comment: &str) -> Result<&str, String> {
 /// The 24-char value field is emitted losslessly: plain notation when it
 /// fits, scientific notation otherwise, and an error when neither holds the
 /// value exactly. The result always passes [`statsum_validate`].
-pub fn statsum_comment(key: &str, value: f64) -> Result<String, Error> {
+pub fn statsum_comment(key: &str, value: f64) -> Result<String> {
     if key.is_empty() || key.len() > 64 {
         return Err(Error::BadStatSum {
             index: 0,
@@ -796,10 +803,10 @@ pub fn statsum_comment(key: &str, value: f64) -> Result<String, Error> {
     })
 }
 
-fn decode_particle(h: &Header, rec: &[u8]) -> Result<Particle, Error> {
+fn decode_particle(h: &Header, rec: &[u8]) -> Result<Particle> {
     let mut c = Cursor::new(rec);
     let single = !h.double_prec;
-    let mut get_fp = |what: &str| -> Result<f64, Error> {
+    let mut get_fp = |what: &str| -> Result<f64> {
         if single {
             c.f32(what)
         } else {
@@ -866,7 +873,7 @@ fn decode_particle(h: &Header, rec: &[u8]) -> Result<Particle, Error> {
     })
 }
 
-fn encode_particle(h: &Header, p: &Particle, index: usize, out: &mut Vec<u8>) -> Result<(), Error> {
+fn encode_particle(h: &Header, p: &Particle, index: usize, out: &mut Vec<u8>) -> Result<()> {
     let dir2 = p.direction[0] * p.direction[0]
         + p.direction[1] * p.direction[1]
         + p.direction[2] * p.direction[2];
@@ -926,7 +933,7 @@ fn encode_particle(h: &Header, p: &Particle, index: usize, out: &mut Vec<u8>) ->
 /// The stored `nparticles` is the length of `particles`; any count already
 /// in `header.nparticles` is ignored so callers can build the header before
 /// knowing the tally.
-pub fn encode_file(header: &Header, particles: &[Particle]) -> Result<Vec<u8>, Error> {
+pub fn encode_file(header: &Header, particles: &[Particle]) -> Result<Vec<u8>> {
     let mut h = header.clone();
     h.nparticles = particles.len() as u64;
     let mut out = h.header_block()?;
@@ -938,7 +945,7 @@ pub fn encode_file(header: &Header, particles: &[Particle]) -> Result<Vec<u8>, E
 }
 
 /// Write a complete MCPL file (header block plus particles) to a stream.
-pub fn write_to<W: Write>(w: &mut W, header: &Header, particles: &[Particle]) -> Result<(), Error> {
+pub fn write_to<W: Write>(w: &mut W, header: &Header, particles: &[Particle]) -> Result<()> {
     let bytes = encode_file(header, particles)?;
     w.write_all(&bytes).map_err(|e| Error::Io(e.to_string()))
 }
@@ -951,7 +958,7 @@ pub fn write_to_path<P: AsRef<Path>>(
     path: P,
     header: &Header,
     particles: &[Particle],
-) -> Result<(), Error> {
+) -> Result<()> {
     let bytes = encode_file(header, particles)?;
     if path.as_ref().extension().is_some_and(|e| e == "gz") {
         let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());

@@ -4051,6 +4051,7 @@ pub static REACTIONS: [Reaction; NUM_REACTIONS] = [
 
 /// Errors from reaction-name resolution.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// Input did not resolve to any reaction (name, alias, id, or MT).
     NotAReaction(String),

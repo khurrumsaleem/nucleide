@@ -33,7 +33,7 @@ pub mod xray;
 
 pub use calib::{detector_efficiency, energy_bins, fit_efficiency};
 pub use counts::{calc_bg, gross_count, net_counts};
-pub use error::Error;
+pub use error::{Error, Result};
 pub use lines::parse_lines_tsv;
 pub use sdef::{normalize_decay_lines, sdef_card, PointSource};
 pub use smooth::{five_point_smooth, rect_smooth};

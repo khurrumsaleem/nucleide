@@ -7,6 +7,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors raised while reading ORIGEN TAPE files.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Filesystem failure while reading a TAPE file.
     #[error("io error: {0}")]

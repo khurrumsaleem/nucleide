@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! CCCC binary-standard readers and PARTISN deck writer.
 //!
 //! Glue around legacy deterministic-transport files: ISOTXS / RTFLUX / ATFLUX /

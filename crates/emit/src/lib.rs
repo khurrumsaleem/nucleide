@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Single-material emission to legacy transport-code cards.
 //!
 //! [`emit_all`] renders one [`Material`] through five code dialects — MCNP,
@@ -200,6 +201,7 @@ impl DriftTable {
 
 /// Errors raised while emitting cards.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Material is empty or its masses sum to a non-positive value.
     #[error("material is empty or its masses sum to a non-positive value")]

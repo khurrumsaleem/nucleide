@@ -472,6 +472,7 @@ impl std::str::FromStr for ParticleId {
 
 /// Errors from particle-spec parsing.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// The spec is not a fundamental particle (heavy ions fall here; they
     /// are recognized by [`is_heavy_ion`] instead).

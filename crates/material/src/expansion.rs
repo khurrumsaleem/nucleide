@@ -42,6 +42,7 @@ pub type FormulaResult<T> = std::result::Result<T, FormulaError>;
 /// report byte positions and unknown symbols without polluting the shared
 /// composition-error set; mass-table failures are wrapped in [`Self::Core`].
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum FormulaError {
     /// The formula is not valid under the supported grammar (see
     /// [`parse_formula`]).

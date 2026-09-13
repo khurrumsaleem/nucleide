@@ -50,11 +50,38 @@ workspace crates from tags.
   the Rayon chain stays untouched). Zone totals and voxel maps tag in the
   browser (200-voxel demo cap) with a scatter/bar/heatmap/histogram chart
   bundle, with E2E coverage.
+- Crate-root error re-exports and `Result` aliases (API-stability pass,
+  additive half): `nucleide-linalg` re-exports `DecayError` /
+  `LstsqError` / `SampleError`, `nucleide-nuclei` re-exports
+  `DialectError` / `ParticlesError` / `RxnameError`, `nucleide-depletion`
+  re-exports `CramError`, `nucleide-mcpl-io` re-exports `SswError`, and
+  `nucleide-fluka-io` re-exports `MaterialError` / `UsrbinError`
+  (`nucleide-mcnp-io` stays module-path-only by design); the nine crates
+  lacking one gain `pub type Result<T>` (crate-root in `nucleide-depletion`,
+  `nucleide-kinetics`, `nucleide-linalg`, `nucleide-mcpl-io`,
+  `nucleide-nuclei`, `nucleide-spectroscopy`, `nucleide-vr-tools`,
+  per-module in `nucleide-fluka-io` and all nine `nucleide-mcnp-io` error
+  modules). `#![warn(missing_docs)]` now covers 17 of 18 crates —
+  `nucleide-mcnp-io` (~132 missing docs) is the recorded deferral, owned
+  by a future doc-volume cycle.
+
+### Changed
+
+- `#[non_exhaustive]` on all 38 public error enums across the 18 workspace
+  crates (`nucleide-mcnp-io`'s nine per-module errors included): the
+  API-stability sweep breaks exhaustive downstream `match`es on these
+  enums — a wildcard arm is now required — and new variants become
+  non-breaking additions. No data struct or non-error enum was touched,
+  and 154 internal `Result<T, Error>` respellings to the new aliases
+  change no public signature.
 
 ### Fixed
 
-- Sampling kernel draw-count cap (`nucleide-linalg` `sample::MAX_SAMPLES` = 10M enforced in `validate_block` as `SampleError::TooManySamples` → `ValueError`, covering `sample_mvn`/`sample_lhs`/`sample_lognormal`).
-- Corrected `inv_normal_cdf` docs: inputs at/beyond `[0, 1]` yield `NaN`, not `∓inf` (unreachable — `sample_lhs` clamps into `(0, 1)`).
+- Sampling kernel draw-count cap (`nucleide-linalg` `sample::MAX_SAMPLES` = 10M
+  enforced in `validate_block` as `SampleError::TooManySamples` → `ValueError`,
+  covering `sample_mvn`/`sample_lhs`/`sample_lognormal`).
+- Corrected `inv_normal_cdf` docs: inputs at/beyond `[0, 1]` yield `NaN`, not
+  `∓inf` (unreachable — `sample_lhs` clamps into `(0, 1)`).
 - WASM UQ facades (`uqSample`/`sampleLhs`) reject `n < 2` with a
   moments-need-`n >= 2` message instead of the confusing `sample_cov`
   `DimensionMismatch`, and reject `seed >= 2^53` (f64 integer precision —

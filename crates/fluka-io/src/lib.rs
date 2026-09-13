@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! FLUKA Monte Carlo code interface.
 //!
 //! - [`usrbin`]: reads USRBIN tally blocks from `.lis` output files
@@ -9,3 +10,6 @@
 
 pub mod material;
 pub mod usrbin;
+
+pub use material::Error as MaterialError;
+pub use usrbin::Error as UsrbinError;

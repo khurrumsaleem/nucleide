@@ -46,8 +46,12 @@ pub fn fields_for_rprop(rprop: i32) -> Option<usize> {
     }
 }
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while reading ENDL tables.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// I/O failure while reading the file.
     Io(String),
@@ -201,7 +205,7 @@ pub struct Library {
 
 impl Library {
     /// Read and parse an ENDL file from disk.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path)
             .map_err(|e| Error::Io(format!("{}: {}", path.display(), e)))?;
@@ -209,7 +213,7 @@ impl Library {
     }
 
     /// Parse ENDL text in memory (`Library(fh)` header pass, `endl.py:67-129`).
-    pub fn parse(text: &str) -> Result<Self, Error> {
+    pub fn parse(text: &str) -> Result<Self> {
         // Work on raw lines (no `\r` stripping: `\n` endings are the contract).
         let lines: Vec<&str> = text.lines().collect();
         let mut tables = Vec::new();
@@ -306,7 +310,7 @@ impl Library {
         rprop: i32,
         x1: Option<i32>,
         p_out: Option<i32>,
-    ) -> Result<&[Vec<f64>], Error> {
+    ) -> Result<&[Vec<f64>]> {
         if !self.tables.iter().any(|t| t.nuc == nuc) {
             return Err(Error::UnknownNucleus(nuc));
         }
@@ -366,7 +370,11 @@ fn parse_int_cell(cell: &str, fallback: i32) -> i32 {
     t.parse::<i32>().unwrap_or(fallback)
 }
 
-fn parse_header(line1: &str, line2: &str, line_no: usize) -> Result<RawHeader, String> {
+fn parse_header(
+    line1: &str,
+    line2: &str,
+    line_no: usize,
+) -> std::result::Result<RawHeader, String> {
     let zzzaaa = parse_int_cell(slice(line1, 0, 6), -1);
     if zzzaaa < 0 {
         return Err(format!(

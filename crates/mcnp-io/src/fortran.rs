@@ -33,8 +33,12 @@
 use std::fmt;
 use std::io::{Read, Write};
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while framing or traversing Fortran records.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// I/O failure while reading or writing the stream.
     Io(String),
@@ -104,7 +108,7 @@ impl Record {
         self.pos = 0;
     }
 
-    fn take(&mut self, n: usize) -> Result<&[u8], Error> {
+    fn take(&mut self, n: usize) -> Result<&[u8]> {
         if self.pos + n > self.bytes.len() {
             return Err(Error::ShortRecord {
                 need: self.pos + n,
@@ -122,18 +126,18 @@ impl Record {
     }
 
     /// One little-endian 4-byte integer (`get_int`).
-    pub fn get_i32(&mut self) -> Result<i32, Error> {
+    pub fn get_i32(&mut self) -> Result<i32> {
         let b = self.take(4)?;
         Ok(i32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
     /// `n` little-endian 4-byte integers.
-    pub fn get_i32_n(&mut self, n: usize) -> Result<Vec<i32>, Error> {
+    pub fn get_i32_n(&mut self, n: usize) -> Result<Vec<i32>> {
         (0..n).map(|_| self.get_i32()).collect()
     }
 
     /// One little-endian 8-byte integer (`get_long`).
-    pub fn get_i64(&mut self) -> Result<i64, Error> {
+    pub fn get_i64(&mut self) -> Result<i64> {
         let b = self.take(8)?;
         Ok(i64::from_le_bytes([
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
@@ -141,13 +145,13 @@ impl Record {
     }
 
     /// One little-endian 4-byte float (`get_float`).
-    pub fn get_f32(&mut self) -> Result<f32, Error> {
+    pub fn get_f32(&mut self) -> Result<f32> {
         let b = self.take(4)?;
         Ok(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
     /// One little-endian 8-byte float (`get_double`).
-    pub fn get_f64(&mut self) -> Result<f64, Error> {
+    pub fn get_f64(&mut self) -> Result<f64> {
         let b = self.take(8)?;
         Ok(f64::from_le_bytes([
             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
@@ -155,12 +159,12 @@ impl Record {
     }
 
     /// `n` little-endian 8-byte floats.
-    pub fn get_f64_n(&mut self, n: usize) -> Result<Vec<f64>, Error> {
+    pub fn get_f64_n(&mut self, n: usize) -> Result<Vec<f64>> {
         (0..n).map(|_| self.get_f64()).collect()
     }
 
     /// Drain every remaining whole 4-byte integer (trailing extras).
-    pub fn drain_i32_extras(&mut self) -> Result<Vec<i32>, Error> {
+    pub fn drain_i32_extras(&mut self) -> Result<Vec<i32>> {
         let mut v = Vec::new();
         while self.remaining() >= 4 {
             v.push(self.get_i32()?);
@@ -241,7 +245,7 @@ pub fn frame_record(payload: &[u8]) -> Vec<u8> {
 }
 
 /// Read one `[i32 len][payload][i32 len]` record (`get_fortran_record`).
-pub fn read_record<R: Read>(r: &mut R) -> Result<Record, Error> {
+pub fn read_record<R: Read>(r: &mut R) -> Result<Record> {
     let mut marker = [0u8; 4];
     r.read_exact(&mut marker)
         .map_err(|e| Error::Io(e.to_string()))?;
@@ -276,7 +280,7 @@ pub fn read_record<R: Read>(r: &mut R) -> Result<Record, Error> {
 }
 
 /// Write one framed record to a stream.
-pub fn write_record<W: Write>(w: &mut W, payload: &[u8]) -> Result<(), Error> {
+pub fn write_record<W: Write>(w: &mut W, payload: &[u8]) -> Result<()> {
     w.write_all(&frame_record(payload))
         .map_err(|e| Error::Io(e.to_string()))
 }

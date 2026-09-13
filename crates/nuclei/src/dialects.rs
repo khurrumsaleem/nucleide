@@ -48,6 +48,7 @@ use crate::{element_symbol, Error, NuclideId, ELEMENTS};
 
 /// Errors raised by the dialect converters in this module.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DialectError {
     /// Numeric input admits no interpretation in the source dialect.
     NotANuclide(u32),

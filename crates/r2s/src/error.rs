@@ -7,6 +7,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors raised while building or running an R2S workflow.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
     /// Filesystem failure while reading workflow inputs.
     #[error("io error: {0}")]

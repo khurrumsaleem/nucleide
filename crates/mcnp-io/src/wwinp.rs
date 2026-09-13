@@ -17,8 +17,12 @@
 use std::fmt;
 use std::path::Path;
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while reading or writing WWINP files.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     Io(String),
     /// Cylindrical meshes (`nr = 16`) are unsupported upstream too.
@@ -47,7 +51,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-fn num(context: &'static str, tok: &str) -> Result<f64, Error> {
+fn num(context: &'static str, tok: &str) -> Result<f64> {
     tok.parse::<f64>().map_err(|_| Error::BadNumber {
         context,
         text: tok.to_string(),
@@ -88,7 +92,7 @@ pub struct Wwinp {
 
 impl Wwinp {
     /// Read and parse a WWINP file.
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path)
             .map_err(|e| Error::Io(format!("{}: {}", path.display(), e)))?;
@@ -96,7 +100,7 @@ impl Wwinp {
     }
 
     /// Parse WWINP text in memory.
-    pub fn parse(text: &str) -> Result<Self, Error> {
+    pub fn parse(text: &str) -> Result<Self> {
         let mut tokens = TokenFeed::new(text.lines().peekable());
 
         // ---- Block 1 ----
@@ -122,7 +126,7 @@ impl Wwinp {
             .line()?
             .split_whitespace()
             .map(|t| num("ne", t).map(|v| v as u32))
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<_>>()?;
         if ne.is_empty() || ne.len() > 2 {
             return Err(Error::BadStructure(format!("bad ne length {}", ne.len())));
         }
@@ -242,7 +246,7 @@ impl Wwinp {
     }
 
     /// Write canonical WWINP text (Python-compatible numeric formatting).
-    pub fn to_text(&self) -> Result<String, Error> {
+    pub fn to_text(&self) -> Result<String> {
         let mut out = String::new();
 
         // Block 1
@@ -290,7 +294,7 @@ impl Wwinp {
     }
 
     /// Write to disk in canonical form.
-    pub fn write_file(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+    pub fn write_file(&self, path: impl AsRef<Path>) -> Result<()> {
         std::fs::write(path, self.to_text()?).map_err(|e| Error::Io(e.to_string()))
     }
 }
@@ -306,7 +310,7 @@ impl<'a, I: Iterator<Item = &'a str>> TokenFeed<'a, I> {
         Self { lines }
     }
 
-    fn line(&mut self) -> Result<&'a str, Error> {
+    fn line(&mut self) -> Result<&'a str> {
         self.lines
             .next()
             .ok_or_else(|| Error::BadStructure("unexpected EOF".into()))

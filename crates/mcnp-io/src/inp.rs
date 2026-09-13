@@ -78,8 +78,12 @@ const LIB_KEYWORDS: [&str; 5] = ["NLIB", "PLIB", "HLIB", "PNLIB", "ELIB"];
 /// (material densities).
 const METADATA_KEYS: [&str; 3] = ["source", "comments", "name"];
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while parsing materials from an MCNP input deck.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Filesystem read failed.
     Io(String),
@@ -257,7 +261,7 @@ impl McnpMaterial {
 ///
 /// Geometry, tallies and all other data cards are ignored; only the cell
 /// cards (for densities) and `m<N>` cards are inspected.
-pub fn materials_from_inp(text: &str) -> Result<Vec<McnpMaterial>, Error> {
+pub fn materials_from_inp(text: &str) -> Result<Vec<McnpMaterial>> {
     let lines: Vec<&str> = text.lines().collect();
 
     let mut cell_densities: BTreeMap<u32, Vec<f64>> = BTreeMap::new();
@@ -291,12 +295,12 @@ pub fn materials_from_inp(text: &str) -> Result<Vec<McnpMaterial>, Error> {
 
 /// Alias for [`materials_from_inp`] for callers that think in terms of a
 /// generic string parser rather than "inp" input decks.
-pub fn materials_from_str(text: &str) -> Result<Vec<McnpMaterial>, Error> {
+pub fn materials_from_str(text: &str) -> Result<Vec<McnpMaterial>> {
     materials_from_inp(text)
 }
 
 /// Read an MCNP input file and parse every material card.
-pub fn materials_from_file(path: impl AsRef<Path>) -> Result<Vec<McnpMaterial>, Error> {
+pub fn materials_from_file(path: impl AsRef<Path>) -> Result<Vec<McnpMaterial>> {
     let text = std::fs::read_to_string(path.as_ref()).map_err(|e| Error::Io(e.to_string()))?;
     materials_from_inp(&text)
 }
@@ -325,7 +329,7 @@ fn record_cell_density(
     line: &str,
     lineno: usize,
     cell_densities: &mut BTreeMap<u32, Vec<f64>>,
-) -> Result<(), Error> {
+) -> Result<()> {
     let tokens: Vec<&str> = line.split_whitespace().collect();
     let number: u32 = tokens[1].parse().map_err(|_| Error::BadCard {
         line: lineno,
@@ -347,7 +351,7 @@ fn record_cell_density(
 
 /// Material number if `line` opens a material card (`[mM]<digits>` token),
 /// `Ok(None)` otherwise.
-fn material_card_number(line: &str, lineno: usize) -> Result<Option<u32>, Error> {
+fn material_card_number(line: &str, lineno: usize) -> Result<Option<u32>> {
     let token = match line.split_whitespace().next() {
         Some(t) => t,
         None => return Ok(None),
@@ -396,7 +400,7 @@ fn card_data_lines<'a>(lines: &[&'a str], card_idx: usize) -> Vec<&'a str> {
 
 /// Parse `zaid[.suffix] fraction` pairs (and library keywords) from the
 /// card body; repeated nuclides accumulate.
-fn parse_fractions(data_lines: &[&str], lineno: usize) -> Result<Vec<(NuclideId, f64)>, Error> {
+fn parse_fractions(data_lines: &[&str], lineno: usize) -> Result<Vec<(NuclideId, f64)>> {
     let tokens: Vec<&str> = data_lines
         .iter()
         .map(|l| l.split('$').next().unwrap_or(""))
@@ -453,7 +457,7 @@ fn split_keyword(token: &str) -> Option<(&str, &str)> {
 /// ZAID → [`NuclideId`]: natural elements (`AAA == 0`) become placeholder
 /// ids (module docs), everything else goes through the shared dialect
 /// converter (Am-242 swap, metastable heuristics included).
-fn nuclide_from_zaid(zaid: u32, lineno: usize) -> Result<NuclideId, Error> {
+fn nuclide_from_zaid(zaid: u32, lineno: usize) -> Result<NuclideId> {
     if zaid % 1_000 == 0 && zaid > 0 {
         return Ok(NuclideId::from_nucid(zaid * 10_000));
     }
@@ -461,7 +465,7 @@ fn nuclide_from_zaid(zaid: u32, lineno: usize) -> Result<NuclideId, Error> {
 }
 
 /// Fraction type from the sign of the first non-zero fraction.
-fn detect_fraction_type(pairs: &[(NuclideId, f64)], lineno: usize) -> Result<FracKind, Error> {
+fn detect_fraction_type(pairs: &[(NuclideId, f64)], lineno: usize) -> Result<FracKind> {
     match pairs.iter().map(|&(_, f)| f).find(|f| *f != 0.0) {
         Some(f) if f < 0.0 => Ok(FracKind::Mass),
         Some(_) => Ok(FracKind::Atom),

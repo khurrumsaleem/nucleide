@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Scoped ORIGEN 2.2 TAPE readers.
 //!
 //! Covers the decay-data path (`TAPE9`-style decay constants), `TAPE5` input

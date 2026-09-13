@@ -33,6 +33,7 @@ use crate::sample::PerturbConvention;
 
 /// Errors surfaced by the decay perturbation consumer.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum DecayError {
     /// An input slice is empty.
     Empty,

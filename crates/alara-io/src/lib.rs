@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! ALARA activation-code interop: input-deck, flux, schedule, and output glue.
 //!
 //! This crate is **glue, not a solver**. It reads the text files ALARA

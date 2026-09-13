@@ -65,6 +65,12 @@ conventions, and checks expected for code changes.
 - Type-check with `mypy --strict` against the `.pyi` stubs.
 - The compiled `_internal` module is checked via its stub; do not add business
   logic to the pure-Python facade.
+- Facade naming in the flat `nucleide._internal` namespace: `parse_*` takes
+  text, `read_*` takes a path, and a name carries a domain prefix
+  (`alara_*`, `origen_*`, …) wherever a collision across modules is
+  plausible. `nucleide.cccc` ships both naming eras side by side
+  (`isotxs_parse` plus prefixed `cccc_parse_isotxs` aliases) — the dual
+  exports are grandfathered; document, don't rename.
 
 ### Shell scripts
 
@@ -83,16 +89,27 @@ Python APIs. Breaking changes are signaled, never silent:
    "…")]` on Rust items (removed no earlier than the next minor) and
    `warnings.warn(..., DeprecationWarning)` on the Python facade for the
    same window.
-3. Pure additions (new functions, modules, error variants, struct fields)
-   need no deprecation period, but error enums stay exhaustive within a
-   minor line so downstream `match`es keep compiling — a new variant is a
-   breaking change and gets a changelog entry like any other.
-4. Stabilized crates carry `#![warn(missing_docs)]`: every public item
-   ships documented, types with invariants construct through validating
+3. Pure additions (new functions, modules, struct fields, error enum
+   variants) need no deprecation period: every public error enum carries
+   `#[non_exhaustive]`, so downstream `match`es must name a wildcard arm
+   and adding a variant stops being breaking. Data structs and non-error
+   enums stay exhaustive — new fields or variants there are breaking.
+4. Error types follow one of two naming patterns: a single crate-root
+   `Error`, or per-module `Error` types re-exported at the crate root
+   under domain names where the type matters cross-module (the
+   `CompendiumError` / `CramError` precedent). `nucleide-mcnp-io` is the
+   sanctioned exception — its nine per-module errors stay module-path-only.
+5. Fallible paths return the crate `Result` alias (`pub type Result<T>`),
+   exposed at the crate root, or per error module where errors are
+   per-module — no user-reachable panics (private `expect`/`unwrap` on
+   validated invariants must cite why the input cannot occur).
+6. Crates carry `#![warn(missing_docs)]`: every public item ships
+   documented, and types with invariants construct through validating
    constructors (record-style structs may keep public fields, validated at
-   use), and fallible paths return `Result` — no user-reachable panics
-   (private `expect`/`unwrap` on validated invariants must cite why the
-   input cannot occur).
+   use). 17 of 18 crates carry the lint after the 0.10.0 API-stability
+   pass; `nucleide-mcnp-io` is the recorded deferral (a doc-volume cycle
+   owns its ~132 missing docs) — new crates must ship the lint from the
+   start.
 
 The 0.5.0 API freeze covered (`nucleide-kinetics`,
 `nucleide-spectroscopy`, the `nucleide-mcnp-io` `endl`/`fortran` modules,

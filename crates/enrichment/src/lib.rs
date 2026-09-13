@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! Multicomponent enrichment cascade solving and separative-work analytics.
 //!
 //! The numeric solver is provided; generated symbolic solvers are
@@ -62,6 +63,7 @@ use nucleide_nuclei::NuclideId;
 /// Reports solver failures: iteration limits, NaN states, and
 /// input-validation failure modes.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// A solver failed to reach its convergence tolerance within the
     /// allotted iterations.
@@ -73,7 +75,10 @@ pub enum Error {
     IterationNaN,
     /// A cascade definition is unusable (empty or degenerate composition,
     /// coincident assay targets, ...).
-    BadComposition { detail: String },
+    BadComposition {
+        /// Why the composition was rejected.
+        detail: String,
+    },
     /// A nuclide in the cascade has no entry in the atomic-mass tables.
     MissingMass(NuclideId),
 }

@@ -44,8 +44,12 @@
 use std::fmt;
 use std::path::Path;
 
+/// Result alias over this module's [`Error`].
+pub type Result<T> = std::result::Result<T, Error>;
+
 /// Errors raised while parsing MCTAL files.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     Io(String),
     BadStructure(String),
@@ -66,7 +70,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-fn num(context: &'static str, tok: &str) -> Result<f64, Error> {
+fn num(context: &'static str, tok: &str) -> Result<f64> {
     tok.parse::<f64>().map_err(|_| Error::BadNumber {
         context,
         text: tok.to_string(),
@@ -357,7 +361,7 @@ pub struct Mctal {
 
 impl Mctal {
     /// Read and parse an MCTAL file.
-    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path)
             .map_err(|e| Error::Io(format!("{}: {}", path.display(), e)))?;
@@ -365,7 +369,7 @@ impl Mctal {
     }
 
     /// Parse MCTAL text in memory.
-    pub fn parse(text: &str) -> Result<Self, Error> {
+    pub fn parse(text: &str) -> Result<Self> {
         let raw: Vec<&str> = text.lines().collect();
 
         let head: Vec<&str> = raw
@@ -414,7 +418,7 @@ impl Mctal {
                 } else {
                     l.split_whitespace()
                         .map(|t| num("tally number", t).map(|v| v as u32))
-                        .collect::<Result<_, _>>()?
+                        .collect::<Result<_>>()?
                 }
             }
             None => Vec::new(),
@@ -666,7 +670,7 @@ fn parse_bin_card(
     letter: char,
     tally: u32,
     context: &'static str,
-) -> Result<BinCard, Error> {
+) -> Result<BinCard> {
     skip_blank(raw, pos);
     let line = raw.get(*pos).ok_or_else(|| {
         Error::BadStructure(format!("tally {tally}: truncated before `{letter}` card"))
@@ -776,11 +780,7 @@ fn parse_bin_card(
 /// Interim: not yet wired into `parse_tally_body` (the `tfc` owner wires it
 /// when the block stops being named-open).
 #[allow(dead_code)]
-fn parse_optional_tfc(
-    raw: &[&str],
-    pos: &mut usize,
-    tally: u32,
-) -> Result<Option<TfcBlock>, Error> {
+fn parse_optional_tfc(raw: &[&str], pos: &mut usize, tally: u32) -> Result<Option<TfcBlock>> {
     let save = *pos;
     skip_blank(raw, pos);
     let peek = match raw.get(*pos) {
@@ -861,7 +861,7 @@ enum TallyBlock {
 
 /// Read the `tally` head line at the cursor (cursor must sit on it) without
 /// advancing past anything else.
-fn read_tally_head(raw: &[&str], pos: usize) -> Result<(u32, i32, Option<i32>), Error> {
+fn read_tally_head(raw: &[&str], pos: usize) -> Result<(u32, i32, Option<i32>)> {
     let line = raw
         .get(pos)
         .ok_or_else(|| Error::BadStructure("truncated tally body".into()))?;
@@ -887,7 +887,7 @@ fn read_tally_head(raw: &[&str], pos: usize) -> Result<(u32, i32, Option<i32>), 
 
 /// Parse one integer field verbatim from the file (no float truncation,
 /// no wraparound: finite, integral, and inside `i64`).
-fn int_field(context: &'static str, tok: &str) -> Result<i64, Error> {
+fn int_field(context: &'static str, tok: &str) -> Result<i64> {
     let v = num(context, tok)?;
     if !(v.is_finite() && v.fract() == 0.0) {
         return Err(Error::BadStructure(format!(
@@ -915,7 +915,7 @@ fn int_field(context: &'static str, tok: &str) -> Result<i64, Error> {
 /// remaining cards, `vals` pairing, and total/cumulative/flag spellings
 /// match the standard body; mesh tallies carry no `tfc` block (a trailing
 /// `tfc` is a loud named-open error, not a silent skip).
-fn parse_mesh_body(raw: &[&str], pos: &mut usize) -> Result<MeshTallyBody, Error> {
+fn parse_mesh_body(raw: &[&str], pos: &mut usize) -> Result<MeshTallyBody> {
     let (number, particle_type, detector_type) = read_tally_head(raw, *pos)?;
     let mesh_kind = detector_type.unwrap_or(-1);
     *pos += 1;
@@ -1083,7 +1083,7 @@ fn parse_mesh_body(raw: &[&str], pos: &mut usize) -> Result<MeshTallyBody, Error
 /// Parse one tally block at the cursor (cursor must sit on its `tally`
 /// line; blank lines already skipped by the caller), dispatching to the
 /// standard or mesh body parser on `detector_type`.
-fn parse_tally_block(raw: &[&str], pos: &mut usize) -> Result<TallyBlock, Error> {
+fn parse_tally_block(raw: &[&str], pos: &mut usize) -> Result<TallyBlock> {
     let (number, _particle_type, detector_type) = read_tally_head(raw, *pos)?;
     if let Some(d) = detector_type {
         if d <= -1 {
@@ -1104,7 +1104,7 @@ fn parse_tally_block(raw: &[&str], pos: &mut usize) -> Result<TallyBlock, Error>
 }
 
 /// Read one particle-list line for a negative `particle_type`.
-fn read_particle_list(raw: &[&str], pos: &mut usize, number: u32) -> Result<Vec<i32>, Error> {
+fn read_particle_list(raw: &[&str], pos: &mut usize, number: u32) -> Result<Vec<i32>> {
     skip_blank(raw, pos);
     let pl = raw
         .get(*pos)
@@ -1125,7 +1125,7 @@ fn read_particle_list(raw: &[&str], pos: &mut usize, number: u32) -> Result<Vec<
 
 /// Collect `FC` comment lines at the cursor (anything before the `f` card
 /// that is not itself a section keyword).
-fn read_comments(raw: &[&str], pos: &mut usize, number: u32) -> Result<Vec<String>, Error> {
+fn read_comments(raw: &[&str], pos: &mut usize, number: u32) -> Result<Vec<String>> {
     let mut comment = Vec::new();
     loop {
         skip_blank(raw, pos);
@@ -1154,7 +1154,7 @@ fn read_vals_block(
     pos: &mut usize,
     number: u32,
     need_pairs: usize,
-) -> Result<Vec<(f64, f64)>, Error> {
+) -> Result<Vec<(f64, f64)>> {
     skip_blank(raw, pos);
     let vline = raw
         .get(*pos)
@@ -1205,7 +1205,7 @@ fn read_vals_block(
 
 /// Parse one standard-tally body at the cursor (cursor must sit on its
 /// `tally` line; blank lines already skipped by the caller).
-fn parse_tally_body(raw: &[&str], pos: &mut usize) -> Result<TallyBody, Error> {
+fn parse_tally_body(raw: &[&str], pos: &mut usize) -> Result<TallyBody> {
     let (number, particle_type, detector_type) = read_tally_head(raw, *pos)?;
     // The dispatcher keeps mesh/radiograph/point-detector arms out of here;
     // re-check defensively so a direct caller still hears a loud named-open.

@@ -548,6 +548,7 @@ impl std::fmt::Debug for Analytics<'_> {
 
 /// Errors from radioanalytics beyond the shared [`enum@crate::Error`] set.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum AnalyticsError {
     /// No decay data was available for a requested nuclide.
     ///
