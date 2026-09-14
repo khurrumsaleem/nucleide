@@ -390,7 +390,7 @@
     },
     {
       "kind": "prose",
-      "text": "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped\nv2: surfaces, cells, nested universes, and a material stub; a filled cell\ncarries `fill` instead of `material`). Structural probes \u2014 surface\nand cell counts, region ids referencing defined surfaces, boundary\nattributes, material/fill stubs \u2014 always run; the OpenMC `Region.from_expression`\ncross-check runs only when `openmc` is importable (validation container).\nReject decks must raise `ValueError`."
+      "text": "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped\nv3: surfaces, cells, nested universes, rectangular `LAT=1` lattices, and a\nmaterial stub; a filled cell carries `fill` instead of `material`).\nStructural probes \u2014 surface and cell counts, region ids referencing defined\nsurfaces, boundary attributes, material/fill stubs \u2014 always run, as do\nlattice cross-references (dimension/count products, universe-id references,\nfill linkage) for decks with `<lattice>` blocks. When `openmc` is importable\n(validation container), the `Region.from_expression` cross-check runs, every\nGO deck's `geometry.xml` is fully loaded by OpenMC (`Geometry.from_xml` with\nstub materials for the emitted material numbers), and lattice decks are\nverified geometrically against the source deck: each element's universe id\nmatches the deck `FILL` matrix entry at the same MCNP `(i, j, k)` indices\n(`k, j, i` i-fastest vs OpenMC row-major `z` up/`y` down/`x` up), the\nelement centroid lies inside the universe's cells as positioned by the\ndeck surfaces, and `pitch * dimension` spans the lattice cell's RPP bounds.\nReject decks must raise `ValueError`."
     },
     {
       "kind": "table",
@@ -510,6 +510,30 @@
           "OK"
         ],
         [
+          "deck_csg_lattice_rect.txt",
+          "structure",
+          "14 surfs, 10 cells, 20 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_lattice_rect.txt",
+          "lattice cross-reference",
+          "1 lattices, 15 values",
+          "OK"
+        ],
+        [
+          "deck_csg_lattice_rect.txt",
+          "serpent structure",
+          "9 surfs, 10 cells, 19 refs, 1 lattices",
+          "OK"
+        ],
+        [
+          "deck_csg_lattice_rect.txt",
+          "phits structure",
+          "9 surfs, 10 cells, 19 refs, 1 lattices",
+          "OK"
+        ],
+        [
           "deck_csg_complement_reject.txt",
           "reject",
           "1",
@@ -549,6 +573,60 @@
           "deck_csg_universe_data.txt",
           "openmc regions",
           "2",
+          "OK"
+        ],
+        [
+          "deck_csg_lattice_rect.txt",
+          "openmc regions",
+          "10",
+          "OK"
+        ],
+        [
+          "deck_csg_sphere_box.txt",
+          "openmc geometry load",
+          "3 cells, 1 universes",
+          "OK"
+        ],
+        [
+          "deck_csg_rpp.txt",
+          "openmc geometry load",
+          "2 cells, 1 universes",
+          "OK"
+        ],
+        [
+          "deck_csg_rcc.txt",
+          "openmc geometry load",
+          "2 cells, 1 universes",
+          "OK"
+        ],
+        [
+          "deck_csg_complement.txt",
+          "openmc geometry load",
+          "2 cells, 1 universes",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_fill.txt",
+          "openmc geometry load",
+          "2 cells, 2 universes",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_data.txt",
+          "openmc geometry load",
+          "2 cells, 2 universes",
+          "OK"
+        ],
+        [
+          "deck_csg_lattice_rect.txt",
+          "openmc geometry load",
+          "10 cells, 9 universes",
+          "OK"
+        ],
+        [
+          "deck_csg_lattice_rect.txt",
+          "openmc lattice geometry",
+          "8 elements, 39 values",
           "OK"
         ]
       ]

@@ -319,26 +319,31 @@ E9 SDEF: hand lines (0.662x2, 1.17, 1.33) normalize to 1/2, 1/4, 1/4.
 
 E9 SDEF: single-line isotropic card is byte-exact hand gold.
 
+E9 SDEF: emitted cards round-trip through the legacy SDEF reader (`nucleide.mcnp.parse_sdef`) byte-
+identically, single-line and distribution forms alike.
+
 SPE fixtures: cross-format counts equality over 8 channels.
 
-| Gate                           | Rel err      | Tol     | Status |
-|--------------------------------|--------------|---------|--------|
-| E1 rect smooth                 | 0.000000e+00 | < 1e-12 | PASS   |
-| E2 five-point smooth           | 0.000000e+00 | < 1e-12 | PASS   |
-| E3 background                  | 0.000000e+00 | < 1e-12 | PASS   |
-| E4 gross count                 | 0.000000e+00 | < 1e-12 | PASS   |
-| E5 net counts                  | 1.665335e-16 | < 1e-12 | PASS   |
-| E6 energy bins                 | 0.000000e+00 | < 1e-12 | PASS   |
-| E7 efficiency golden           | 0.000000e+00 | < 1e-12 | PASS   |
-| E7-fit fit1_degree2 recovery   | 6.938894e-15 | < 1e-9  | PASS   |
-| E7-fit fit1_degree2 round-trip | 6.732910e-16 | < 1e-9  | PASS   |
-| E7-fit fit2_degree1 recovery   | 2.220446e-16 | < 1e-9  | PASS   |
-| E7-fit fit2_degree1 round-trip | 3.731756e-16 | < 1e-9  | PASS   |
-| E8 xray lines                  | 1.850372e-16 | < 1e-12 | PASS   |
-| E9 decay normalization         | 0.000000e+00 | < 1e-12 | PASS   |
-| E9 single-line card            | exact        | equal   | PASS   |
-| E9 distribution cards          | exact        | equal   | PASS   |
-| SPE cross-format counts        | n=8          | equal   | PASS   |
+| Gate                                | Rel err      | Tol     | Status |
+|-------------------------------------|--------------|---------|--------|
+| E1 rect smooth                      | 0.000000e+00 | < 1e-12 | PASS   |
+| E2 five-point smooth                | 0.000000e+00 | < 1e-12 | PASS   |
+| E3 background                       | 0.000000e+00 | < 1e-12 | PASS   |
+| E4 gross count                      | 0.000000e+00 | < 1e-12 | PASS   |
+| E5 net counts                       | 1.665335e-16 | < 1e-12 | PASS   |
+| E6 energy bins                      | 0.000000e+00 | < 1e-12 | PASS   |
+| E7 efficiency golden                | 0.000000e+00 | < 1e-12 | PASS   |
+| E7-fit fit1_degree2 recovery        | 6.938894e-15 | < 1e-9  | PASS   |
+| E7-fit fit1_degree2 round-trip      | 6.732910e-16 | < 1e-9  | PASS   |
+| E7-fit fit2_degree1 recovery        | 2.220446e-16 | < 1e-9  | PASS   |
+| E7-fit fit2_degree1 round-trip      | 3.731756e-16 | < 1e-9  | PASS   |
+| E8 xray lines                       | 1.850372e-16 | < 1e-12 | PASS   |
+| E9 decay normalization              | 0.000000e+00 | < 1e-12 | PASS   |
+| E9 single-line card                 | exact        | equal   | PASS   |
+| E9 distribution cards               | exact        | equal   | PASS   |
+| E9 reader round-trip (single-line)  | exact        | equal   | PASS   |
+| E9 reader round-trip (distribution) | exact        | equal   | PASS   |
+| SPE cross-format counts             | n=8          | equal   | PASS   |
 
 ### Smoothing overlay (figure source)
 
@@ -364,8 +369,10 @@ X-ray algebra has no container check: the upstream routine reads its HDF5 atomic
 and no atomic values are vendored here, so E8 is pinned by the synthetic hand values above.
 
 E9 SDEF: single-line cards diffed byte-for-byte against pyne.source.PointSource.mcnp (beam,
-isotropic, and the MCNP6 proton designator); the multi-line ERG=D1 distribution form has no upstream
-counterpart and is pinned by the synthetic card goldens in the synthetic stage.
+isotropic, and the MCNP6 proton designator), then round-tripped through the legacy SDEF reader
+before the comparison is recorded; the multi-line ERG=D1 distribution form has no upstream
+counterpart and is pinned by the synthetic card goldens plus reader round-trip in the synthetic
+stage.
 
 | Gate                                     | Rel err      | Tol     | Status                                              |
 |------------------------------------------|--------------|---------|-----------------------------------------------------|
@@ -382,8 +389,11 @@ counterpart and is pinned by the synthetic card goldens in the synthetic stage.
 | plain counts vs PyNE                     | 0.000000e+00 | < 1e-12 | PASS                                                |
 | plain ebin vs PyNE                       | 0.000000e+00 | < 1e-12 | PASS                                                |
 | sdef isotropic vs PyNE                   | exact        | equal   | PASS                                                |
+| sdef isotropic vs PyNE reader round-trip | exact        | equal   | PASS                                                |
 | sdef beam vs PyNE                        | exact        | equal   | PASS                                                |
+| sdef beam vs PyNE reader round-trip      | exact        | equal   | PASS                                                |
 | sdef proton v6 vs PyNE                   | exact        | equal   | PASS                                                |
+| sdef proton v6 vs PyNE reader round-trip | exact        | equal   | PASS                                                |
 | tsv energy column vs PyNE Cs-137         | 0.000000e+00 | 1e-9    | PASS                                                |
 | tsv E9 normalization on ENSDF magnitudes | 0.000000e+00 | 1e-12   | PASS                                                |
 
@@ -696,40 +706,62 @@ SKIPPED mcnp_meshtal_single_meshtal.txt: `pyne.mcnp.Meshtal` requires PyMOAB (no
 
 The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed
 `fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped
-v2: surfaces, cells, nested universes, and a material stub; a filled cell
-carries `fill` instead of `material`). Structural probes — surface
-and cell counts, region ids referencing defined surfaces, boundary
-attributes, material/fill stubs — always run; the OpenMC `Region.from_expression`
-cross-check runs only when `openmc` is importable (validation container).
+v3: surfaces, cells, nested universes, rectangular `LAT=1` lattices, and a
+material stub; a filled cell carries `fill` instead of `material`).
+Structural probes — surface and cell counts, region ids referencing defined
+surfaces, boundary attributes, material/fill stubs — always run, as do
+lattice cross-references (dimension/count products, universe-id references,
+fill linkage) for decks with `<lattice>` blocks. When `openmc` is importable
+(validation container), the `Region.from_expression` cross-check runs, every
+GO deck's `geometry.xml` is fully loaded by OpenMC (`Geometry.from_xml` with
+stub materials for the emitted material numbers), and lattice decks are
+verified geometrically against the source deck: each element's universe id
+matches the deck `FILL` matrix entry at the same MCNP `(i, j, k)` indices
+(`k, j, i` i-fastest vs OpenMC row-major `z` up/`y` down/`x` up), the
+element centroid lies inside the universe's cells as positioned by the
+deck surfaces, and `pitch * dimension` spans the lattice cell's RPP bounds.
 Reject decks must raise `ValueError`.
 
-| Deck                           | Probe             | Values compared           | Max rel diff / status |
-|--------------------------------|-------------------|---------------------------|-----------------------|
-| deck_csg_sphere_box.txt        | structure         | 7 surfs, 3 cells, 14 refs | OK                    |
-| deck_csg_sphere_box.txt        | serpent structure | 7 surfs, 3 cells, 14 refs | OK                    |
-| deck_csg_sphere_box.txt        | phits structure   | 7 surfs, 3 cells, 14 refs | OK                    |
-| deck_csg_rpp.txt               | structure         | 6 surfs, 2 cells, 12 refs | OK                    |
-| deck_csg_rpp.txt               | serpent structure | 1 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_rpp.txt               | phits structure   | 1 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_rcc.txt               | structure         | 3 surfs, 2 cells, 6 refs  | OK                    |
-| deck_csg_rcc.txt               | serpent structure | 1 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_rcc.txt               | phits structure   | 1 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_complement.txt        | structure         | 2 surfs, 2 cells, 3 refs  | OK                    |
-| deck_csg_complement.txt        | serpent structure | 2 surfs, 2 cells, 3 refs  | OK                    |
-| deck_csg_complement.txt        | phits structure   | 2 surfs, 2 cells, 3 refs  | OK                    |
-| deck_csg_universe_fill.txt     | structure         | 2 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_universe_fill.txt     | serpent structure | 2 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_universe_fill.txt     | phits structure   | 2 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_universe_data.txt     | structure         | 2 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_universe_data.txt     | serpent structure | 2 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_universe_data.txt     | phits structure   | 2 surfs, 2 cells, 2 refs  | OK                    |
-| deck_csg_complement_reject.txt | reject            | 1                         | OK (ValueError)       |
-| deck_csg_sphere_box.txt        | openmc regions    | 3                         | OK                    |
-| deck_csg_rpp.txt               | openmc regions    | 2                         | OK                    |
-| deck_csg_rcc.txt               | openmc regions    | 2                         | OK                    |
-| deck_csg_complement.txt        | openmc regions    | 2                         | OK                    |
-| deck_csg_universe_fill.txt     | openmc regions    | 2                         | OK                    |
-| deck_csg_universe_data.txt     | openmc regions    | 2                         | OK                    |
+| Deck                           | Probe                   | Values compared                        | Max rel diff / status |
+|--------------------------------|-------------------------|----------------------------------------|-----------------------|
+| deck_csg_sphere_box.txt        | structure               | 7 surfs, 3 cells, 14 refs              | OK                    |
+| deck_csg_sphere_box.txt        | serpent structure       | 7 surfs, 3 cells, 14 refs              | OK                    |
+| deck_csg_sphere_box.txt        | phits structure         | 7 surfs, 3 cells, 14 refs              | OK                    |
+| deck_csg_rpp.txt               | structure               | 6 surfs, 2 cells, 12 refs              | OK                    |
+| deck_csg_rpp.txt               | serpent structure       | 1 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_rpp.txt               | phits structure         | 1 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_rcc.txt               | structure               | 3 surfs, 2 cells, 6 refs               | OK                    |
+| deck_csg_rcc.txt               | serpent structure       | 1 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_rcc.txt               | phits structure         | 1 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_complement.txt        | structure               | 2 surfs, 2 cells, 3 refs               | OK                    |
+| deck_csg_complement.txt        | serpent structure       | 2 surfs, 2 cells, 3 refs               | OK                    |
+| deck_csg_complement.txt        | phits structure         | 2 surfs, 2 cells, 3 refs               | OK                    |
+| deck_csg_universe_fill.txt     | structure               | 2 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_universe_fill.txt     | serpent structure       | 2 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_universe_fill.txt     | phits structure         | 2 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_universe_data.txt     | structure               | 2 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_universe_data.txt     | serpent structure       | 2 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_universe_data.txt     | phits structure         | 2 surfs, 2 cells, 2 refs               | OK                    |
+| deck_csg_lattice_rect.txt      | structure               | 14 surfs, 10 cells, 20 refs            | OK                    |
+| deck_csg_lattice_rect.txt      | lattice cross-reference | 1 lattices, 15 values                  | OK                    |
+| deck_csg_lattice_rect.txt      | serpent structure       | 9 surfs, 10 cells, 19 refs, 1 lattices | OK                    |
+| deck_csg_lattice_rect.txt      | phits structure         | 9 surfs, 10 cells, 19 refs, 1 lattices | OK                    |
+| deck_csg_complement_reject.txt | reject                  | 1                                      | OK (ValueError)       |
+| deck_csg_sphere_box.txt        | openmc regions          | 3                                      | OK                    |
+| deck_csg_rpp.txt               | openmc regions          | 2                                      | OK                    |
+| deck_csg_rcc.txt               | openmc regions          | 2                                      | OK                    |
+| deck_csg_complement.txt        | openmc regions          | 2                                      | OK                    |
+| deck_csg_universe_fill.txt     | openmc regions          | 2                                      | OK                    |
+| deck_csg_universe_data.txt     | openmc regions          | 2                                      | OK                    |
+| deck_csg_lattice_rect.txt      | openmc regions          | 10                                     | OK                    |
+| deck_csg_sphere_box.txt        | openmc geometry load    | 3 cells, 1 universes                   | OK                    |
+| deck_csg_rpp.txt               | openmc geometry load    | 2 cells, 1 universes                   | OK                    |
+| deck_csg_rcc.txt               | openmc geometry load    | 2 cells, 1 universes                   | OK                    |
+| deck_csg_complement.txt        | openmc geometry load    | 2 cells, 1 universes                   | OK                    |
+| deck_csg_universe_fill.txt     | openmc geometry load    | 2 cells, 2 universes                   | OK                    |
+| deck_csg_universe_data.txt     | openmc geometry load    | 2 cells, 2 universes                   | OK                    |
+| deck_csg_lattice_rect.txt      | openmc geometry load    | 10 cells, 9 universes                  | OK                    |
+| deck_csg_lattice_rect.txt      | openmc lattice geometry | 8 elements, 39 values                  | OK                    |
 
 ### ENDL vs PyNE
 
@@ -1107,9 +1139,9 @@ step** on pre-built systems/matrices.
 
 | Operation                                             | Nucleide       | Reference code                              |
 |-------------------------------------------------------|----------------|---------------------------------------------|
-| CRAM-48 solve (`chain_ni.xml`)                        | 1.332167e-04 s | OpenMC CRAM48: 3.018470e-03 s               |
-| Default uranium enrichment solve                      | 1.101543e-04 s | PyNE multicomponent: 5.660682e-03 s         |
-| MAGIC total-mode solve (synthetic tally)              | 7.162501e-07 s | PyNE-equivalent pure Python: 3.859100e-06 s |
+| CRAM-48 solve (`chain_ni.xml`)                        | 1.335317e-04 s | OpenMC CRAM48: 2.940431e-03 s               |
+| Default uranium enrichment solve                      | 1.097956e-04 s | PyNE multicomponent: 5.723599e-03 s         |
+| MAGIC total-mode solve (synthetic tally)              | 5.923501e-07 s | PyNE-equivalent pure Python: 4.016550e-06 s |
 | Native Rust CRAM-48 solve (Criterion, no Python)      | 8.465243e-05 s | —                                           |
 | Native Rust deplete end-to-end (Criterion, no Python) | 8.640163e-05 s | —                                           |
 

@@ -49,6 +49,10 @@
     },
     {
       "kind": "prose",
+      "text": "E9 SDEF: emitted cards round-trip through the legacy SDEF reader (`nucleide.mcnp.parse_sdef`) byte-identically, single-line and distribution forms alike."
+    },
+    {
+      "kind": "prose",
       "text": "SPE fixtures: cross-format counts equality over 8 channels."
     },
     {
@@ -151,6 +155,18 @@
           "PASS"
         ],
         [
+          "E9 reader round-trip (single-line)",
+          "exact",
+          "equal",
+          "PASS"
+        ],
+        [
+          "E9 reader round-trip (distribution)",
+          "exact",
+          "equal",
+          "PASS"
+        ],
+        [
           "SPE cross-format counts",
           "n=8",
           "equal",
@@ -239,7 +255,7 @@
     },
     {
       "kind": "prose",
-      "text": "E9 SDEF: single-line cards diffed byte-for-byte against pyne.source.PointSource.mcnp (beam, isotropic, and the MCNP6 proton designator); the multi-line ERG=D1 distribution form has no upstream counterpart and is pinned by the synthetic card goldens in the synthetic stage."
+      "text": "E9 SDEF: single-line cards diffed byte-for-byte against pyne.source.PointSource.mcnp (beam, isotropic, and the MCNP6 proton designator), then round-tripped through the legacy SDEF reader before the comparison is recorded; the multi-line ERG=D1 distribution form has no upstream counterpart and is pinned by the synthetic card goldens plus reader round-trip in the synthetic stage."
     },
     {
       "kind": "table",
@@ -329,13 +345,31 @@
           "PASS"
         ],
         [
+          "sdef isotropic vs PyNE reader round-trip",
+          "exact",
+          "equal",
+          "PASS"
+        ],
+        [
           "sdef beam vs PyNE",
           "exact",
           "equal",
           "PASS"
         ],
         [
+          "sdef beam vs PyNE reader round-trip",
+          "exact",
+          "equal",
+          "PASS"
+        ],
+        [
           "sdef proton v6 vs PyNE",
+          "exact",
+          "equal",
+          "PASS"
+        ],
+        [
+          "sdef proton v6 vs PyNE reader round-trip",
           "exact",
           "equal",
           "PASS"

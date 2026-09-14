@@ -56,6 +56,37 @@
 //! stays loud: `LAT` lattices, matrix `FILL`s, `FILL` transforms,
 //! `U=-n`, and `TRCL` on filled cells.
 //!
+//! # GO scope (v3 adds rectangular lattices)
+//!
+//! A `LAT=1` cell with a full matrix `FILL` (every entry `Some(u)`, no
+//! transform, no `*FILL` degrees) translates in all three directions behind
+//! the same scope-check funnel, with a `lattice-emitted` drift note per
+//! lattice cell. Pitch and lower-left derive ONLY from the lattice cell's
+//! bounds: an `RPP` interior (`-N`) or an intersection of six
+//! `PX`/`PY`/`PZ` half-spaces (one `+` minimum and one `-` maximum per
+//! axis); anything else is a loud [`Error::UniverseOutOfScope`] naming the
+//! cell. Counts come from the `FILL` ranges (`pitch = span / count`).
+//!
+//! - OpenMC: one `<lattice type="rectangular">` per lattice cell
+//!   (`dimension`, `lower_left`, `pitch`, `universes`), filled from the
+//!   lattice cell via `fill="<lattice id>"`. The MCNP matrix order (`k, j,
+//!   i` with `i` fastest) maps to `(z, y, x)` row-major with the `y` rows
+//!   top-down (higher rows are lower physical `y`), i.e. `z` ascending,
+//!   `y` descending, `x` ascending.
+//! - Serpent: one cuboidal `lat <id> 11 <centre> <counts> <pitches>
+//!   <universes...>` card (type 11 carries separate `x`/`y`/`z` pitches, so
+//!   non-square lattices map; the 2D type 1 takes a single pitch), same
+//!   `z`-ascending / `y`-descending / `x`-ascending universe order, filled
+//!   from the lattice cell via `fill <lattice id>`.
+//! - PHITS: the lattice cell keeps `LAT=1` with a matrix `FILL`
+//!   (`FILL=imin:imax jmin:jmax kmin:kmax <universes...>`); the PHITS order
+//!   is the MCNP order verbatim (`(-1,-1,0),(0,-1,0),...`, `x` fastest).
+//!
+//! Lattice ids are allocated above every cell and universe number, outside
+//! both id spaces. Still loud: `LAT=2` hexagonal lattices, `0`-holes,
+//! `FILL` transforms, `*FILL` degrees, `TRCL` on lattice cells,
+//! single-universe fills of lattice type, and matrix fills without `LAT=1`.
+//!
 //! # Example
 //!
 //! ```rust
@@ -159,8 +190,10 @@ pub enum Error {
     },
     /// Universes, lattices, `FILL`, or `read` includes need translation.
     ///
-    /// Simple nested universes (`U=k`, single-universe `FILL n`) translate;
-    /// lattices, matrix or transformed fills, and `U=-n` raise this error.
+    /// Simple nested universes (`U=k`, single-universe `FILL n`) and
+    /// rectangular lattices (`LAT=1` with a full matrix `FILL`) translate;
+    /// hexagonal lattices, `0`-holes, non-RPP-bounded lattice cells, and
+    /// `U=-n` raise this error.
     #[error("universes/lattices/fills are out of v1 scope: {detail}")]
     UniverseOutOfScope {
         /// What carried the universe construct.
@@ -229,8 +262,8 @@ pub struct DriftEntry {
     pub target: u32,
     /// Machine-readable action (`"macrobody-expansion"`,
     /// `"complement-expansion"`, `"reflective-applied"`, `"periodic-link"`,
-    /// `"universe-assigned"`, `"fill-applied"`, `"universe-data-card"`,
-    /// `"dropped-cell-param"`, `"dropped-data-card"`).
+    /// `"universe-assigned"`, `"fill-applied"`, `"lattice-emitted"`,
+    /// `"universe-data-card"`, `"dropped-cell-param"`, `"dropped-data-card"`).
     pub action: String,
     /// Human-readable reason.
     pub reason: String,
@@ -763,6 +796,8 @@ struct OutCell {
     universe: u32,
     /// Filling universe for a single-universe `FILL n` (`None` otherwise).
     fill: Option<u32>,
+    /// Filling lattice id for a `LAT=1` matrix `FILL` (`None` otherwise).
+    lattice: Option<u32>,
     /// Rendered OpenMC region string.
     region: String,
 }
@@ -797,9 +832,15 @@ fn check_cell_params(ctx: &mut Ctx<'_>, cell: &CellCard) -> Result<()> {
                 continue;
             }
             "lat" => {
+                // `LAT=1` is honored via resolve_universes; anything else
+                // (hexagonal `LAT=2`, garbage) stays loud here.
+                let value = param.split_once('=').map(|(_, v)| v.trim()).unwrap_or("");
+                if value == "1" {
+                    continue;
+                }
                 return Err(Error::UniverseOutOfScope {
                     detail: format!(
-                        "cell {} parameter `{param}` needs lattice translation",
+                        "cell {} parameter `{param}` needs lattice translation (rectangular LAT=1 only)",
                         cell.num
                     ),
                 });
@@ -881,25 +922,159 @@ fn check_data_cards(ctx: &mut Ctx<'_>, deck: &DeckProblem) -> Result<()> {
     Ok(())
 }
 
-/// Resolve per-cell universes and single-universe fills via the semantic views.
-///
-/// Returns `(cell_universe, cell_fill)` maps; cells absent from both live in
-/// universe 0 with no fill. Lattices, matrix fills, fill transforms, and
-/// `U=-n` no-truncate flags stay loud [`Error::UniverseOutOfScope`] (or
-/// [`Error::TransformOutOfScope`] for transforms).
-fn resolve_universes(
-    ctx: &mut Ctx<'_>,
-    deck: &DeckProblem,
-) -> Result<(BTreeMap<u32, u32>, BTreeMap<u32, u32>)> {
-    use nucleide_mcnp_io::semantic::FillTarget;
-    if let Some(lattice) = deck.lattices()?.first() {
-        return Err(Error::UniverseOutOfScope {
-            detail: format!(
-                "cell {} LAT={} needs lattice translation",
-                lattice.cell, lattice.lattice
-            ),
-        });
+/// One rectangular (`LAT=1`) lattice ready for emission in all three directions.
+#[derive(Debug, Clone, PartialEq)]
+struct LatticeEmit {
+    /// MCNP cell number carrying `LAT=1` plus a full matrix `FILL`.
+    cell: u32,
+    /// Emitted lattice id, allocated above every cell and universe number
+    /// so it collides with neither id space.
+    id: u32,
+    /// Matrix minimum indices `[i, j, k]`.
+    min_index: [i32; 3],
+    /// Matrix maximum indices `[i, j, k]`.
+    max_index: [i32; 3],
+    /// Element counts `[nx, ny, nz]`.
+    counts: [usize; 3],
+    /// Element universes in MCNP `k, j, i` order (`i` fastest).
+    universes: Vec<u32>,
+    /// Lower-left corner `[xmin, ymin, zmin]` from the lattice cell bounds.
+    lower: [f64; 3],
+    /// Element pitch `[px, py, pz]` (bounds span divided by the counts).
+    pitch: [f64; 3],
+}
+
+impl LatticeEmit {
+    /// Element universes in OpenMC/Serpent emission order.
+    ///
+    /// OpenMC `<universes>` stores `(z, y, x)` row-major with the `y` rows
+    /// top-down (higher array rows are lower physical `y`), and Serpent
+    /// `lat` tables enter rows top-down starting at the lowest `z` level,
+    /// so both emit `z` ascending, `y` descending, `x` ascending out of the
+    /// MCNP `k, j, i` (`i` fastest) matrix. PHITS keeps the MCNP order
+    /// verbatim (see the PHITS emitter).
+    fn ordered(&self) -> Vec<u32> {
+        let [nx, ny, nz] = self.counts;
+        let mut out = Vec::with_capacity(self.universes.len());
+        for k in 0..nz {
+            for j_rev in 0..ny {
+                let j = ny - 1 - j_rev;
+                for i in 0..nx {
+                    out.push(self.universes[(k * ny + j) * nx + i]);
+                }
+            }
+        }
+        out
     }
+
+    /// Lattice centre (`lower + pitch * counts / 2`) for Serpent `lat` cards.
+    fn center(&self) -> [f64; 3] {
+        [0, 1, 2].map(|a| self.lower[a] + self.pitch[a] * self.counts[a] as f64 / 2.0)
+    }
+}
+
+/// Derive `[xmin, xmax, ymin, ymax, zmin, zmax]` for a `LAT=1` cell.
+///
+/// Only two boundings translate: an interior (`-N`) reference to one `RPP`
+/// surface, or an intersection of exactly six `PX`/`PY`/`PZ` (or
+/// `X`/`Y`/`Z`) half-spaces forming an axis-aligned box (one `+` minimum
+/// and one `-` maximum per axis with `min < max`). Anything else is a loud
+/// [`Error::UniverseOutOfScope`] naming the cell.
+fn lattice_bounds(deck: &DeckProblem, cell: &CellCard) -> Result<[f64; 6]> {
+    let scope_error = || Error::UniverseOutOfScope {
+        detail: format!(
+            "cell {} lattice bounds need an RPP interior (-N) or an axis-plane box \
+                (one + minimum and one - maximum per axis), found `{}`",
+            cell.num,
+            cell.geom.render()
+        ),
+    };
+    let surf_card = |num: u32| deck.surfs.iter().find(|s| s.num == num);
+    if let GeomExpr::HalfSpace(h) = &cell.geom {
+        if h.surf < 0 {
+            if let Some(surf) = surf_card(h.surf.unsigned_abs()) {
+                if matches!(surf.kind, SurfKind::Rpp) {
+                    let c = &surf.coeffs;
+                    return Ok([c[0], c[1], c[2], c[3], c[4], c[5]]);
+                }
+            }
+        }
+        return Err(scope_error());
+    }
+    if let GeomExpr::Intersect(parts) = &cell.geom {
+        if parts.len() == 6 {
+            let mut lo = [f64::NAN; 3];
+            let mut hi = [f64::NAN; 3];
+            let mut ok = true;
+            for part in parts {
+                let GeomExpr::HalfSpace(h) = part else {
+                    ok = false;
+                    break;
+                };
+                let Some(surf) = surf_card(h.surf.unsigned_abs()) else {
+                    ok = false;
+                    break;
+                };
+                let axis = match surf.kind {
+                    SurfKind::Px | SurfKind::X => 0,
+                    SurfKind::Py | SurfKind::Y => 1,
+                    SurfKind::Pz | SurfKind::Z => 2,
+                    _ => {
+                        ok = false;
+                        break;
+                    }
+                };
+                let slot = if h.surf > 0 {
+                    &mut lo[axis]
+                } else {
+                    &mut hi[axis]
+                };
+                if !slot.is_nan() {
+                    ok = false;
+                    break;
+                }
+                *slot = surf.coeffs[0];
+            }
+            if ok && (0..3).all(|a| !lo[a].is_nan() && !hi[a].is_nan() && lo[a] < hi[a]) {
+                return Ok([lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]]);
+            }
+        }
+        return Err(scope_error());
+    }
+    Err(scope_error())
+}
+
+/// One parsed `FILL` matrix: minimum/maximum `[i, j, k]` indices plus the
+/// per-element universes in MCNP `k, j, i` order (`None` = `0`-hole).
+type FillMatrix = ([i32; 3], [i32; 3], Vec<Option<u32>>);
+
+/// Per-cell maps out of [`resolve_universes`]: cell → containing universe,
+/// cell → single-universe fill, cell → emitted rectangular lattice.
+type ResolvedUniverses = (
+    BTreeMap<u32, u32>,
+    BTreeMap<u32, u32>,
+    BTreeMap<u32, LatticeEmit>,
+);
+
+/// Resolve per-cell universes, single-universe fills, and rectangular lattices.
+///
+/// Returns `(cell_universe, cell_fill, lattices)` maps; cells absent from
+/// all three live in universe 0 with no fill. `LAT=1` cells pair with a
+/// full matrix `FILL` (every entry `Some(u)`, no transform, no `*FILL`
+/// degrees) and an RPP/axis-plane-bounded cell; each becomes one
+/// [`LatticeEmit`] plus a `lattice-emitted` drift note. Still loud
+/// [`Error::UniverseOutOfScope`]: `LAT=2` hexagonal lattices, `0`-holes,
+/// single-universe fills of lattice type, matrix fills without `LAT=1`,
+/// non-RPP-bounded lattice cells, and `U=-n` flags ([`Error::TransformOutOfScope`]
+/// for `FILL` transforms, `*FILL` degrees, and `TRCL`, which
+/// [`check_cell_params`] rejects even earlier).
+fn resolve_universes(ctx: &mut Ctx<'_>, deck: &DeckProblem) -> Result<ResolvedUniverses> {
+    use nucleide_mcnp_io::semantic::FillTarget;
+    let lattice_by_cell: BTreeMap<u32, u8> = deck
+        .lattices()?
+        .iter()
+        .map(|view| (view.cell, view.lattice))
+        .collect();
     let mut universes: BTreeMap<u32, u32> = BTreeMap::new();
     for view in deck.universes()? {
         if !view.not_truncated.is_empty() {
@@ -915,6 +1090,7 @@ fn resolve_universes(
         }
     }
     let mut fills: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut matrices: BTreeMap<u32, FillMatrix> = BTreeMap::new();
     for view in deck.fills()? {
         if view.transform.is_some() {
             return Err(Error::TransformOutOfScope {
@@ -924,16 +1100,124 @@ fn resolve_universes(
                 ),
             });
         }
-        match view.target {
-            FillTarget::Single(universe) => {
-                fills.insert(view.cell, universe);
-            }
-            FillTarget::Matrix { .. } => {
-                return Err(Error::UniverseOutOfScope {
-                    detail: format!("cell {} FILL matrix needs lattice translation", view.cell),
-                });
-            }
+        if view.in_degrees {
+            return Err(Error::TransformOutOfScope {
+                detail: format!(
+                    "cell {} *FILL degrees need transform translation",
+                    view.cell
+                ),
+            });
         }
+        match &view.target {
+            FillTarget::Single(universe) => {
+                fills.insert(view.cell, *universe);
+            }
+            FillTarget::Matrix {
+                min_index,
+                max_index,
+                universes: matrix,
+            } => match lattice_by_cell.get(&view.cell) {
+                Some(1) => {
+                    matrices.insert(view.cell, (*min_index, *max_index, matrix.clone()));
+                }
+                Some(2) => {
+                    return Err(Error::UniverseOutOfScope {
+                        detail: format!(
+                            "cell {} LAT=2 hexagonal lattices stay out of scope \
+                            (rectangular LAT=1 only)",
+                            view.cell
+                        ),
+                    });
+                }
+                _ => {
+                    return Err(Error::UniverseOutOfScope {
+                        detail: format!(
+                            "cell {} FILL matrix without LAT=1 needs lattice translation",
+                            view.cell
+                        ),
+                    });
+                }
+            },
+        }
+    }
+    for (cell, lattice) in &lattice_by_cell {
+        if *lattice == 2 {
+            return Err(Error::UniverseOutOfScope {
+                detail: format!(
+                    "cell {cell} LAT=2 hexagonal lattices stay out of scope \
+                    (rectangular LAT=1 only)"
+                ),
+            });
+        }
+        if !matrices.contains_key(cell) {
+            return Err(Error::UniverseOutOfScope {
+                detail: format!(
+                    "cell {cell} LAT=1 needs a full FILL matrix \
+                    (single-universe lattice fills stay out of scope)"
+                ),
+            });
+        }
+    }
+    // Lattice ids live above every cell and universe number.
+    let mut top: u32 = 0;
+    for num in deck.cells.iter().map(|c| c.num) {
+        top = top.max(num);
+    }
+    for universe in universes.values().chain(fills.values()) {
+        top = top.max(*universe);
+    }
+    for (_, _, matrix) in matrices.values() {
+        for universe in matrix.iter().flatten() {
+            top = top.max(*universe);
+        }
+    }
+    let mut lattices: BTreeMap<u32, LatticeEmit> = BTreeMap::new();
+    for (offset, (cell, (min_index, max_index, matrix))) in matrices.into_iter().enumerate() {
+        if matrix.iter().any(Option::is_none) {
+            return Err(Error::UniverseOutOfScope {
+                detail: format!(
+                    "cell {cell} FILL matrix has a 0-hole (empty element) \
+                    with no emitted spelling"
+                ),
+            });
+        }
+        let element: Vec<u32> = matrix
+            .into_iter()
+            .map(|u| u.expect("holes rejected above"))
+            .collect();
+        let cell_card = ctx
+            .cells
+            .get(&cell)
+            .copied()
+            .expect("fill cells are deck cells");
+        let bounds = lattice_bounds(deck, cell_card)?;
+        let counts = [0, 1, 2].map(|a| (max_index[a] as i64 - min_index[a] as i64 + 1) as usize);
+        let lower = [bounds[0], bounds[2], bounds[4]];
+        let pitch = [0, 1, 2].map(|a| (bounds[2 * a + 1] - bounds[2 * a]) / counts[a] as f64);
+        let id = top + 1 + offset as u32;
+        ctx.note(
+            DriftScope::Cell,
+            cell,
+            "lattice-emitted",
+            format!(
+                "cell {cell} rectangular lattice emitted as lattice {id} \
+                ({}x{}x{} elements)",
+                counts[0], counts[1], counts[2]
+            ),
+        );
+        lattices.insert(
+            cell,
+            LatticeEmit {
+                cell,
+                id,
+                min_index,
+                max_index,
+                counts,
+                universes: element,
+                lower,
+                pitch,
+            },
+        );
     }
     for (cell, universe) in &universes {
         if *universe != 0 {
@@ -953,7 +1237,7 @@ fn resolve_universes(
             format!("cell {cell} filled with universe {universe}"),
         );
     }
-    Ok((universes, fills))
+    Ok((universes, fills, lattices))
 }
 
 /// Translate a parsed MCNP deck to OpenMC `geometry.xml` plus drift.
@@ -979,7 +1263,7 @@ pub fn deck_csg_to_openmc_xml(deck: &DeckProblem) -> Result<(String, DriftTable)
         check_cell_params(&mut ctx, cell)?;
     }
     check_data_cards(&mut ctx, deck)?;
-    let (cell_universe, cell_fill) = resolve_universes(&mut ctx, deck)?;
+    let (cell_universe, cell_fill, cell_lattice) = resolve_universes(&mut ctx, deck)?;
 
     // Surface pass: reject transforms, map kinds, expand macrobodies.
     let mut periodic: BTreeMap<u32, u32> = BTreeMap::new();
@@ -1026,6 +1310,7 @@ pub fn deck_csg_to_openmc_xml(deck: &DeckProblem) -> Result<(String, DriftTable)
             mat: cell.mat,
             universe: cell_universe.get(&cell.num).copied().unwrap_or(0),
             fill: cell_fill.get(&cell.num).copied(),
+            lattice: cell_lattice.get(&cell.num).map(|lat| lat.id),
             region: resolved.render(),
         });
     }
@@ -1106,13 +1391,18 @@ pub fn deck_csg_to_openmc_xml(deck: &DeckProblem) -> Result<(String, DriftTable)
     }
     surfaces.sort_by_key(|s| s.id);
 
-    let xml = emit_xml(&surfaces, &regions)?;
+    let lattices: Vec<&LatticeEmit> = cell_lattice.values().collect();
+    let xml = emit_xml(&surfaces, &regions, &lattices)?;
     Ok((xml, ctx.drift))
 }
 
 /// Render the OpenMC `geometry.xml` document with `quick-xml`.
-fn emit_xml(surfaces: &[OutSurface], regions: &[OutCell]) -> Result<String> {
-    use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
+fn emit_xml(
+    surfaces: &[OutSurface],
+    regions: &[OutCell],
+    lattices: &[&LatticeEmit],
+) -> Result<String> {
+    use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
     use quick_xml::writer::Writer;
 
     fn xml_error(e: impl std::fmt::Display) -> Error {
@@ -1159,8 +1449,9 @@ fn emit_xml(surfaces: &[OutSurface], regions: &[OutCell]) -> Result<String> {
         elem.push_attribute(("id", id.as_str()));
         let universe = out.universe.to_string();
         elem.push_attribute(("universe", universe.as_str()));
-        if let Some(fill) = out.fill {
-            // OpenMC: a filled cell carries no material.
+        // OpenMC: a filled cell carries no material. Single-universe fills
+        // and rectangular lattices both render as `fill`.
+        if let Some(fill) = out.fill.or(out.lattice) {
             let text = fill.to_string();
             elem.push_attribute(("fill", text.as_str()));
         } else {
@@ -1173,6 +1464,61 @@ fn emit_xml(surfaces: &[OutSurface], regions: &[OutCell]) -> Result<String> {
         }
         elem.push_attribute(("region", out.region.as_str()));
         writer.write_event(Event::Empty(elem)).map_err(xml_error)?;
+    }
+    for lat in lattices {
+        let id = lat.id.to_string();
+        let mut elem = BytesStart::new("lattice");
+        elem.push_attribute(("id", id.as_str()));
+        elem.push_attribute(("type", "rectangular"));
+        writer.write_event(Event::Start(elem)).map_err(xml_error)?;
+        let fields = [
+            (
+                "dimension",
+                lat.counts
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
+            (
+                "lower_left",
+                lat.lower
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
+            (
+                "pitch",
+                lat.pitch
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
+            (
+                "universes",
+                lat.ordered()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
+        ];
+        for (name, text) in &fields {
+            writer
+                .write_event(Event::Start(BytesStart::new(*name)))
+                .map_err(xml_error)?;
+            writer
+                .write_event(Event::Text(BytesText::new(text)))
+                .map_err(xml_error)?;
+            writer
+                .write_event(Event::End(BytesEnd::new(*name)))
+                .map_err(xml_error)?;
+        }
+        writer
+            .write_event(Event::End(BytesEnd::new("lattice")))
+            .map_err(xml_error)?;
     }
     writer
         .write_event(Event::End(BytesEnd::new("geometry")))
@@ -1324,10 +1670,13 @@ fn reject_serpent_boundaries(deck: &DeckProblem) -> Result<()> {
 /// Translate a parsed MCNP deck to Serpent input (`surf`/`cell` cards) plus drift.
 ///
 /// Same v2 scope as the OpenMC direction (surfaces, cells, simple nested
-/// universes, material-name stub), with three Serpent-native simplifications:
+/// universes, material-name stub) plus v3 rectangular lattices, with three
+/// Serpent-native simplifications:
 /// `RPP`/`RCC` need no expansion (`cuboid`, truncated cylinders), `#n`
 /// passes through as Serpent's native cell complement, and the region text
 /// is the MCNP boolean spelling Serpent shares (juxtaposition, `:`, parens).
+/// A `LAT=1` matrix `FILL` becomes a cuboidal `lat` card (type 11) filled
+/// from the lattice cell via `fill <lattice id>`.
 /// Material `mat == 0` renders as `void`, else as `m<mat>` (caller supplies
 /// the `mat` cards); a filled cell renders `fill <n>` with no material. An
 /// empty region synthesizes an `inf` surface. Reflecting and periodic
@@ -1346,7 +1695,7 @@ pub fn deck_csg_to_serpent_input(deck: &DeckProblem) -> Result<(String, DriftTab
         check_cell_params(&mut ctx, cell)?;
     }
     check_data_cards(&mut ctx, deck)?;
-    let (cell_universe, cell_fill) = resolve_universes(&mut ctx, deck)?;
+    let (cell_universe, cell_fill, cell_lattice) = resolve_universes(&mut ctx, deck)?;
     reject_serpent_boundaries(deck)?;
     for card in &deck.surfs {
         if let Some(tr) = card.transform {
@@ -1379,6 +1728,33 @@ pub fn deck_csg_to_serpent_input(deck: &DeckProblem) -> Result<(String, DriftTab
             .join(" ");
         out.push_str(&format!("surf {} {} {}\n", surf.0, surf.1, params));
     }
+    // Rectangular lattices become cuboidal `lat` cards (type 11 carries
+    // separate x/y/z pitches, so non-square lattices map; the 2D type 1
+    // takes a single pitch). Universe order is z ascending, y descending,
+    // x ascending (Serpent tables enter rows top-down from the lowest z).
+    for lat in cell_lattice.values() {
+        let center = lat.center();
+        let universes = lat
+            .ordered()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str(&format!(
+            "lat {} 11 {} {} {} {} {} {} {} {} {} {}\n",
+            lat.id,
+            center[0],
+            center[1],
+            center[2],
+            lat.counts[0],
+            lat.counts[1],
+            lat.counts[2],
+            lat.pitch[0],
+            lat.pitch[1],
+            lat.pitch[2],
+            universes
+        ));
+    }
     for cell in &deck.cells {
         let universe = cell_universe.get(&cell.num).copied().unwrap_or(0);
         let mut region = cell.geom.render();
@@ -1391,7 +1767,13 @@ pub fn deck_csg_to_serpent_input(deck: &DeckProblem) -> Result<(String, DriftTab
             }
             region = format!("-{}", inf_id.expect("set above"));
         }
-        let mat = match cell_fill.get(&cell.num) {
+        // Single-universe fills and rectangular lattices both render as
+        // `fill <id>` with no material entry.
+        let fill_id = cell_fill
+            .get(&cell.num)
+            .copied()
+            .or_else(|| cell_lattice.get(&cell.num).map(|lat| lat.id));
+        let mat = match fill_id {
             Some(fill) => format!("fill {fill}"),
             None if cell.mat == 0 => "void".to_string(),
             None => format!("m{}", cell.mat),
@@ -1487,10 +1869,13 @@ fn map_phits_surface(card: &SurfCard) -> Result<(&'static str, Vec<f64>)> {
 /// Translate a parsed MCNP deck to PHITS `[Surface]`/`[Cell]` sections plus drift.
 ///
 /// Same v2 scope as the other directions (surfaces, cells, simple nested
-/// universes) with PHITS-native spellings: surface symbols pass through
+/// universes) plus v3 rectangular lattices with PHITS-native spellings:
+/// surface symbols pass through
 /// with identical parameters (`RPP`/`RCC`/`BOX` need no expansion, and
 /// canted `RCC` maps), `#n` passes through as PHITS's native cell
-/// complement, `U=`/`FILL=` render as cell parameters, and `*` markers
+/// complement, `U=`/`FILL=` render as cell parameters (`LAT=1` keeps a
+/// matrix `FILL` with ranges plus the universe list in MCNP order), and
+/// `*` markers
 /// render as PHITS reflective surfaces. Material cells carry the verbatim
 /// MCNP density (positive atom and negative mass densities share PHITS's
 /// sign convention); void cells omit it. A void, unfilled cell whose
@@ -1514,7 +1899,7 @@ pub fn deck_csg_to_phits_input(deck: &DeckProblem) -> Result<(String, DriftTable
         check_cell_params(&mut ctx, cell)?;
     }
     check_data_cards(&mut ctx, deck)?;
-    let (cell_universe, cell_fill) = resolve_universes(&mut ctx, deck)?;
+    let (cell_universe, cell_fill, cell_lattice) = resolve_universes(&mut ctx, deck)?;
 
     // Periodic has no PHITS spelling; `*` markers (card or cell level)
     // force the `*id` reflective surface form.
@@ -1594,7 +1979,7 @@ pub fn deck_csg_to_phits_input(deck: &DeckProblem) -> Result<(String, DriftTable
                 ),
             });
         }
-        let is_fill = cell_fill.contains_key(&cell.num);
+        let is_fill = cell_fill.contains_key(&cell.num) || cell_lattice.contains_key(&cell.num);
         let mat = if is_fill {
             // Filled cells carry a material number PHITS ignores; use void.
             0
@@ -1628,6 +2013,28 @@ pub fn deck_csg_to_phits_input(deck: &DeckProblem) -> Result<(String, DriftTable
         }
         if let Some(fill) = cell_fill.get(&cell.num) {
             line.push_str(&format!("  FILL={fill}"));
+        }
+        // Rectangular lattices keep `LAT=1` with a matrix `FILL`: ranges
+        // plus the universe list in MCNP order (`x` fastest:
+        // `(-1,-1,0),(0,-1,0),...`).
+        if let Some(lat) = cell_lattice.get(&cell.num) {
+            let universes = lat
+                .universes
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" ");
+            line.push_str("  LAT=1");
+            line.push_str(&format!(
+                "  FILL={}:{} {}:{} {}:{} {}",
+                lat.min_index[0],
+                lat.max_index[0],
+                lat.min_index[1],
+                lat.max_index[1],
+                lat.min_index[2],
+                lat.max_index[2],
+                universes
+            ));
         }
         line.push('\n');
         out.push_str(&line);
@@ -2090,9 +2497,190 @@ mod tests {
         let (text, _) = translate_phits(&deck_text(
             "1 1 -1.0 -1",
             "1 rcc 0 0 0 1 1 1 2",
-            "m1 92235 1.0",
+            "m1 1001 1.0",
         ))
         .unwrap();
         assert!(text.contains("1  RCC  0 0 0 1 1 1 2\n"));
+    }
+
+    /// 2x2x1 `LAT=1` deck shared by the per-direction order tests below.
+    ///
+    /// Universes encode their `(k, j, i)` position as `1 + k*4 + j*2 + i`,
+    /// so the MCNP matrix order (`k, j, i`, `i` fastest) is `1 2 3 4`.
+    fn lattice_deck_2x2x1() -> String {
+        deck_text(
+            "1 1 -1.0 -1 u=1\n2 1 -1.0 -2 u=2\n3 1 -1.0 -3 u=3\n4 1 -1.0 -4 u=4\n\
+             10 0 -100 lat=1 fill=0:1 0:1 0:0 1 2 3 4\n20 0 #10",
+            "1 sph 1 1 1 0.5\n2 sph 3 1 1 0.5\n3 sph 1 3 1 0.5\n4 sph 3 3 1 0.5\n\
+             100 rpp 0 4 0 4 0 2",
+            "m1 92235 1.0",
+        )
+    }
+
+    #[test]
+    fn openmc_rect_lattice_pins_order() {
+        let (xml, drift) = translate(&lattice_deck_2x2x1()).unwrap();
+        // MCNP `1 2 3 4` (k, j, i) maps to z-ascending, y-descending,
+        // x-ascending: k=0, j=1 first, then k=0, j=0.
+        assert!(xml.contains("<dimension>2 2 1</dimension>"));
+        assert!(xml.contains("<lower_left>0 0 0</lower_left>"));
+        assert!(xml.contains("<pitch>2 2 2</pitch>"));
+        assert!(xml.contains("<universes>3 4 1 2</universes>"));
+        // Lattice id 21 sits above every cell (20) and universe (4) number.
+        assert!(xml.contains("<cell id=\"10\" universe=\"0\" fill=\"21\""));
+        assert!(!xml.contains("fill=\"21\" material="));
+        assert!(drift.entries.iter().any(|e| {
+            e.action == "lattice-emitted" && e.target == 10 && e.scope == DriftScope::Cell
+        }));
+    }
+
+    #[test]
+    fn serpent_rect_lattice_pins_order() {
+        let (text, drift) = translate_serpent(&lattice_deck_2x2x1()).unwrap();
+        // Cuboidal type 11: centre (2,2,1), counts 2 2 1, pitches 2 2 2,
+        // same z-ascending / y-descending / x-ascending universe order.
+        assert!(text.contains("lat 21 11 2 2 1 2 2 1 2 2 2 3 4 1 2\n"));
+        assert!(text.contains("cell 10 0 fill 21 -100\n"));
+        assert!(drift
+            .entries
+            .iter()
+            .any(|e| e.action == "lattice-emitted" && e.target == 10));
+    }
+
+    #[test]
+    fn phits_rect_lattice_keeps_matrix_fill() {
+        let (text, drift) = translate_phits(&lattice_deck_2x2x1()).unwrap();
+        // PHITS keeps LAT=1 with ranges plus the universe list in MCNP
+        // order verbatim (x fastest).
+        assert!(text.contains("10  0  -100  LAT=1  FILL=0:1 0:1 0:0 1 2 3 4\n"));
+        assert!(drift
+            .entries
+            .iter()
+            .any(|e| e.action == "lattice-emitted" && e.target == 10));
+    }
+
+    #[test]
+    fn rect_lattice_axis_plane_box_derives_pitch() {
+        // Same 2x2x1 lattice bounded by six PX/PY/PZ planes instead of RPP.
+        let (xml, _) = translate(&deck_text(
+            "1 1 -1.0 -11 u=1\n2 1 -1.0 -12 u=2\n3 1 -1.0 -13 u=3\n4 1 -1.0 -14 u=4\n\
+             10 0 1 -2 3 -4 5 -6 lat=1 fill=0:1 0:1 0:0 1 2 3 4\n20 0 #10",
+            "1 px 0\n2 px 4\n3 py 0\n4 py 4\n5 pz 0\n6 pz 2\n\
+             11 sph 1 1 1 0.5\n12 sph 3 1 1 0.5\n13 sph 1 3 1 0.5\n14 sph 3 3 1 0.5",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(xml.contains("<lower_left>0 0 0</lower_left>"));
+        assert!(xml.contains("<pitch>2 2 2</pitch>"));
+        assert!(xml.contains("<universes>3 4 1 2</universes>"));
+    }
+
+    #[test]
+    fn rect_lattice_loud_cases_name_the_cell() {
+        let element_cells =
+            "1 1 -1.0 -1 u=1\n2 1 -1.0 -2 u=2\n3 1 -1.0 -3 u=3\n4 1 -1.0 -4 u=4\n20 0 #10";
+        let element_surfs = "1 sph 1 1 1 0.5\n2 sph 3 1 1 0.5\n3 sph 1 3 1 0.5\n4 sph 3 3 1 0.5";
+        // (name, lattice cell line, extra surfs, data, variant probe, message fragment)
+        let cases: &[(&str, &str, &str, &str, bool, &str)] = &[
+            (
+                "hex matrix",
+                "10 0 -100 lat=2 fill=0:1 0:1 0:0 1 2 3 4",
+                "\n100 rpp 0 4 0 4 0 2",
+                "m1 92235 1.0",
+                false,
+                "cell 10 parameter `lat=2`",
+            ),
+            (
+                "hex single",
+                "10 0 -100 lat=2 fill=1",
+                "\n100 rpp 0 4 0 4 0 2",
+                "m1 92235 1.0",
+                false,
+                "cell 10",
+            ),
+            (
+                "zero hole",
+                "10 0 -100 lat=1 fill=0:1 0:1 0:0 1 0 3 4",
+                "\n100 rpp 0 4 0 4 0 2",
+                "m1 92235 1.0",
+                false,
+                "cell 10 FILL matrix has a 0-hole",
+            ),
+            (
+                "fill transform",
+                "10 0 -100 lat=1 fill=0:1 0:1 0:0 1 2 3 4 (0 0 5)",
+                "\n100 rpp 0 4 0 4 0 2",
+                "m1 92235 1.0",
+                true,
+                "cell 10 FILL transform",
+            ),
+            (
+                "sphere bounded",
+                "10 0 -100 lat=1 fill=0:1 0:1 0:0 1 2 3 4",
+                "\n100 so 10",
+                "m1 92235 1.0",
+                false,
+                "cell 10 lattice bounds",
+            ),
+            (
+                "single fill of lattice type",
+                "10 0 -100 lat=1 fill=1",
+                "\n100 rpp 0 4 0 4 0 2",
+                "m1 92235 1.0",
+                false,
+                "cell 10 LAT=1 needs a full FILL matrix",
+            ),
+            (
+                "trcl on lattice cell",
+                "10 0 -100 lat=1 fill=0:1 0:1 0:0 1 2 3 4 trcl=1",
+                "\n100 rpp 0 4 0 4 0 2",
+                "m1 92235 1.0\ntr1 0 0 0",
+                true,
+                "cell 10",
+            ),
+        ];
+        for (name, lattice_cell, extra_surfs, data, is_transform, fragment) in cases {
+            let deck = deck_text(
+                &format!("{element_cells}\n{lattice_cell}"),
+                &format!("{element_surfs}{extra_surfs}"),
+                data,
+            );
+            for direction in ["openmc", "serpent", "phits"] {
+                let err = match direction {
+                    "openmc" => translate(&deck).unwrap_err(),
+                    "serpent" => translate_serpent(&deck).unwrap_err(),
+                    "phits" => translate_phits(&deck).unwrap_err(),
+                    _ => unreachable!(),
+                };
+                let text = err.to_string();
+                assert!(
+                    if *is_transform {
+                        matches!(err, Error::TransformOutOfScope { .. })
+                    } else {
+                        matches!(err, Error::UniverseOutOfScope { .. })
+                    } && text.contains(fragment),
+                    "{name}/{direction}: {err}"
+                );
+            }
+        }
+        // `*FILL` degrees stay loud even for a single-universe fill.
+        let deck = deck_text(
+            "1 0 -2 *fill=1\n2 0 -1 u=1",
+            "1 so 5\n2 so 10",
+            "m1 92235 1.0",
+        );
+        for direction in ["openmc", "serpent", "phits"] {
+            let err = match direction {
+                "openmc" => translate(&deck).unwrap_err(),
+                "serpent" => translate_serpent(&deck).unwrap_err(),
+                "phits" => translate_phits(&deck).unwrap_err(),
+                _ => unreachable!(),
+            };
+            assert!(
+                matches!(err, Error::TransformOutOfScope { .. })
+                    && err.to_string().contains("cell 1 *FILL degrees"),
+                "{direction}: {err}"
+            );
+        }
     }
 }

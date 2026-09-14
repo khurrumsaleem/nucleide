@@ -6,8 +6,8 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors raised while validating transport data, trap specs, boundary
-/// conditions, grids, or solver options — and when a requested analysis is
-/// named-open in v1 (recombination steady state, G5).
+/// conditions, grids, or solver options — and when the per-step
+/// mobile/trap/face coupling fails to converge.
 #[derive(Debug, Clone, PartialEq, Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -29,15 +29,9 @@ pub enum Error {
     /// An initial-state entry is invalid: `{0}`.
     #[error("tritium: invalid initial state: {0}")]
     BadState(&'static str),
-    /// The recombination transient is named-open (G5): the surface law
-    /// `J = K_r c_m^2` makes the transient problem nonlinear and no gate
-    /// pins the transient nonlinear-solve tolerance yet. The steady state
-    /// closes the same law by Picard iteration on the face value.
-    #[error("tritium: recombination transient (G5) is named-open in v1")]
-    RecombinationOpen,
-    /// The per-step trap-coupling Picard iteration did not converge within
-    /// its iteration cap.
-    #[error("tritium: trap coupling did not converge within its iteration cap")]
+    /// The per-step mobile/trap/face Picard coupling (including the
+    /// recombination face Newton) did not converge within its iteration cap.
+    #[error("tritium: step coupling did not converge within its iteration cap")]
     NotConverged,
     /// The implicit stepper exceeded `{0}` accepted steps.
     #[error("tritium: step budget exhausted ({0} steps)")]

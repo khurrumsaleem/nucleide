@@ -26,14 +26,17 @@ Owns `crates/csg-xlate/src/lib.rs` (`deck_csg_to_openmc_xml`,
   Morgan complement inlining over flat intersections only, reflective +
   periodic boundaries, cell `U=k` + single-universe `FILL n` (cell param or
   data-block card) mapping to `universe=`/`fill=` (filled cells omit
-  `material`).
+  `material`), and `LAT=1` rectangular lattices with a full matrix `FILL` —
+  pitch and lower-left derive only from the lattice cell's `RPP` or
+  axis-plane-box bounds — in all three directions.
 - Serpent direction: same v2 scope with native simplifications — `RPP` to
   `cuboid`, axis-aligned `RCC` to truncated cylinders, `#n` passes through
   as Serpent's native cell complement, empty regions synthesize an `inf`
   surface; materials render as `m<n>`/`void` names (caller supplies `mat`
-  cards). Reflecting/periodic boundaries are loud
-  `SerpentBoundaryOutOfScope` (Serpent `set bc` is global; per-surface
-  mapping unverified).
+  cards). A `LAT=1` matrix `FILL` becomes a cuboidal `lat` card (type 11)
+  filled from the lattice cell via `fill <lattice id>`. Reflecting/periodic
+  boundaries are loud `SerpentBoundaryOutOfScope` (Serpent `set bc` is
+  global; per-surface mapping unverified).
 - PHITS direction: same v2 scope with manual-verified identical symbols
   (`PX/Y/Z`, `SO/SX/SY/SZ/S`, `CX/CY/CZ`, `SPH`, `RPP`, `RCC` any
   orientation, axis-aligned `BOX`) passing coefficients verbatim; `#n`
@@ -41,18 +44,24 @@ Owns `crates/csg-xlate/src/lib.rs` (`deck_csg_to_openmc_xml`,
   as reflective surfaces, densities pass through verbatim (shared sign
   convention). Void union/complement cells emit as outer void `-1` with an
   `outer-void-assigned` drift note (heuristic — review it for
-  union-shaped interior voids). Periodic pointers are loud
-  `PhitsBoundaryOutOfScope`; empty regions are loud (no `inf` spelling).
-- Loud errors, never silent mistranslation: `LAT` lattices, matrix or
+  union-shaped interior voids). Rectangular lattices keep `LAT=1` with a
+  matrix `FILL` (ranges plus the universe list in MCNP order verbatim).
+  Periodic pointers are loud `PhitsBoundaryOutOfScope`; empty regions are
+  loud (no `inf` spelling).
+- Loud errors, never silent mistranslation: hexagonal `LAT=2` lattices,
+  lattice `0`-holes, non-`RPP`/axis-plane-bounded lattice cells,
+  single-universe fills of lattice type, matrix fills without `LAT=1`,
   transformed fills, `U=-n`, `TRCL`/`TRn`, cones/quadrics/tori, tallies,
   sources, `READ` includes. Every `Error` variant has an end-to-end Python
   reject test.
 - Drift actions: `macrobody-expansion`, `complement-expansion`,
   `reflective-applied`, `periodic-link`, `universe-assigned`,
-  `fill-applied`, `universe-data-card`, `dropped-cell-param`,
-  `dropped-data-card`.
+  `fill-applied`, `lattice-emitted`, `universe-data-card`,
+  `dropped-cell-param`, `dropped-data-card`.
 - Structural assertions in tests (never byte-gold vs OpenMC output);
-  validation cross-checks `Region.from_expression` in the container only.
+  validation cross-checks `Region.from_expression` plus full
+  `Geometry.from_xml` loads (lattice decks verified geometrically against
+  the source deck's FILL matrix) in the container only.
 - Bindings stay thin; synthetic fixtures only; no OpenMC dependency in
   Rust (XML hand-emitted via `quick-xml`).
 

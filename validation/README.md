@@ -133,6 +133,13 @@ oracles on the committed fixtures:
   `PtracReader` (problem title and variable counts on three of four `.ptrac`
   files; PyNE has no `PtracFile` class). `Wwinp` and `Meshtal` require PyMOAB
   (absent in the nomoab build) and skip loudly.
+- **MCNP CSG translation** — OpenMC 0.16.0 fully loads every translated GO
+  deck `geometry.xml` (`Geometry.from_xml` with stub materials for the emitted
+  material numbers); lattice decks are additionally verified geometrically
+  against the source deck (element↔`FILL`-matrix mapping in MCNP `k, j, i`
+  order, element-centroid containment, `pitch * dimension` span vs the lattice
+  cell RPP bounds). When `openmc` is not importable these probes skip loudly;
+  structural Serpent/PHITS probes always run.
 - **FLUKA** — no working oracle: `pyne.fluka.Usrbin` needs PyMOAB and reads
   only binary USRBIN, while our fixtures are ASCII `.lis`. Skipped with an
   explicit note.

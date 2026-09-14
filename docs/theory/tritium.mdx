@@ -46,7 +46,7 @@ inventory and permeation in fusion materials. This page pins the **spec-phase
 equation set** for a scoped 1D kernel: Fickian diffusion of a mobile
 population `c_m` coupled to `N` McNabb–Foster trap species, with
 caller-supplied temperature and surface laws. The `nucleide-tritium` kernel
-implements this equation set; the T1–T2/G1–G4 labels below are the
+implements this equation set; the T1–T2/G1–G6 labels below are the
 analytic-gate contract its tests replay, mirroring the E1–E4/O-gate pattern
 of the point-kinetics page.
 Equations are textbook (Crank; McNabb–Foster; Oriani;
@@ -230,7 +230,67 @@ form from `K_r cf² + g(1−b) cf − g·a = 0`, two ends by Newton iteration
 with the analytic Jacobian. **G5a** (Dirichlet + recombination,
 trap-free, `S = 0`) asserts the linear `(c0, c_s)` profile, flux, and
 inventory at `1e-12`; **G5b** asserts the `K_r → ∞` recovery of the G1
-Dirichlet end. The recombination *transient* stays named-open.
+Dirichlet end. The recombination *transient* has no such algebraic
+oracle and closes per step instead (G6).
+
+### G6 — Recombination transient
+
+The recombination *transient* admits **no closed form**. The face law
+`K_r cf² = g(c_adj − cf)` makes every implicit θ-step nonlinear, and the
+face quadratic couples to the time derivative through the step matrix:
+the separation-of-variables trick behind G2 needs a linear problem, and
+the frozen-face affine reduction behind G5 needs no time derivative, so
+neither extends. The kernel instead reuses the G5 affine face-response
+construction *inside* each θ-step: for frozen traps the step is linear
+in the mobile profile with the face values as sources (`M c = r + Q f`),
+so one base Thomas solve plus one sensitivity column `P = M⁻¹Q` per
+recombination end (rebuilt only when `dt` changes) makes the profile
+affine in the faces, `c = base + P f`. Trap-free steps close each face
+in closed form (one end) or by Newton iteration with the analytic
+Jacobian (two ends, warm-started from the previous step); steps with
+traps fuse the face iterate into the trap-Picard loop, sharing
+`rtol`/`atol`. A face Newton that exhausts its cap fails the step with
+the existing not-converged error (hard fail, no `dt` retry).
+
+Because no algebraic oracle exists, the G6a–G6d gates are asymptotic and
+self-convergence — honestly weaker than the G1–G5 algebraic gates:
+
+- **G6a (long-time asymptote)**: Dirichlet + recombination from a clean
+  slab lands on the G5a steady state: `1e-6` relative on the outlet flux,
+  the flux balance `|F_L + F_R|`, and the G5a linear profile at `1e-9`,
+  at `t = 60·t_lag ≈ 44·τ₁` — `τ₁ = L²/(D y₁²)` the slowest mode of the
+  problem linearized about the steady face value (`y₁` the first positive
+  root of `y·cos y + (2K_r c_s L/D)·sin y = 0`), so the slowest mode has
+  decayed to `e⁻⁴⁴` and only the asymptote is gated.
+- **G6b (K_r continuity)**: `K_r → ∞` recovers the G2 Dirichlet
+  transient (outlet-flux series at `1e-6`), matching the G5b steady
+  limit; `K_r → 0` recovers the zero-flux transient (profile at `1e-5`
+  absolute against the leading-order `K_r c_f² t` leak).
+- **G6c (mass balance)**: recombination leaks, so the discrete invariant
+  `Iᵏ − Iᵏ⁻¹ = dt·[θRᵏ + (1−θ)Rᵏ⁻¹]` with `R = −(F_L + F_R)` closes
+  against the reported `K_r cf²` faces to roundoff (`1e-12` relative).
+- **G6d (self-convergence)**: `dt`-halving on a fixed recombination case
+  shows the θ-method order on two successive halvings — ≈ 2 for
+  Crank–Nicolson (pinned band 1.5–2.5), ≈ 1 for backward Euler (pinned
+  band 0.7–1.3). The band is measured where truncation error dominates:
+  the `t = 0` corner kink excites Crank–Nicolson fine-mode ringing that
+  decays only as `|g| → 1` on modes with `λ·dt ≫ 2`, so coarse-`dt`
+  errors at late time are ringing, not truncation.
+- **G6e (independent cross-check)**: self-convergence cannot catch a
+  spatial-discretization or face-formula bug that is consistent across
+  refinements, so G6e compares the mid-transient trajectory at
+  `t = 0.5/1/2·t_lag` against an independent solver — the method of
+  lines with second-order central differences on a node-centred grid
+  (ghost-node recombination end) and a hand-rolled explicit RK4 — that
+  shares no discretization, face closure, or integrator with the kernel.
+  The trap-free G6a slab plus a trap-coupled variant agree with the
+  production transient at `1.5e-4` relative on the mobile-profile
+  max-norm (`6e-4` on the trapped profile; outlet flux within `5e-3`
+  relative or `1e-3·J_ss` absolute), ≈5x headroom over the measured
+  cross-method error.
+
+Positivity under the face clamp (`cf ≥ 0`) is asserted for one- and
+two-recombination-end transients on a coarse grid.
 
 ### Invariants
 
@@ -248,7 +308,11 @@ via the exact per-cell backward-Euler map with Picard coupling to
 rtol/atol). Each implicit step is a tridiagonal solve through the shared
 `linalg::tridiag` Thomas module the kernel landing added behind the
 workspace facade. Gate-to-test mapping: G1/G3a/G3b/G3c/G4 replay as
-algebraic assertions (`1e-12`), G2 as a transient solve (`1e-6`), plus
+algebraic assertions (`1e-12`), G2 as a transient solve (`1e-6`), G5 as
+the recombination steady-state face construction (G5a algebraic at
+`1e-12`, G5b recovery at `1e-6`), G6 as the recombination transient
+(G6a–G6d asymptotic + self-convergence gates with in-test closed forms,
+plus the G6e independent method-of-lines cross-check), plus
 positivity and mass-balance invariant checks.
 
 ## Worked example: G1 slab
@@ -274,17 +338,21 @@ flux is still `≈3e-3 J_ss` at `t = 31.6 s` and reaches `0.9999 J_ss` by
   deferred to a later design (the T2 form already covers both).
 - **Equilibrium surfaces**: Dirichlet/Sieverts ends assume fast surface
   kinetics; finite-rate surface processes enter only via recombination.
-- **G5 transient open**: the recombination steady state is pinned (G5a/G5b
-  gates); the recombination transient has no pinned gate yet.
+- **G6 transient gates**: the recombination steady state is pinned
+  (G5a/G5b); the recombination transient closes per θ-step (G6a–G6d
+  asymptotic + self-convergence gates, plus the G6e independent
+  method-of-lines cross-check) — no closed-form transient oracle exists,
+  and none is claimed.
 - **Thin facades only**: `nucleide.tritium` (Python) and
   `tritiumBreakthrough` (WASM) expose the landed kernel; no new physics
-  past T1–T2/G1–G5.
+  past T1–T2/G1–G6.
 
 ## Validation
 
 - **Analytic replay** (landed): Rust fixture tests plus
-  `tests/test_tritium.py` assert G1–G4 fixtures at the pinned tolerances,
-  following the kinetics oracle pattern. No `validation/*_vs_*.py` script
+  `tests/test_tritium.py` assert the G1–G4 fixtures at the pinned
+  tolerances and replay G5/G6 as in-test closed forms, following the
+  kinetics oracle pattern. No `validation/*_vs_*.py` script
   exists — there is no external oracle to wire, so none was added.
 - **No external probe**: a FESTIM cross-check, if
   ever attempted, stays a loud-SKIP probe. Do **not** add FESTIM/FEniCS to

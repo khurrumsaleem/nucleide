@@ -3,9 +3,11 @@
 //! [`parse_deck`] splits a deck into message/title/cell/surface/data
 //! blocks, parses cells ([`crate::cell`]), surfaces ([`crate::surf`]) and
 //! materials ([`crate::inp`]), and keeps every card's source lines. Data
-//! cards that carry no typed model (mode, kcode, tallies, sdef, `read`
-//! includes) ride along as [`DataCard`] passthroughs — `read` includes are
-//! never followed.
+//! cards that carry no typed model (mode, kcode, tallies, `read` includes)
+//! ride along as [`DataCard`] passthroughs — `read` includes are never
+//! followed. The `SDEF` fixed-source card (plus its `SI`/`SP`/`SB`
+//! distributions) has a typed view in [`crate::sdef`], reached through
+//! [`DeckProblem::sdef`].
 //!
 //! [`write_deck`] re-emits cards verbatim from their source lines, so an
 //! unmodified deck round-trips byte-identical (blank-line separators and
@@ -17,8 +19,9 @@
 //!
 //! - `like n but` cell clones: rejected, model them explicitly instead.
 //! - `read` includes are passthrough cards, never followed.
-//! - Tallies beyond `F`/`FM`/`E`, sources, and kinetics cards are untyped
-//!   [`DataCard`]s (see [`crate::semantic`] for the typed subset).
+//! - Tallies beyond `F`/`FM`/`E`, `SDEF` sources beyond the [`crate::sdef`]
+//!   subset, and kinetics cards are untyped [`DataCard`]s (see
+//!   [`crate::semantic`] for the typed subset).
 //! - Vertical-bar `|` alternation is not MCNP syntax and is rejected
 //!   (use `:` unions).
 
@@ -159,6 +162,13 @@ impl DeckProblem {
     /// Typed tallies (`Fn` with grouped `FMn`/`En`) in number order.
     pub fn tallies(&self) -> Result<Vec<TallyView>, Error> {
         semantic::parse_tallies(&self.data)
+    }
+
+    /// Typed `SDEF` fixed-source card plus its discrete `SI`/`SP`/`SB`
+    /// distributions ([`crate::sdef`]); `None` when the deck has no `SDEF`
+    /// card.
+    pub fn sdef(&self) -> Result<Option<crate::sdef::SdefProblem>, Error> {
+        Ok(crate::sdef::parse_sdef_cards(&self.data)?)
     }
 
     /// Validate every L3 semantic rule (see [`crate::semantic`]).

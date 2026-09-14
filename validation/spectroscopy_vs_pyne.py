@@ -7,7 +7,8 @@ Two tiers:
    (including the 6-coefficient golden) plus the E7-fit log-space coefficient
    fit (closed-form synthetic points, recovery + round-trip), E8 X-ray
    algebra, E9 decay-source normalization + SDEF card text (hand-built line
-   lists, byte-exact card goldens), and the dollar/plain `.spe` fixture parse
+   lists, byte-exact card goldens, round-trip through the legacy `mcnp-io`
+   SDEF reader), and the dollar/plain `.spe` fixture parse
    with cross-format counts equality. Inputs are the hand-built synthetic
    `fixtures/spectroscopy/` files.
 2. PyNE cross-check: the same vectors and fixture files driven through the
@@ -30,6 +31,7 @@ from pathlib import Path
 
 from common import Report, fmt, rel_diff
 
+import nucleide.mcnp as mcnp
 import nucleide.spectroscopy as sp
 
 FAILURES = 0
@@ -69,6 +71,16 @@ def _check(ok: bool, label: str) -> str:
 
 def _worst_rel(got: list[float], want: list[float]) -> float:
     return max(rel_diff(g, w) for g, w in zip(got, want, strict=True))
+
+
+def _reader_round_trips(card: str) -> bool:
+    """The legacy `mcnp-io` SDEF reader must re-emit the emitter's card
+    byte-identically (a parse or validation failure is a loud FAIL, not an
+    exception out of the harness)."""
+    try:
+        return bool(mcnp.parse_sdef(card)["card"] == card)
+    except ValueError:
+        return False
 
 
 def synthetic_gates() -> tuple[list[list[str]], list[str], list[list[str]], str]:
@@ -158,6 +170,27 @@ def synthetic_gates() -> tuple[list[list[str]], list[str], list[list[str]], str]
     multi = sp.sdef_decay_source([(1.17, 1.0), (0.662, 2.0), (1.33, 1.0)])[1]
     ok = "\nSI1 L 0.662 1.17 1.33\nSP1 D 0.5 0.25 0.25" in multi
     rows.append(["E9 distribution cards", "exact", "equal", _check(ok, "E9 SI/SP")])
+    notes.append(
+        "E9 SDEF: emitted cards round-trip through the legacy SDEF reader "
+        "(`nucleide.mcnp.parse_sdef`) byte-identically, single-line and "
+        "distribution forms alike."
+    )
+    rows.append(
+        [
+            "E9 reader round-trip (single-line)",
+            "exact",
+            "equal",
+            _check(_reader_round_trips(iso), "E9 reader single-line"),
+        ]
+    )
+    rows.append(
+        [
+            "E9 reader round-trip (distribution)",
+            "exact",
+            "equal",
+            _check(_reader_round_trips(multi), "E9 reader distribution"),
+        ]
+    )
 
     dollar = sp.read_dollar_spe(str(FIX / "dollar_min.spe"))
     plain = sp.read_spe(str(FIX / "plain_min.spe"))
@@ -281,7 +314,7 @@ def oracle_check_pyne() -> tuple[list[list[str]], list[str], bool]:
     ]
     for label, (x, y, z, u, v, w, e, particle, weight), version in sdef_cases:
         ref = pyne_source.PointSource(x, y, z, u, v, w, e, particle, weight).mcnp(version)
-        ours = sp.sdef_decay_source(
+        card = sp.sdef_decay_source(
             [(e, 1.0)],
             x=x,
             y=y,
@@ -293,12 +326,22 @@ def oracle_check_pyne() -> tuple[list[list[str]], list[str], bool]:
             particle=particle,
             version=version,
         )[1]
-        rows.append([label, "exact", "equal", _check(ours == ref, label)])
+        rows.append([label, "exact", "equal", _check(card == ref, label)])
+        rows.append(
+            [
+                f"{label} reader round-trip",
+                "exact",
+                "equal",
+                _check(_reader_round_trips(card), f"{label} reader round-trip"),
+            ]
+        )
     notes.append(
         "E9 SDEF: single-line cards diffed byte-for-byte against "
         "pyne.source.PointSource.mcnp (beam, isotropic, and the MCNP6 proton "
-        "designator); the multi-line ERG=D1 distribution form has no upstream "
-        "counterpart and is pinned by the synthetic card goldens in the synthetic stage."
+        "designator), then round-tripped through the legacy SDEF reader before "
+        "the comparison is recorded; the multi-line ERG=D1 distribution form "
+        "has no upstream counterpart and is pinned by the synthetic card "
+        "goldens plus reader round-trip in the synthetic stage."
     )
     rows.extend(oracle_lines_tsv())
     return rows, notes, False

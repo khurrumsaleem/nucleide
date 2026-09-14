@@ -43,8 +43,8 @@ def steady(
     ``left``/``right`` are boundary-spec dicts with ``kind`` selecting
     ``"dirichlet"`` (``value`` [mol/m³]), ``"sieverts"``/``"henry"``
     (``solubility``, ``pressure`` [Pa]), ``"recombination"`` (``rate`` —
-    closed in steady state by the G5 face construction, still named-open
-    in :func:`transient`), or ``"zero_flux"``.
+    closed per solve: the G5 face construction in steady state, the G6
+    per-step face Newton in :func:`transient`), or ``"zero_flux"``.
     ``traps`` holds one spec dict per species (``k0``, ``p0``,
     ``site_density`` required; ``e_k``/``e_p`` default to 0). ``temperature``
     is one value (uniform, default 500 K) or one per cell; ``source`` is

@@ -18,6 +18,7 @@ GO_FIXTURES = [
     "deck_csg_complement.txt",
     "deck_csg_universe_fill.txt",
     "deck_csg_universe_data.txt",
+    "deck_csg_lattice_rect.txt",
 ]
 
 
@@ -97,6 +98,27 @@ class TestCsgFixtures:
             assert "universe-assigned" in actions
             assert "fill-applied" in actions
 
+    def test_rect_lattice_emitted(self) -> None:
+        xml, drift = _translate("deck_csg_lattice_rect.txt")
+        root = ET.fromstring(xml)
+        lat = root.find("lattice")
+        assert lat is not None
+        assert lat.get("type") == "rectangular"
+        cells = root.findall("cell")
+        assert lat.get("id") not in {c.get("id") for c in cells}
+        assert lat.findtext("dimension") == "2 2 2"
+        assert lat.findtext("lower_left") == "0 0 0"
+        assert lat.findtext("pitch") == "2 2 2"
+        # MCNP `k, j, i` (i fastest) maps to z ascending, y descending, x ascending.
+        universes = lat.findtext("universes")
+        assert universes == "3 4 1 2 7 8 5 6"
+        defined = {c.get("universe", "0") for c in cells}
+        assert set((universes or "").split()) <= defined
+        lattice_cell = {c.get("id"): c for c in cells}["10"]
+        assert lattice_cell.get("fill") == lat.get("id")
+        assert lattice_cell.get("material") is None
+        assert any(d["action"] == "lattice-emitted" and d["target"] == "10" for d in drift)
+
     def test_region_ids_reference_defined_surfaces(self) -> None:
         for name in GO_FIXTURES:
             xml, _ = _translate(name)
@@ -142,6 +164,35 @@ class TestCsgLoudErrors:
         deck = "msg\ntitle\n1 0 -1 lat=1 fill=0\n\n1 so 10\n\n"
         with pytest.raises(ValueError, match="out of v1 scope"):
             nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_lattice_loud_cases_all_directions(self) -> None:
+        """Hex LAT=2, 0-holes, and non-RPP-bounded lattice cells stay loud."""
+        cells = (
+            "1 1 -1.0 -1 u=1\n2 1 -1.0 -2 u=2\n3 1 -1.0 -3 u=3\n4 1 -1.0 -4 u=4\n"
+            "10 0 -100 {params}\n20 0 #10"
+        )
+        surfs = "1 sph 1 1 1 0.5\n2 sph 3 1 1 0.5\n3 sph 1 3 1 0.5\n4 sph 3 3 1 0.5\n{bounds}"
+        rpp = "100 rpp 0 4 0 4 0 2"
+        cases = [
+            ("lat=2 fill=0:1 0:1 0:0 1 2 3 4", rpp, "lat=2"),
+            ("lat=1 fill=0:1 0:1 0:0 1 0 3 4", rpp, "0-hole"),
+            ("lat=1 fill=0:1 0:1 0:0 1 2 3 4", "100 so 10", "lattice bounds"),
+        ]
+        for params, bounds, match in cases:
+            deck = (
+                "msg\ntitle\n"
+                + cells.format(params=params)
+                + "\n\n"
+                + surfs.format(bounds=bounds)
+                + "\n\nm1 92235 1.0\n"
+            )
+            for parse in (
+                nucleide.mcnp.parse_csg_to_openmc,
+                nucleide.mcnp.parse_csg_to_serpent,
+                nucleide.mcnp.parse_csg_to_phits,
+            ):
+                with pytest.raises(ValueError, match=match):
+                    parse(deck)
 
     def test_universe_notrunc_rejected(self) -> None:
         deck = "msg\ntitle\n1 0 -1 u=-1\n\n1 so 10\n\n"
@@ -232,6 +283,15 @@ class TestCsgSerpent:
             actions = [d["action"] for d in drift]
             assert "fill-applied" in actions
 
+    def test_rect_lattice_lat_card(self) -> None:
+        text, drift = nucleide.mcnp.read_csg_to_serpent(str(FIXTURES / "deck_csg_lattice_rect.txt"))
+        lines = text.splitlines()
+        # Cuboidal type 11: centre, counts, pitches, then the same
+        # z-ascending / y-descending / x-ascending universe order as OpenMC.
+        assert "lat 21 11 2 2 2 2 2 2 2 2 2 3 4 1 2 7 8 5 6" in lines
+        assert "cell 10 0 fill 21 -100" in lines
+        assert any(d["action"] == "lattice-emitted" and d["target"] == "10" for d in drift)
+
     def test_complement_passes_through(self) -> None:
         text, _ = nucleide.mcnp.read_csg_to_serpent(str(FIXTURES / "deck_csg_complement.txt"))
         assert "cell 2 0 void #1 -2" in text.splitlines()
@@ -280,6 +340,13 @@ class TestCsgPhits:
             assert "1  1  -10  -1  U=1" in text.splitlines()
             assert "2  0  -2  FILL=1" in text.splitlines()
             assert any(d["action"] == "fill-applied" for d in drift)
+
+    def test_rect_lattice_keeps_matrix_fill(self) -> None:
+        text, drift = nucleide.mcnp.read_csg_to_phits(str(FIXTURES / "deck_csg_lattice_rect.txt"))
+        # PHITS keeps LAT=1 with ranges plus the universe list in MCNP
+        # order verbatim (x fastest).
+        assert "10  0  -100  LAT=1  FILL=0:1 0:1 0:1 1 2 3 4 5 6 7 8" in text.splitlines()
+        assert any(d["action"] == "lattice-emitted" and d["target"] == "10" for d in drift)
 
     def test_outer_void_and_reflective(self) -> None:
         text, drift = nucleide.mcnp.read_csg_to_phits(str(FIXTURES / "deck_csg_complement.txt"))

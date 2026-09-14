@@ -1,4 +1,4 @@
-"""Python-side tests for the 1D tritium-transport kernel (G1-G4 gates + input errors)."""
+"""Python-side tests for the 1D tritium-transport kernel (G1-G6 gates + input errors)."""
 
 import json
 from pathlib import Path
@@ -126,10 +126,97 @@ def test_g5_recombination_rate_helper() -> None:
         tri.recombination_rate(1.0, 0.0, 0.0)
 
 
-def test_recombination_transient_is_named_open() -> None:
-    rec = {"kind": "recombination", "rate": 1.0}
-    with pytest.raises(ValueError, match="named-open"):
-        tri.transient(1e-3, 8, 1e-9, rec, DIR1, [1.0])
+def test_g6a_recombination_transient_asymptote() -> None:
+    # G6a: the Dirichlet + recombination transient lands on the G5a steady
+    # flux (D=1e-9, L=1e-3, c0=1.0, K_r=1e-6) at t = 60*t_lag, within 1e-6
+    # relative. Resolved steps (dt_max = 1) keep the Crank-Nicolson
+    # corner-kink ringing out of the face-adjacent cells.
+    cs = (5.0**0.5 - 1.0) / 2.0
+    j_ss = 1e-6 * cs * cs
+    t_end = 60.0 * tri.time_lag(1e-3, 1e-9)
+    out = tri.transient(
+        1e-3,
+        128,
+        1e-9,
+        DIR0,
+        {"kind": "recombination", "rate": 1e-6},
+        [t_end],
+        dt_max=1.0,
+        rtol=1e-10,
+        atol=1e-14,
+    )
+    assert out["flux_right"][0] == pytest.approx(j_ss, rel=1e-6)
+    assert out["flux_left"][0] + out["flux_right"][0] == pytest.approx(0.0, abs=1e-6 * j_ss)
+    n = len(out["mobile"][0])
+    for i, c in enumerate(out["mobile"][0]):
+        assert c == pytest.approx(1.0 + (cs - 1.0) * (i + 0.5) / n, rel=1e-9)
+    assert all(c >= 0.0 for row in out["mobile"] for c in row)
+
+
+def test_g6b_rate_limit_recovery() -> None:
+    # G6b continuity in K_r: K_r -> infinity recovers the G2 Dirichlet(0)
+    # transient; K_r -> 0 recovers the zero-flux transient.
+    times = [100.0, 316.227_766_016_837_96, 1000.0]
+    dirichlet = tri.transient(1e-3, 64, 1e-9, DIR0, DIR1, times, dt_max=1.0, rtol=1e-10, atol=1e-14)
+    stiff = tri.transient(
+        1e-3,
+        64,
+        1e-9,
+        DIR0,
+        {"kind": "recombination", "rate": 1e12},
+        times,
+        dt_max=1.0,
+        rtol=1e-10,
+        atol=1e-14,
+    )
+    for f_d, f_s in zip(dirichlet["flux_right"], stiff["flux_right"], strict=True):
+        assert f_s == pytest.approx(f_d, rel=1e-6, abs=1e-12)
+    sealed = tri.transient(1e-3, 64, 1e-9, DIR0, {"kind": "zero_flux"}, [1000.0], dt_max=5.0)
+    leaky = tri.transient(
+        1e-3,
+        64,
+        1e-9,
+        DIR0,
+        {"kind": "recombination", "rate": 1e-12},
+        [1000.0],
+        dt_max=5.0,
+    )
+    for c_l, c_s in zip(leaky["mobile"][0], sealed["mobile"][0], strict=True):
+        assert c_l == pytest.approx(c_s, abs=1e-5)
+    assert leaky["flux_right"][0] == pytest.approx(0.0, abs=1e-10)
+
+
+def test_g6_positivity_with_face_clamp() -> None:
+    # Positivity under the face clamp (cf >= 0): one-end and two-end
+    # recombination transients stay nonneg on a coarse grid.
+    one = tri.transient(
+        1e-3,
+        8,
+        1e-9,
+        DIR0,
+        {"kind": "recombination", "rate": 1e-6},
+        [1.0, 10.0, 100.0],
+        dt_max=1.0,
+    )
+    for row in one["mobile"]:
+        assert all(c >= 0.0 for c in row)
+    assert all(f >= 0.0 for f in one["flux_right"])
+    # Two recombination ends draining a uniform load (exercises the pair
+    # Newton): symmetric drain, nonneg throughout.
+    two = tri.transient(
+        1e-3,
+        8,
+        1e-9,
+        {"kind": "recombination", "rate": 1e-6},
+        {"kind": "recombination", "rate": 2e-6},
+        [1.0, 10.0, 100.0],
+        dt_max=1.0,
+        mobile0=[1.0] * 8,
+    )
+    for row in two["mobile"]:
+        assert all(c >= 0.0 for c in row)
+    assert all(f >= 0.0 for f in two["flux_left"])
+    assert all(f >= 0.0 for f in two["flux_right"])
 
 
 def test_mass_conservation_sealed_source() -> None:

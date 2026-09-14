@@ -41,7 +41,8 @@
 //!   negative int names the periodic partner surface.
 //! - Tallies have no semantic objects in the reference reader (`F`/`FM` fall
 //!   to generic data, `DE`/`SDEF`/`FMESH` are refused); the model here is
-//!   greenfield (see [`TallyView`]).
+//!   greenfield (see [`TallyView`]). The `SDEF` fixed-source card additionally
+//!   has a typed reader in [`crate::sdef`] (not in this module).
 //! - Validation mirrors the reference checks: duplicate numbers conflict;
 //!   dangling materials, surfaces, complements, periodic partners, and
 //!   transforms are malformed input; cell+data redundant definitions and
@@ -1452,8 +1453,9 @@ pub fn parse_volumes(cells: &[CellCard], data: &[DataCard]) -> Result<Vec<Volume
 const TALLY_TYPES: [u32; 7] = [1, 2, 4, 5, 6, 7, 8];
 
 /// Minimal typed tally: an `Fn[:p]` card with its `FMn` multiplier and `En`
-/// bins grouped by tally number. `DE`/`DF`/`SDEF`/`FMESH` cards have no
-/// semantic objects and stay generic data cards.
+/// bins grouped by tally number. `DE`/`DF`/`FMESH` cards have no semantic
+/// objects and stay generic data cards (`SDEF`/`SI`/`SP`/`SB` are typed in
+/// [`crate::sdef`] instead).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TallyView {
     /// Tally number (`Fn`).
@@ -1639,6 +1641,7 @@ pub fn validate_problem(
     parse_importances(cells, data)?;
     parse_volumes(cells, data)?;
     parse_tallies(data)?;
+    crate::sdef::parse_sdef_cards(data)?;
 
     let universe_numbers: BTreeSet<u32> = universes.iter().map(|u| u.number).collect();
     let transform_numbers: BTreeSet<u32> = transforms.iter().map(|t| t.number).collect();

@@ -281,7 +281,8 @@ Use `scripts/bump-version.sh X.Y.Z` to bump the workspace version and stamp
 - `crates/emit/AGENTS.md` — five-emitter card emission + mass-drift contracts.
 - `crates/kinetics/AGENTS.md` — prescribed-reactivity point kinetics (PKE + inhour + prompt jump) + oracle-gate contracts.
 - `crates/tritium/AGENTS.md` — 1D tritium diffusion-trapping kernel (T1–T2,
-  surface taxonomy, G1–G4 gates; G5 named-open) + facade/demo contracts.
+  surface taxonomy, G1–G4 gates; G5 steady + G6 transient recombination
+  closed via the face-response construction) + facade/demo contracts.
 - `crates/spectroscopy/AGENTS.md` — spectroscopy toolkit (smoothing, counting, calibration, X-ray, SPE readers).
 - `website/AGENTS.md` — website build, preview, sync, and E2E test workflow.
 - `validation/AGENTS.md` — cross-code validation harness workflow and the

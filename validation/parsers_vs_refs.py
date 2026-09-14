@@ -29,7 +29,7 @@ MCNP_DIR = REPO_ROOT / "fixtures" / "mcnp"
 FLUKA_DIR = REPO_ROOT / "fixtures" / "fluka"
 CSG_DIR = MCNP_DIR / "inp"
 
-# Scoped-v1 CSG fixtures: GO decks translate, reject decks raise ValueError.
+# Scoped CSG fixtures: GO decks translate, reject decks raise ValueError.
 CSG_GO_FIXTURES = [
     "deck_csg_sphere_box.txt",
     "deck_csg_rpp.txt",
@@ -37,6 +37,7 @@ CSG_GO_FIXTURES = [
     "deck_csg_complement.txt",
     "deck_csg_universe_fill.txt",
     "deck_csg_universe_data.txt",
+    "deck_csg_lattice_rect.txt",
 ]
 CSG_REJECT_FIXTURES = ["deck_csg_complement_reject.txt"]
 
@@ -468,16 +469,25 @@ def fluka_section(report: Report) -> None:
 
 
 def csg_section(report: Report) -> None:
-    """MCNP CSG translation fixtures vs OpenMC (scoped v2: + nested universes)."""
+    """MCNP CSG translation fixtures vs OpenMC (scoped v3: + rectangular lattices)."""
     report.heading("CSG translation vs OpenMC")
     report.prose(
         "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed"
         "\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped"
-        "\nv2: surfaces, cells, nested universes, and a material stub; a filled cell"
-        "\ncarries `fill` instead of `material`). Structural probes — surface"
-        "\nand cell counts, region ids referencing defined surfaces, boundary"
-        "\nattributes, material/fill stubs — always run; the OpenMC `Region.from_expression`"
-        "\ncross-check runs only when `openmc` is importable (validation container)."
+        "\nv3: surfaces, cells, nested universes, rectangular `LAT=1` lattices, and a"
+        "\nmaterial stub; a filled cell carries `fill` instead of `material`)."
+        "\nStructural probes — surface and cell counts, region ids referencing defined"
+        "\nsurfaces, boundary attributes, material/fill stubs — always run, as do"
+        "\nlattice cross-references (dimension/count products, universe-id references,"
+        "\nfill linkage) for decks with `<lattice>` blocks. When `openmc` is importable"
+        "\n(validation container), the `Region.from_expression` cross-check runs, every"
+        "\nGO deck's `geometry.xml` is fully loaded by OpenMC (`Geometry.from_xml` with"
+        "\nstub materials for the emitted material numbers), and lattice decks are"
+        "\nverified geometrically against the source deck: each element's universe id"
+        "\nmatches the deck `FILL` matrix entry at the same MCNP `(i, j, k)` indices"
+        "\n(`k, j, i` i-fastest vs OpenMC row-major `z` up/`y` down/`x` up), the"
+        "\nelement centroid lies inside the universe's cells as positioned by the"
+        "\ndeck surfaces, and `pitch * dimension` spans the lattice cell's RPP bounds."
         "\nReject decks must raise `ValueError`."
     )
     rows, skips = compare_csg()
@@ -491,9 +501,12 @@ def _serpent_probe(text: str) -> tuple[str, str]:
     """Structural probe over translated Serpent `surf`/`cell` cards.
 
     Returns (values compared, status). Checks card counts, that region
-    surface refs name defined surfaces, `#n` refs name defined cells, and
-    filled cells carry no material entry.
+    surface refs name defined surfaces, `#n` refs name defined cells, filled
+    cells carry no material entry, and every `lat` card is cuboidal (type
+    11) with its element count matching the universe table and each listed
+    universe assigned to some cell.
     """
+    import math
     import re
 
     lines = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("%")]
@@ -501,6 +514,7 @@ def _serpent_probe(text: str) -> tuple[str, str]:
     cells = [ln.split() for ln in lines if ln.startswith("cell ")]
     known_surfs = {t[1] for t in surfs}
     known_cells = {t[1] for t in cells}
+    known_universes = {t[2] for t in cells}
     bad = 0
     n_refs = 0
     for toks in cells:
@@ -520,21 +534,41 @@ def _serpent_probe(text: str) -> tuple[str, str]:
                     bad += num not in known_cells
                 else:
                     bad += num not in known_surfs
+    n_lat = 0
+    for toks in [ln.split() for ln in lines if ln.startswith("lat ")]:
+        n_lat += 1
+        # `lat id 11 cx cy cz nx ny nz px py pz u...` (cuboidal type 11).
+        if len(toks) < 12 or toks[2] != "11":
+            bad += 1
+            continue
+        try:
+            counts = [int(v) for v in toks[6:9]]
+        except ValueError:
+            bad += 1
+            continue
+        tail = toks[12:]
+        n_refs += len(tail) + 1
+        bad += math.prod(counts) != len(tail)
+        bad += any(not u.isdigit() or u not in known_universes for u in tail)
+        bad += sum(t[3] == "fill" and len(t) > 4 and t[4] == toks[1] for t in cells) != 1
     if bad:
         _track(1.0)
-    return (
-        f"{len(surfs)} surfs, {len(cells)} cells, {n_refs} refs",
-        "OK" if not bad else f"{bad} MISMATCHES",
-    )
+    compared = f"{len(surfs)} surfs, {len(cells)} cells, {n_refs} refs"
+    if n_lat:
+        compared += f", {n_lat} lattices"
+    return (compared, "OK" if not bad else f"{bad} MISMATCHES")
 
 
 def _phits_probe(text: str) -> tuple[str, str]:
     """Structural probe over translated PHITS `[Surface]`/`[Cell]` sections.
 
     Returns (values compared, status). Checks section presence, that region
-    surface refs name defined surfaces, `#n` refs name defined cells, and
-    void/outer-void cells omit the density field.
+    surface refs name defined surfaces, `#n` refs name defined cells, void/
+    outer-void cells omit the density field, and every `LAT=1` cell carries
+    a matrix `FILL` whose element count matches its ranges and whose
+    universe list references `U=` universes defined by other cells.
     """
+    import math
     import re
 
     section = ""
@@ -554,11 +588,17 @@ def _phits_probe(text: str) -> tuple[str, str]:
             cells.append(stripped.split())
     known_surfs = {t[0].lstrip("*") for t in surfs}
     known_cells = {t[0] for t in cells}
+    known_universes = {t.split("=", 1)[1] for c in cells for t in c if t.startswith("U=")}
     bad = 0 if ok_sections else 1
     n_refs = 0
+    n_lat = 0
     for toks in cells:
-        params = [t for t in toks if "=" in t]
-        body = toks[: len(toks) - len(params)] if params else toks
+        # Cell params (`U=`, `FILL=`, `LAT=`, ...) trail the region; a
+        # lattice `FILL` value spans three range tokens plus the universe
+        # list, so the first `=`-bearing token marks the region end.
+        pidx = next((i for i, t in enumerate(toks) if "=" in t), len(toks))
+        body = toks[:pidx]
+        params = toks[pidx:]
         if len(body) < 3:
             bad += 1
             continue
@@ -585,10 +625,74 @@ def _phits_probe(text: str) -> tuple[str, str]:
                     bad += num not in known_cells
                 else:
                     bad += num not in known_surfs
+        lat = next((t for t in params if t.startswith("LAT=")), None)
+        if lat is None:
+            continue
+        n_lat += 1
+        bad += lat != "LAT=1"
+        fidx = next((i for i, t in enumerate(params) if t.startswith("FILL=")), None)
+        if fidx is None or fidx + 3 > len(params):
+            bad += 1
+            continue
+        # `FILL=i1:i2 j1:j2 k1:k2`: the first range is glued to `FILL=`,
+        # the next two are bare range tokens, then the universe list.
+        try:
+            spans = [params[fidx].split("=", 1)[1].split(":")] + [
+                r.split(":") for r in params[fidx + 1 : fidx + 3]
+            ]
+            counts = [int(hi) - int(lo) + 1 for lo, hi in spans]
+        except ValueError:
+            bad += 1
+            continue
+        tail = params[fidx + 3 :]
+        n_refs += len(tail) + 1
+        bad += math.prod(counts) != len(tail)
+        bad += any(":" in t for t in tail)
+        bad += any(not u.isdigit() or u not in known_universes for u in tail)
+    if bad:
+        _track(1.0)
+    compared = f"{len(surfs)} surfs, {len(cells)} cells, {n_refs} refs"
+    if n_lat:
+        compared += f", {n_lat} lattices"
+    return (compared, "OK" if not bad else f"{bad} MISMATCHES")
+
+
+def _openmc_lattice_probe(root) -> tuple[str, str]:
+    """Universe-id cross-reference and count checks over `<lattice>` blocks.
+
+    `Region.from_expression` below is region-only, so these checks cover the
+    lattice block itself: the dimension product matches the universe-list
+    length, `lower_left`/`pitch` carry three components, the lattice id
+    collides with no cell or surface id, exactly one cell fills it, and
+    every listed universe is assigned to some cell.
+    """
+    import math
+
+    cells = root.findall("cell")
+    known_ids = {s.get("id") for s in root.findall("surface")} | {c.get("id") for c in cells}
+    defined_universes = {c.get("universe", "0") for c in cells}
+    bad = 0
+    n_vals = 0
+    lattices = root.findall("lattice")
+    for lat in lattices:
+        lat_id = lat.get("id", "")
+        dims = lat.findtext("dimension", "").split()
+        unis = lat.findtext("universes", "").split()
+        try:
+            n_elements = math.prod(int(d) for d in dims)
+        except ValueError:
+            n_elements = -1
+        n_vals += len(dims) + len(unis) + 4
+        bad += n_elements != len(unis)
+        bad += len(lat.findtext("lower_left", "").split()) != 3
+        bad += len(lat.findtext("pitch", "").split()) != 3
+        bad += lat_id in known_ids
+        bad += sum(u not in defined_universes for u in unis)
+        bad += sum(c.get("fill") == lat_id for c in cells) != 1
     if bad:
         _track(1.0)
     return (
-        f"{len(surfs)} surfs, {len(cells)} cells, {n_refs} refs",
+        f"{len(lattices)} lattices, {n_vals} values",
         "OK" if not bad else f"{bad} MISMATCHES",
     )
 
@@ -647,6 +751,8 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
                 "OK" if not bad else f"{bad} MISMATCHES",
             ]
         )
+        if root.findall("lattice"):
+            rows.append([name, "lattice cross-reference", *_openmc_lattice_probe(root)])
         try:
             serpent_text, _ = nucleide.mcnp.read_csg_to_serpent(str(path))
         except Exception as exc:
@@ -675,7 +781,12 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
     try:
         import openmc
     except ImportError as exc:
-        skips.append(_note(f"SKIPPED CSG OpenMC cross-check: oracle unavailable ({exc})"))
+        skips.append(
+            _note(
+                "SKIPPED CSG OpenMC cross-check (region parsing, geometry load,"
+                f" lattice geometry): oracle unavailable ({exc})"
+            )
+        )
         return rows, skips
     for name, root in parsed.items():
         try:
@@ -690,6 +801,29 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
         except Exception as exc:
             _track(1.0)
             rows.append([name, "openmc regions", "—", f"ERROR: {exc}"])
+    loaded: dict[str, Any] = {}
+    for name, root in parsed.items():
+        try:
+            loaded[name] = _openmc_load_geometry(openmc, root)
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "openmc geometry load", "—", f"ERROR: {exc}"])
+            continue
+        n_cells = len(loaded[name].get_all_cells())
+        n_universes = len(loaded[name].get_all_universes())
+        what = f"{n_cells} cells, {n_universes} universes"
+        rows.append([name, "openmc geometry load", what, "OK"])
+    for name, root in parsed.items():
+        if not root.findall("lattice") or name not in loaded:
+            continue
+        try:
+            deck = nucleide.mcnp.read_deck(str(CSG_DIR / name))
+            compared, status = _openmc_lattice_geometry_probe(openmc, loaded[name], deck)
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "openmc lattice geometry", "—", f"ERROR: {exc}"])
+            continue
+        rows.append([name, "openmc lattice geometry", compared, status])
     return rows, skips
 
 
@@ -712,6 +846,159 @@ def _openmc_surface(openmc: Any, elem: Any) -> Any:
     if stype == "z-cylinder":
         return openmc.ZCylinder(x0=coeffs[0], y0=coeffs[1], r=coeffs[2])
     raise ValueError(f"CSG probe cannot build OpenMC surface type {stype!r}")
+
+
+def _openmc_load_geometry(openmc: Any, root: Any) -> Any:
+    """Load one translated `<geometry>` element into a real `openmc.Geometry`.
+
+    OpenMC 0.16.0 resolves cell `material` attributes against an
+    `openmc.Materials` collection, so stub materials are supplied for exactly
+    the MCNP material numbers the emitter wrote (void cells need none).
+    """
+    import tempfile
+    import xml.etree.ElementTree as ET
+
+    mat_ids = sorted(
+        {
+            int(cell.get("material"))
+            for cell in root.findall("cell")
+            if (cell.get("material") or "").isdigit()
+        }
+    )
+    materials = openmc.Materials([openmc.Material(material_id=m) for m in mat_ids])
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "geometry.xml"
+        decl = b'<?xml version="1.0" encoding="utf-8"?>\n'
+        path.write_bytes(decl + ET.tostring(root))
+        return openmc.Geometry.from_xml(str(path), materials=materials)
+
+
+def _deck_lattice_bounds(deck: Any, cell_num: int) -> list[float]:
+    """Lattice-cell `[xmin, xmax, ymin, ymax, zmin, zmax]` from the parsed deck.
+
+    Mirrors the translator's two supported boundings: an interior `RPP`
+    (`-N`) or an intersection of six axis-plane half-spaces (the `+`/bare side
+    gives the minimum, the `-` side the maximum, one pair per axis).
+    """
+    import math
+
+    surfs = {int(s["num"]): s for s in deck.surfs}
+    cell = next(c for c in deck.cells if int(c["num"]) == cell_num)
+    toks = cell["geom"].split()
+    if len(toks) == 1 and toks[0].startswith("-"):
+        rpp = surfs.get(int(toks[0][1:]))
+        if rpp is not None and rpp["kind"].upper() == "RPP":
+            coeffs = [float(v) for v in rpp["coeffs"].split()]
+            if len(coeffs) == 6 and all(coeffs[2 * a] < coeffs[2 * a + 1] for a in range(3)):
+                return coeffs
+    axis_of = {"PX": 0, "X": 0, "PY": 1, "Y": 1, "PZ": 2, "Z": 2}
+    lo = [math.nan] * 3
+    hi = [math.nan] * 3
+    if len(toks) == 6:
+        for tok in toks:
+            sign = -1 if tok.startswith("-") else 1
+            surf = surfs.get(int(tok.lstrip("+-")))
+            if surf is None:
+                break
+            axis = axis_of.get(surf["kind"].upper())
+            if axis is None:
+                break
+            slot = lo if sign > 0 else hi
+            if not math.isnan(slot[axis]):
+                raise ValueError(f"cell {cell_num} bounds repeat one axis side")
+            slot[axis] = float(surf["coeffs"].split()[0])
+    if any(math.isnan(v) for v in lo + hi) or any(lo[a] >= hi[a] for a in range(3)):
+        raise ValueError(f"cell {cell_num} bounds are not an ordered axis-aligned box")
+    return [lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]]
+
+
+def _openmc_lattice_geometry_probe(openmc: Any, geometry: Any, deck: Any) -> tuple[str, str]:
+    """Geometric verification of a loaded `<lattice>` against the source deck.
+
+    The deck's matrix `FILL` lists element universes in MCNP `k, j, i` order
+    (`i` fastest); the OpenMC `<universes>` list is row-major with `z`
+    ascending, `y` descending (top row first), and `x` ascending. For every
+    lattice element this checks, through the loaded OpenMC geometry, that:
+
+    - the element's universe id equals the deck matrix entry for the same
+      MCNP indices (natural OpenMC element `(ix, iy, iz)` corresponds to
+      matrix indices `(imin + ix, jmin + iy, kmin + iz)`);
+    - the element centroid lies inside exactly one cell of that universe
+      (geometrically pinning `lower_left`, `pitch`, and the index order), and
+      `RectLattice.find_element` maps the centroid back to the same index; and
+    - the universe contains exactly the cells the deck assigns to it (`u=k`).
+
+    Also checks the fill linkage, that `pitch * dimension` spans the lattice
+    cell bounds per axis with `lower_left` at the bounds minimum, and that
+    every lattice universe resolves to a deck `u=k` universe (OpenMC
+    auto-creates empty universes for unknown ids, so a bogus id would surface
+    as an empty cell set).
+
+    Returns (values compared, status).
+    """
+    import math
+
+    bad = 0
+    n_vals = 0
+    n_elements = 0
+    deck_universes = {
+        int(u["number"]): sorted(int(c) for c in u["cells"].split()) for u in deck.universes
+    }
+    cells_by_id = geometry.get_all_cells()
+    for fill in deck.fills:
+        if fill["kind"] != "matrix":
+            continue
+        lat_cell = cells_by_id.get(int(fill["cell"]))
+        n_vals += 1
+        lat = lat_cell.fill if lat_cell is not None else None
+        if not isinstance(lat, openmc.RectLattice):
+            _track(1.0)
+            return (
+                "1 fill",
+                f"MISMATCH (cell {fill['cell']} is not lattice-filled in the loaded geometry)",
+            )
+        mins = [int(v) for v in fill["min_index"].split()]
+        maxs = [int(v) for v in fill["max_index"].split()]
+        counts = [hi - lo + 1 for lo, hi in zip(mins, maxs, strict=True)]
+        nx, ny, nz = counts
+        matrix = [int(v) for v in fill["universes"].split()]
+        bounds = _deck_lattice_bounds(deck, int(fill["cell"]))
+        n_elements += nx * ny * nz
+        for a in range(3):
+            n_vals += 2
+            bad += not math.isclose(
+                lat.lower_left[a], bounds[2 * a], rel_tol=1.0e-12, abs_tol=1.0e-12
+            )
+            bad += not math.isclose(
+                lat.pitch[a] * lat.shape[a],
+                bounds[2 * a + 1] - bounds[2 * a],
+                rel_tol=1.0e-12,
+                abs_tol=1.0e-12,
+            )
+        for uni in lat.universes.ravel():
+            n_vals += 1
+            bad += sorted(c.id for c in uni.cells.values()) != deck_universes.get(uni.id)
+        for iz in range(nz):
+            for iy in range(ny):
+                for ix in range(nx):
+                    expected = matrix[(iz * ny + iy) * nx + ix]
+                    uni = lat.universes[lat.get_universe_index((ix, iy, iz))]
+                    centroid = tuple(
+                        lat.lower_left[a] + (idx + 0.5) * lat.pitch[a]
+                        for a, idx in enumerate((ix, iy, iz))
+                    )
+                    hits = [c.id for c in uni.cells.values() if c.region and centroid in c.region]
+                    found = lat.find_element(centroid)[0]
+                    n_vals += 3
+                    bad += uni.id != expected
+                    bad += len(hits) != 1
+                    bad += tuple(found) != (ix, iy, iz)
+    if bad:
+        _track(1.0)
+    return (
+        f"{n_elements} elements, {n_vals} values",
+        "OK" if not bad else f"{bad} MISMATCHES",
+    )
 
 
 def main() -> int:

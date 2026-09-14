@@ -52,7 +52,9 @@ the screening-level `decay_energy.tsv` table. Depends on `nucleide-nuclei`.
 
 MCNP-family file I/O: `xsdir`, `meshtal`, SSW/SURFSRC, PTRAC, WWINP, MCTAL
 readers; material extraction from input decks; mesh-to-geometry deck
-generation. Depends on `nucleide-nuclei`.
+generation; the typed legacy `SDEF` fixed-source reader (discrete
+`SI`/`SP`/`SB` subset, canonical re-emission round-tripping the
+spectroscopy decay-source emitter). Depends on `nucleide-nuclei`.
 
 ### `nucleide-mcpl-io`
 
@@ -64,14 +66,17 @@ n/γ). Depends on `nucleide-mcnp-io` for the SSW header/track types.
 
 ### `nucleide-csg-xlate`
 
-Scoped MCNP CSG to OpenMC `geometry.xml` translation (v1: surfaces, cells,
-and a material stub only) with a per-cell/per-surface drift report in the
-`emit` drift pattern. Maps axis planes, spheres, on-axis cylinders, `SPH`,
-`RPP`, and axis-aligned `RCC` (half-space expansion); cones, quadrics, tori,
-general planes, other macrobodies, complements beyond flat intersections,
-reflecting/periodic conflicts, transforms, universes, tallies, and sources
-are loud errors. Depends on `nucleide-mcnp-io` only among workspace crates;
-never the reverse, never on bindings.
+Scoped MCNP CSG translation (v3 scope: surfaces, cells, simple nested
+universes, and rectangular `LAT=1` lattices with a full matrix `FILL`) to
+OpenMC `geometry.xml`, Serpent input, and PHITS input, with a
+per-cell/per-surface drift report in the `emit` drift pattern. Maps axis
+planes, spheres, on-axis cylinders, `SPH`, `RPP`, and axis-aligned `RCC`
+(half-space expansion in the OpenMC direction; native spellings in the
+Serpent/PHITS directions); cones, quadrics, tori, general planes, other
+macrobodies, complements beyond flat intersections, reflecting/periodic
+conflicts, transforms, hexagonal lattices, matrix fills without `LAT=1`,
+tallies, and sources are loud errors. Depends on `nucleide-mcnp-io` only
+among workspace crates; never the reverse, never on bindings.
 
 ### `nucleide-serpent-io`
 
@@ -143,8 +148,9 @@ group-wise emission data is wired through per nuclide.
 to N extrinsic McNabb–Foster trap species (T2) on a slab with
 caller-supplied temperature, solved by cell-centred finite volumes with
 implicit theta-stepping through the shared `linalg::tridiag` Thomas solver.
-Owns the Dirichlet/Sieverts/Henry/zero-flux surface taxonomy
-(recombination is a named-open G5); multi-D/FEM, heat coupling, and
+Owns the Dirichlet/Sieverts/Henry/zero-flux surface taxonomy plus
+recombination ends (`J = K_r c²`, closed in steady state and transient by
+the face-response construction, G5/G6); multi-D/FEM, heat coupling, and
 vendored property tables stay out. Depends on `nucleide-linalg` only among
 workspace crates; bindings depend on it, never the reverse.
 

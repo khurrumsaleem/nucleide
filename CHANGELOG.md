@@ -64,6 +64,23 @@ workspace crates from tags.
   `nucleide.mcnp.parse_csg_to_phits` / `read_csg_to_phits` facades plus
   structural `phits structure` probe rows in
   `validation/parsers_vs_refs.py`.
+- Rectangular-lattice (`LAT=1`) CSG translation in all three directions
+  (same `nucleide-csg-xlate` crate): a `LAT=1` cell with a full matrix
+  `FILL` (every element filled, no transform) now emits a rectangular
+  lattice — OpenMC `<lattice type="rectangular">` (`dimension`,
+  `lower_left`, `pitch`, `universes`; MCNP `k, j, i` order maps to
+  `z`-ascending / `y`-descending / `x`-ascending row-major), a Serpent
+  cuboidal `lat` card (type 11) filled via `fill <lattice id>`, and PHITS
+  `LAT=1` with a matrix `FILL` (ranges plus the universe list in MCNP
+  order verbatim) — with pitch and lower-left derived only from the
+  lattice cell's `RPP` or axis-plane-box bounds and lattice ids allocated
+  outside both cell and universe id spaces (each noted as
+  `lattice-emitted` drift). Hexagonal `LAT=2` lattices, `0`-holes,
+  non-`RPP`/axis-plane-bounded lattice cells, single-universe fills of
+  lattice type, and fill transforms stay loud named errors. New synthetic
+  `fixtures/mcnp/inp/deck_csg_lattice_rect.txt` deck, per-direction
+  universe-order tests, and lattice cross-reference probe rows in
+  `validation/parsers_vs_refs.py`.
 - Tritium-transport analytic-gate spec (no kernel yet):
   `docs/theory/tritium.mdx` pins the T1–T2 equation set and the G1–G5
   gate contract (steady linear, permeation time-lag, single-trap limits,
@@ -102,6 +119,42 @@ workspace crates from tags.
   (`validation/library_vs_refs.py`, auto-discovered): data hygiene,
   independent-block sums to 2.0, and cumulative coverage over the
   committed fission-yield pack (synthetic thresholds, no tapes).
+- Legacy `SDEF` fixed-source reader in `nucleide-mcnp-io` (new `sdef`
+  module): typed `SdefCard`/`SdefDist`/`SdefProblem` model over the `POS`,
+  `CELL`, `SURF`, `VEC`, `DIR`, `ERG`, `NRM`, `PAR`, `WGT`, `TME` keywords
+  (inline literals or `Dn` references) plus the discrete `SIn L`/`SPn D`/
+  `SBn D` distribution forms; every other keyword or option letter is a loud
+  drift note or a clean `SdefError`, never silently misread. Validation
+  covers duplicate cards/keywords, dangling `Dn` references, orphan
+  `SPn`/`SBn` cards, entry-count mismatches, and empty tables; canonical
+  re-emission round-trips the spectroscopy `sdef_decay_source` card dialect
+  byte-identically (80-column wrapping, C++ defaultfloat precision-6).
+  `DeckProblem.sdef` typed view (enforced in `validate`) and thin Python
+  `nucleide.mcnp.parse_sdef` facade; E9 reader round-trip rows in
+  `validation/spectroscopy_vs_pyne.py` plus synthetic `tests/test_sdef.py`
+  round-trip and error-case coverage.
+- Tritium recombination transient closure in `nucleide-tritium` (the last
+  named-open gate in the kernel): `solve` now accepts recombination ends
+  (`J = K_r c_m²`) in the transient, closing each implicit θ-step by the
+  G5 affine face-response construction reused per step — one base Thomas
+  solve plus one sensitivity column per recombination end per `dt`,
+  closed-form face for one end, analytic-Jacobian Newton for two, fused
+  into the trap-Picard loop and sharing `rtol`/`atol`. The
+  `RecombinationOpen` error variant is removed. Since no closed form
+  exists for the recombination transient, asymptotic + self-convergence
+  gates replace the algebraic style: G6a late-time asymptote to the G5a
+  steady flux (1e-6 relative at 60 permeation lags), G6b K_r→∞/K_r→0
+  recovery of the Dirichlet/zero-flux transients, G6c discrete mass
+  balance with the recombination leak to roundoff, G6d dt-halving
+  θ-method order (Crank–Nicolson ≈ 2, backward Euler ≈ 1), G6e
+  independent method-of-lines cross-check (node-centred central FD +
+  explicit RK4, ghost-node recombination face) of the mid-transient
+  trajectory at 0.5/1/2 permeation lags against the production transient,
+  trap-free and trap-coupled (1.5e-4 relative on the mobile-profile
+  max-norm, ≈5x measured headroom), plus
+  positivity under the face clamp. Python `nucleide.tritium.transient`
+  facade unchanged (dict shape and signatures stay); the theory page
+  gains the G6 section.
 
 ## [0.10.0] - 2026-09-14
 

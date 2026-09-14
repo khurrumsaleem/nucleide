@@ -25,8 +25,10 @@
 //! Gate-to-test mapping (fixtures in `fixtures/tritium/`, replayed in
 //! `fixture_tests`): G1/G4 steady linear profiles and G3a/G3b/G3c trap
 //! limits as algebraic assertions (`1e-12`), G2 as a transient solve
-//! (`1e-6` on the breakthrough curve plus the `L²/6D` time lag), with
-//! positivity and mass-balance invariant checks.
+//! (`1e-6` on the breakthrough curve plus the `L²/6D` time lag), G5 as the
+//! recombination steady-state face construction, G6 as the recombination
+//! transient (asymptotic + self-convergence gates, in-test closed forms),
+//! with positivity and mass-balance invariant checks.
 
 #![warn(missing_docs)]
 

@@ -7,7 +7,8 @@
 //! recombination prescribes the nonlinear flux `J = K_r c_m²`, and zero flux
 //! models a symmetry midplane or an impermeable wall. Sieverts/Henry ends
 //! reduce the trap-free steady state to the G1 linear profile (G4); the
-//! recombination steady state is the named-open G5 gate.
+//! recombination steady state (G5) and transient (G6) close through the
+//! exact face-response construction.
 
 use crate::error::Error;
 
@@ -33,9 +34,10 @@ pub enum Boundary {
         pressure: f64,
     },
     /// Surface recombination flux `J = K_r c_m²` with rate `K_r`
-    /// \[m⁴/mol/s\] (`> 0`): nonlinear Robin condition. The steady state
-    /// (G5) closes it by Picard iteration on the face value; the transient
-    /// stays named-open.
+    /// \[m⁴/mol/s\] (`> 0`): nonlinear Robin condition. Both the steady
+    /// state (G5) and the transient (G6) close it through the exact
+    /// face-response construction (affine profile in the face values with
+    /// a closed-form / Newton face solve).
     Recombination {
         /// Recombination rate `K_r` \[m⁴/mol/s\].
         rate: f64,
@@ -119,8 +121,9 @@ impl Boundary {
         }
     }
 
-    /// Whether this end is a recombination law (named-open in the
-    /// transient; closed by Picard iteration in the steady state).
+    /// Whether this end is a recombination law (closed by the
+    /// face-response construction in both the steady state and the
+    /// transient).
     pub fn is_recombination(&self) -> bool {
         matches!(self, Boundary::Recombination { .. })
     }

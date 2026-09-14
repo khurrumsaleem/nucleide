@@ -5022,6 +5022,20 @@ impl PyDeckProblem {
             .collect())
     }
 
+    /// Typed `SDEF` fixed-source card as a dict (`None` when the deck has no
+    /// `SDEF` card). See [`parse_sdef`] for the dict shape.
+    #[getter]
+    fn sdef(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        let guard = self
+            .inner
+            .lock()
+            .map_err(|_| PyValueError::new_err("deck lock poisoned"))?;
+        let sdef = guard
+            .sdef()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        sdef.map(|s| sdef_to_py(py, &s)).transpose()
+    }
+
     /// Validate every L3 semantic rule (duplicate numbers, dangling links,
     /// redundant definitions, write-time state, lattice/fill cross-checks).
     fn validate(&self) -> PyResult<()> {
@@ -5092,6 +5106,82 @@ fn read_deck(path: &str) -> PyResult<PyDeckProblem> {
 #[pyfunction]
 fn parse_deck(text: &str) -> PyResult<PyDeckProblem> {
     PyDeckProblem::loads(text)
+}
+
+/// Render a typed `SDEF` source as a Python dict.
+///
+/// Shape: `{pos, cell, surf, vec, dir, erg, nrm, par, wgt, tme}` (canonical
+/// strings, `""` when absent; `Dn` references render as `D<n>`),
+/// `ignored` (verbatim out-of-subset keyword tokens), `distributions`
+/// (`[{number, si_option, si, sp_option, sp, sb_option, sb}]`, value lists
+/// space-joined, absent `SPn`/`SBn` groups render as `""`), and `card` (the
+/// canonical re-emission, so `parse_sdef(d["card"])["card"] == d["card"]`).
+fn sdef_to_py(py: Python<'_>, sdef: &nucleide_mcnp_io::sdef::SdefProblem) -> PyResult<Py<PyAny>> {
+    use pyo3::types::PyDict;
+    let opt3 = |v: &Option<nucleide_mcnp_io::sdef::SdefRef<[f64; 3]>>| {
+        v.as_ref().map(|r| r.render()).unwrap_or_default()
+    };
+    let opt1 = |v: &Option<nucleide_mcnp_io::sdef::SdefRef<f64>>| {
+        v.as_ref().map(|r| r.render()).unwrap_or_default()
+    };
+    let optu = |v: &Option<nucleide_mcnp_io::sdef::SdefRef<u32>>| {
+        v.as_ref().map(|r| r.render()).unwrap_or_default()
+    };
+    let d = PyDict::new(py);
+    d.set_item("pos", opt3(&sdef.card.pos))?;
+    d.set_item("cell", optu(&sdef.card.cell))?;
+    d.set_item("surf", optu(&sdef.card.surf))?;
+    d.set_item("vec", opt3(&sdef.card.vec))?;
+    d.set_item("dir", opt1(&sdef.card.dir))?;
+    d.set_item("erg", opt1(&sdef.card.erg))?;
+    d.set_item("nrm", opt1(&sdef.card.nrm))?;
+    d.set_item(
+        "par",
+        sdef.card
+            .par
+            .as_ref()
+            .map(|r| r.render())
+            .unwrap_or_default(),
+    )?;
+    d.set_item("wgt", opt1(&sdef.card.wgt))?;
+    d.set_item("tme", opt1(&sdef.card.tme))?;
+    d.set_item("ignored", sdef.card.ignored.clone())?;
+    let dists: Vec<Py<PyAny>> = sdef
+        .dists
+        .iter()
+        .map(|dist| {
+            let m = PyDict::new(py);
+            m.set_item("number", dist.number.to_string())?;
+            m.set_item("si_option", "L")?;
+            m.set_item("si", dist.si_text())?;
+            m.set_item(
+                "sp_option",
+                dist.sp.as_ref().map(|_| "D").unwrap_or_default(),
+            )?;
+            m.set_item("sp", dist.sp_text())?;
+            m.set_item(
+                "sb_option",
+                dist.sb.as_ref().map(|_| "D").unwrap_or_default(),
+            )?;
+            m.set_item("sb", dist.sb_text())?;
+            Ok(m.into_any().unbind())
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    d.set_item("distributions", dists)?;
+    d.set_item("card", sdef.emit())?;
+    Ok(d.into_any().unbind())
+}
+
+/// Parse standalone `SDEF` card text (plus `SI`/`SP`/`SB` cards, e.g. the
+/// decay-source emitter's output) into the [`sdef_to_py`] dict shape.
+/// Raises `ValueError` when no `SDEF` card is present or any validation rule
+/// fails (duplicate cards, non-discrete distribution forms, dangling `Dn`
+/// references, orphan `SPn`/`SBn` cards, entry-count mismatches).
+#[pyfunction]
+fn parse_sdef(py: Python<'_>, text: &str) -> PyResult<Py<PyAny>> {
+    let sdef = nucleide_mcnp_io::sdef::parse_sdef_text(text)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    sdef_to_py(py, &sdef)
 }
 
 /// Translate one deck's CSG to OpenMC `geometry.xml`.
@@ -6111,8 +6201,8 @@ fn kinetics_prompt_jump(
 /// `kind` selects the surface law (`"dirichlet"`, `"sieverts"`, `"henry"`,
 /// `"recombination"`, `"zero_flux"`). Keys per kind: dirichlet (`value`
 /// [mol/m³]); sieverts/henry (`solubility`, `pressure` [Pa]);
-/// recombination (`rate`); zero_flux (no keys). Recombination ends are
-/// accepted here and rejected at solve time (G5 named-open).
+/// recombination (`rate`); zero_flux (no keys). Recombination ends close
+/// per solve — steady (G5) and transient (G6) alike.
 fn parse_tritium_boundary(
     spec: &BTreeMap<String, Py<PyAny>>,
     py: Python<'_>,
@@ -7645,6 +7735,7 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(uq_perturb_fission_yields, m)?)?;
     m.add_function(wrap_pyfunction!(parse_deck, m)?)?;
     m.add_function(wrap_pyfunction!(read_deck, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_sdef, m)?)?;
     m.add_function(wrap_pyfunction!(parse_csg_to_openmc, m)?)?;
     m.add_function(wrap_pyfunction!(read_csg_to_openmc, m)?)?;
     m.add_function(wrap_pyfunction!(parse_csg_to_serpent, m)?)?;
