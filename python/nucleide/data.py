@@ -11,6 +11,8 @@ the pinned SHA-256 guards against silent revisions).
 """
 
 import hashlib
+import os
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -75,8 +77,20 @@ def fetch_compendium(*, ref: str | None = None, dest: str | Path = ".") -> str:
 
 
 def _default_cache_dir() -> Path:
-    """Per-user download cache shared by runtime-fetched datasets."""
-    return Path.home() / ".cache" / "nucleide"
+    """Per-user platform cache shared by runtime-fetched datasets.
+
+    Windows ``%LOCALAPPDATA%\\nucleide\\Cache``, macOS
+    ``~/Library/Caches/nucleide``, other POSIX ``$XDG_CACHE_HOME/nucleide``
+    or ``~/.cache/nucleide``.
+    """
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA")
+        root = Path(base) if base else Path.home() / "AppData" / "Local"
+        return root / "nucleide" / "Cache"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "nucleide"
+    base = os.environ.get("XDG_CACHE_HOME")
+    return (Path(base) if base else Path.home() / ".cache") / "nucleide"
 
 
 def _sha256(path: Path) -> str:
@@ -93,7 +107,9 @@ def fetch_fgr15(*, dest: str | Path | None = None, url: str | None = None) -> st
 
     FGR 15 (EPA 402-R-25-001, July 2025) external-dosimetry tables are not
     vendored: this fetches the official EPA zip — by default into the
-    per-user cache ``~/.cache/nucleide/`` — and verifies its SHA-256 against
+    per-user platform cache (``%LOCALAPPDATA%\\nucleide\\Cache`` on Windows,
+    ``~/Library/Caches/nucleide`` on macOS, ``$XDG_CACHE_HOME/nucleide`` or
+    ``~/.cache/nucleide`` elsewhere) — and verifies its SHA-256 against
     the pinned ``FGR15_SHA256``. A verified cached file is reused as-is (no
     re-download); a hash mismatch raises loudly naming both digests (EPA may
     have revised the file), and a download failure with no usable cache

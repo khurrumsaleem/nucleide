@@ -8,6 +8,7 @@ enforces the pinned hash on every call, so the override is how a synthetic
 """
 
 import hashlib
+import sys
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -89,13 +90,48 @@ def fetch_kwargs(tmp_path: Path, zip_path: Path) -> dict[str, Any]:
 
 
 class TestFetch:
-    def test_default_cache_dir_under_home(
+    def test_default_cache_dir_linux_xdg(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         zip_path = make_pinned_zip(tmp_path, monkeypatch)
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+        got = nucleide.data.fetch_fgr15(url=zip_path.as_uri())
+        assert got == str(tmp_path / "xdg" / "nucleide" / "fgr15_synthetic.zip")
+
+    def test_default_cache_dir_linux_home_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        zip_path = make_pinned_zip(tmp_path, monkeypatch)
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         got = nucleide.data.fetch_fgr15(url=zip_path.as_uri())
         assert got == str(tmp_path / ".cache" / "nucleide" / "fgr15_synthetic.zip")
+
+    def test_default_cache_dir_macos(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        zip_path = make_pinned_zip(tmp_path, monkeypatch)
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        got = nucleide.data.fetch_fgr15(url=zip_path.as_uri())
+        assert got == str(tmp_path / "Library" / "Caches" / "nucleide" / "fgr15_synthetic.zip")
+
+    def test_default_cache_dir_windows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        zip_path = make_pinned_zip(tmp_path, monkeypatch)
+        monkeypatch.setattr(sys, "platform", "win32")
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+        got = nucleide.data.fetch_fgr15(url=zip_path.as_uri())
+        assert got == str(
+            tmp_path / "AppData" / "Local" / "nucleide" / "Cache" / "fgr15_synthetic.zip"
+        )
+        monkeypatch.delenv("LOCALAPPDATA")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        got = nucleide.data.fetch_fgr15(url=zip_path.as_uri())
+        assert got == str(
+            tmp_path / "AppData" / "Local" / "nucleide" / "Cache" / "fgr15_synthetic.zip"
+        )
 
     def test_download_then_cache_hit(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         zip_path = make_pinned_zip(tmp_path, monkeypatch)

@@ -18,7 +18,9 @@ workspace crates from tags.
 - EPA FGR 15 external-dosimetry coefficients (EPA 402-R-25-001, July 2025)
   as a runtime-download feature — nothing from the EPA file is vendored.
   `nucleide.data.fetch_fgr15` downloads the official coefficient zip into the
-  per-user cache (`~/.cache/nucleide/`), hash-pinned to SHA-256
+  per-user platform cache (`%LOCALAPPDATA%\nucleide\Cache` on Windows,
+  `~/Library/Caches/nucleide` on macOS, `$XDG_CACHE_HOME/nucleide` or
+  `~/.cache/nucleide/` elsewhere), hash-pinned to SHA-256
   `71314b3f1d73c197da8b589e74c450f61befce48c66ace6ac1f6e0597560bd91`
   (mismatch fails loudly — EPA may have revised the file). The new
   `nucleide-nuclei` `fgr15` module parses the seven `Table_4_*.DAT` scenario
