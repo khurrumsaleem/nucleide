@@ -138,6 +138,17 @@ class TestSdefErrors:
             mcnp.parse_sdef("SDEF ERG=D1\nSI1 L 1.0 2.0\nSP1 D 1.0")
 
     def test_unknown_keywords_are_drift_notes(self) -> None:
-        parsed = mcnp.parse_sdef("SDEF POS=0 0 0 ERG=0.662 AXS=0 0 1")
-        assert parsed["ignored"] == ["AXS=0 0 0 1"]
+        parsed = mcnp.parse_sdef("SDEF POS=0 0 0 ERG=0.662 ARA=1.0")
+        assert parsed["ignored"] == ["ARA=1.0 1.0"]
         assert parsed["erg"] == "0.662"
+
+    def test_ring_axs_rad_round_trip(self) -> None:
+        # The plasma-source ring shape: axis + radial delta distribution.
+        card = (
+            "SDEF POS=0 0 25\n     AXS=0 0 1\n     RAD=D1\n     ERG=14.021\n     WGT=1"
+            "\n     PAR=n\nSI1 L 300 300\nSP1 D 0 1"
+        )
+        parsed = mcnp.parse_sdef(card)
+        assert parsed["card"] == card
+        assert parsed["axs"] == "0 0 1"
+        assert parsed["rad"] == "D1"

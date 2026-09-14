@@ -1,0 +1,65 @@
+"""Tokamak fusion neutron sources (backed by the `nucleide-plasma-source` crate).
+
+Ring and point tokamak neutron sources over the D-D (2.45 MeV) and D-T
+(14.1 MeV) reactions, with ion-temperature broadening (Brysk 1973; Ballabio
+et al. 1998 coefficients). ``particles`` samples a source spec to particle
+vectors (seeded, deterministic per platform); ``emit_source_cards`` renders MCNP
+``SDEF`` and Serpent ``src`` cards with a drift report. Parametric
+(Miller-geometry) plasma profiles are not yet supported. Lengths are
+centimetres, energies MeV, ion temperature keV. MCPL projection stays
+caller-side: write particle vectors with ``nucleide.mcpl`` when a file is
+wanted.
+"""
+
+from typing import Any
+
+from nucleide._internal import (
+    plasma_source_emit_cards,
+    plasma_source_particles,
+    plasma_source_spectrum_moments,
+)
+
+__all__ = [
+    "particles",
+    "emit_source_cards",
+    "spectrum_moments",
+]
+
+
+def particles(spec: dict[str, Any], n: int, seed: int) -> dict[str, Any]:
+    """Sample ``n`` source particles into per-field float64 NumPy arrays.
+
+    ``spec`` keys: ``kind`` (``"point"`` or ``"ring"``); point sources take
+    ``position`` [cm] (three-list), ring sources take ``radius`` [cm] and
+    ``height`` [cm]; both take ``reaction`` (``"dt"``/``"dd"``),
+    ``ion_temperature_kev`` (0 for the monoenergetic nominal line), and
+    optional ``weight`` (default 1.0). Returns ``x``/``y``/``z`` [cm],
+    direction cosines ``u``/``v``/``w`` (unit vectors), ``energy`` [MeV], and
+    ``weight``. The same ``seed`` reproduces the same stream.
+    """
+    return plasma_source_particles(spec, n, seed)
+
+
+def emit_source_cards(spec: dict[str, Any], bins: int = 21) -> dict[str, Any]:
+    """Emit MCNP ``SDEF`` and Serpent ``src`` source cards plus drift reports.
+
+    ``spec`` is the source spec from ``particles`` (optional ``mcnp_version``,
+    5 or 6, default 5); ``bins`` sets the Gaussian spectrum tabulation bin
+    count. Returns ``sdef`` and ``serpent``, each ``{"card": str, "drift":
+    [row dicts]}`` (rows carry ``quantity``, ``accounted``, ``rel_drift``,
+    ``reparsed``, ``note``), plus the temperature-broadened ``spectrum``
+    moments (``nominal_mev``, ``mean_mev``, ``sigma_mev``, ``mono``). The
+    SDEF card round-trips through ``nucleide.mcnp.parse_sdef``
+    byte-identically; Serpent drift rows are analytic by design.
+    """
+    return plasma_source_emit_cards(spec, bins)
+
+
+def spectrum_moments(reaction: str, ion_temperature_kev: float) -> dict[str, Any]:
+    """Closed-form spectrum moments of a fusion reaction at an ion temperature.
+
+    ``reaction`` is ``"dt"`` or ``"dd"``; ``ion_temperature_kev`` is in keV.
+    Returns ``reaction``, ``label``, ``nominal_mev`` (the ``T_i = 0`` line),
+    ``mean_mev``, and ``sigma_mev`` (0 when monoenergetic).
+    """
+    return plasma_source_spectrum_moments(reaction, ion_temperature_kev)

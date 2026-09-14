@@ -20,6 +20,7 @@ SECTION_ORDER = [
     "enrichment_swu",
     "magic",
     "kinetics",
+    "plasma_source",
     "spectroscopy",
     "nuclear_data",
     "library",

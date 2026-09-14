@@ -1,0 +1,266 @@
+//! MCNP `SDEF` source-card emission through the typed reader.
+//!
+//! The card is built as a typed [`SdefProblem`] and rendered with its
+//! canonical emitter, so every emitted card round-trips byte-identically
+//! through `nucleide-mcnp-io`'s `SDEF` reader — the same verification the
+//! spectroscopy decay-source emitter (E9) uses. What the reader cannot
+//! express (a radial distribution) was added to its accepted subset as the
+//! `AXS`/`RAD`/`EXT` keywords for this crate; anything still outside the
+//! subset stays a loud reader error, never a silently misread card.
+//!
+//! Card shape:
+//!
+//! - point source: `SDEF POS=x y z`, `ERG=<e>` (monoenergetic) or
+//!   `ERG=Dn` with the tabulated spectrum on `SIn L` / `SPn D`;
+//! - ring source: `SDEF POS=0 0 z`, `AXS=0 0 1`, `RAD=D1` with the delta
+//!   ring on `SI1 L R R` / `SP1 D 0 1` (equal `SI` endpoints pin every
+//!   particle to radius `R`), plus the energy field as above.
+//!
+//! The Gaussian spectrum is tabulated at bin centers over a symmetric
+//! `±4 sigma` window (see [`SpectrumSpec::tabulate`]); the truncated tail
+//! mass is reported as drift. Sampling semantics of the `SDEF` distributions
+//! themselves are MCNP's — the workspace verifies surface syntax only, the
+//! same posture as the E9 emitter.
+
+use nucleide_mcnp_io::sdef::{SdefCard, SdefDist, SdefProblem, SdefRef};
+use nucleide_nuclei::particles::ParticleId;
+
+use crate::{DriftReport, DriftRow, Error, PlasmaSourceConfig, Result, SourceModel, SpectrumSpec};
+
+/// Half-width of the tabulated spectrum window, in sigma.
+const TABLE_WIDTH_SIGMA: f64 = 4.0;
+
+/// One emitted source card plus its drift report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmittedCard {
+    /// Canonical card text.
+    pub text: String,
+    /// Drift report for this emission.
+    pub drift: DriftReport,
+}
+
+impl EmittedCard {
+    /// Verify the card round-trips through the typed SDEF reader
+    /// (`parse(text).emit() == text`); a cheap emission-time assertion.
+    pub fn verify_round_trip(&self) -> Result<()> {
+        let problem = nucleide_mcnp_io::sdef::parse_sdef_text(&self.text)
+            .map_err(|e| Error::CardRoundTrip(e.to_string()))?;
+        if problem.emit() != self.text {
+            return Err(Error::CardRoundTrip(
+                "re-emission is not byte-identical to the emitted card".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Neutron `PAR=` designator for the requested MCNP version.
+fn neutron_designator(version: u32) -> Result<&'static str> {
+    let designator = match version {
+        5 => ParticleId::Neutron.mcnp(),
+        6 => ParticleId::Neutron.mcnp6(),
+        _ => return Err(Error::UnsupportedMcnpVersion(version)),
+    };
+    designator.ok_or(Error::NotYetSupported("MCNP neutron designator"))
+}
+
+/// Render a fusion source as an MCNP `SDEF` card plus drift report.
+///
+/// `version` selects the `PAR=` designator dialect (5 or 6); `n_bins` sets
+/// the Gaussian tabulation bin count (ignored for monoenergetic spectra and
+/// values `< 2` fall back to the 21-bin default).
+pub fn emit_sdef(config: &PlasmaSourceConfig, version: u32, n_bins: usize) -> Result<EmittedCard> {
+    config.validate()?;
+    let spectrum = config.spectrum()?;
+    let table = spectrum.tabulate(if n_bins >= 2 { n_bins } else { 21 }, TABLE_WIDTH_SIGMA)?;
+    let par = neutron_designator(version)?;
+
+    // Distribution numbering: the ring radial delta takes D1, so the
+    // spectrum table starts at D2 for rings and D1 for points.
+    let (spectrum_number, mut dists) = match config.model {
+        SourceModel::Ring(r) => {
+            let radial = SdefDist {
+                number: 1,
+                si: vec![r.radius_cm, r.radius_cm],
+                sp: Some(vec![0.0, 1.0]),
+                sb: None,
+                line: 0,
+            };
+            (2, vec![radial])
+        }
+        SourceModel::Point(_) => (1, Vec::new()),
+    };
+
+    let erg = if spectrum.is_mono() {
+        SdefRef::Literal(table.energies_mev[0])
+    } else {
+        dists.push(SdefDist {
+            number: spectrum_number,
+            si: table.energies_mev.clone(),
+            sp: Some(table.probabilities.clone()),
+            sb: None,
+            line: 0,
+        });
+        SdefRef::Dist(spectrum_number)
+    };
+
+    let card = match config.model {
+        SourceModel::Point(p) => SdefCard {
+            pos: Some(SdefRef::Literal([p.x_cm, p.y_cm, p.z_cm])),
+            erg: Some(erg),
+            wgt: Some(SdefRef::Literal(config.weight)),
+            par: Some(SdefRef::Literal(par.to_string())),
+            ..SdefCard::default()
+        },
+        SourceModel::Ring(r) => SdefCard {
+            pos: Some(SdefRef::Literal([0.0, 0.0, r.height_cm])),
+            axs: Some(SdefRef::Literal([0.0, 0.0, 1.0])),
+            rad: Some(SdefRef::Dist(1)),
+            erg: Some(erg),
+            wgt: Some(SdefRef::Literal(config.weight)),
+            par: Some(SdefRef::Literal(par.to_string())),
+            ..SdefCard::default()
+        },
+    };
+
+    let text = SdefProblem { card, dists }.emit();
+    let drift = drift_report(&spectrum, &table, true);
+    Ok(EmittedCard { text, drift })
+}
+
+/// Shared report rows for one emission (SDEF: reparsed; Serpent: analytic).
+pub(crate) fn drift_report(
+    spectrum: &SpectrumSpec,
+    table: &crate::SpectrumTable,
+    reparsed: bool,
+) -> DriftReport {
+    let mut report = DriftReport::new();
+    let note = match spectrum {
+        SpectrumSpec::Mono { .. } => "monoenergetic line; no probability mass dropped".to_string(),
+        SpectrumSpec::Gaussian { .. } => format!(
+            "Gaussian tabulated at bin centers over +/-{:.0} sigma ({} lines); \
+             tail mass beyond the table is dropped",
+            table.width_sigma,
+            table.energies_mev.len()
+        ),
+    };
+    report.push(DriftRow::new(
+        "emission probability",
+        table.coverage,
+        reparsed,
+        note,
+    ));
+    report.push(DriftRow::new(
+        "spatial distribution",
+        1.0,
+        reparsed,
+        "all particles accounted at the requested position/ring",
+    ));
+    report
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::FusionReaction;
+
+    #[test]
+    fn point_mono_card_is_the_e9_shape() {
+        let config =
+            PlasmaSourceConfig::point(1.0, 2.0, 3.0, FusionReaction::Dd, 0.0).with_weight(0.5);
+        let card = emit_sdef(&config, 5, 21).unwrap();
+        assert_eq!(
+            card.text,
+            "SDEF POS=1 2 3\
+             \n     ERG=2.4495\
+             \n     WGT=0.5\
+             \n     PAR=n"
+        );
+        card.verify_round_trip().unwrap();
+        assert_eq!(card.drift.worst_rel_drift(), 0.0);
+    }
+
+    #[test]
+    fn point_gaussian_card_tabulates_spectrum() {
+        let config = PlasmaSourceConfig::point(0.0, 0.0, 0.0, FusionReaction::Dt, 20.0);
+        let card = emit_sdef(&config, 5, 21).unwrap();
+        assert!(card
+            .text
+            .starts_with("SDEF POS=0 0 0\n     ERG=D1\n     WGT=1\n     PAR=n\nSI1 L "));
+        assert!(card.text.contains("\nSP1 D "));
+        // The reader sees the same 21-line table we tabulated, whatever the
+        // 80-column wrapping did to the card text.
+        let table = config.spectrum().unwrap().tabulate(21, 4.0).unwrap();
+        let parsed = nucleide_mcnp_io::sdef::parse_sdef_text(&card.text).unwrap();
+        assert_eq!(parsed.dists.len(), 1);
+        assert_eq!(parsed.dists[0].si.len(), 21);
+        // Card text is 6-significant-digit, so compare at card precision.
+        for (a, b) in parsed.dists[0].si.iter().zip(table.energies_mev.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5 * b.abs() + 1e-9,
+                "SI energy {a} vs {b}"
+            );
+        }
+        let sp = parsed.dists[0].sp.as_ref().unwrap();
+        let sum: f64 = sp.iter().sum();
+        assert!((sum - table.coverage).abs() < 1e-6);
+        assert!((sum - table.coverage).abs() / table.coverage < 1e-5);
+        for line in card.text.lines() {
+            assert!(line.len() <= 80, "line over 80 columns: {line:?}");
+        }
+        card.verify_round_trip().unwrap();
+        // Drift is the +/-4 sigma tail mass.
+        let tail = 1.0 - table.coverage;
+        assert!((card.drift.rows[0].rel_drift - tail).abs() < 1e-12);
+        assert!(tail > 0.0 && tail < 1e-4);
+    }
+
+    #[test]
+    fn ring_card_uses_radial_delta_and_round_trips() {
+        let config = PlasmaSourceConfig::ring(300.0, 25.0, FusionReaction::Dt, 0.0);
+        let card = emit_sdef(&config, 5, 21).unwrap();
+        assert_eq!(
+            card.text,
+            "SDEF POS=0 0 25\
+             \n     AXS=0 0 1\
+             \n     RAD=D1\
+             \n     ERG=14.021\
+             \n     WGT=1\
+             \n     PAR=n\
+             \nSI1 L 300 300\
+             \nSP1 D 0 1"
+        );
+        card.verify_round_trip().unwrap();
+    }
+
+    #[test]
+    fn ring_gaussian_uses_distribution_numbers_without_collision() {
+        let config = PlasmaSourceConfig::ring(300.0, 0.0, FusionReaction::Dt, 20.0);
+        let card = emit_sdef(&config, 5, 21).unwrap();
+        assert!(card.text.contains("RAD=D1\n"));
+        assert!(card.text.contains("ERG=D2\n"));
+        assert!(card.text.contains("\nSI1 L 300 300\nSP1 D 0 1\n"));
+        assert!(card.text.contains("\nSI2 L "));
+        assert!(card.text.contains("\nSP2 D "));
+        card.verify_round_trip().unwrap();
+    }
+
+    #[test]
+    fn version_six_designator_and_bad_version() {
+        let config = PlasmaSourceConfig::point(0.0, 0.0, 0.0, FusionReaction::Dt, 0.0);
+        assert!(emit_sdef(&config, 6, 21)
+            .unwrap()
+            .text
+            .ends_with("\n     PAR=n"));
+        assert_eq!(
+            emit_sdef(&config, 4, 21),
+            Err(Error::UnsupportedMcnpVersion(4))
+        );
+    }
+
+    #[test]
+    fn invalid_configs_are_loud() {
+        let bad = PlasmaSourceConfig::ring(0.0, 0.0, FusionReaction::Dt, 10.0);
+        assert!(emit_sdef(&bad, 5, 21).is_err());
+    }
+}

@@ -779,6 +779,7 @@ dependencies = [
  "nucleide-mcpl-io",
  "nucleide-nuclei",
  "nucleide-origen-io",
+ "nucleide-plasma-source",
  "nucleide-r2s",
  "nucleide-serpent-io",
  "nucleide-spectroscopy",
@@ -920,6 +921,15 @@ version = "0.11.0"
 dependencies = [
  "nucleide-nuclei",
  "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "nucleide-plasma-source"
+version = "0.11.0"
+dependencies = [
+ "nucleide-mcnp-io",
+ "nucleide-nuclei",
  "thiserror 2.0.20",
 ]
 

@@ -72,8 +72,8 @@ references:
 ---
 
 Nucleide provides two variance-reduction utilities built on MCNP mesh tallies:
-**MAGIC weight-window generation** and **mesh-based source sampling** with alias
-tables.
+**MAGIC weight-window generation**, **weight-window emission for OpenMC and
+Serpent**, and **mesh-based source sampling** with alias tables.
 
 ## MAGIC weight windows
 
@@ -221,6 +221,44 @@ flowchart LR
   `.trim()}
 />
 
+## Emitting weight windows for OpenMC and Serpent
+
+MAGIC produces lower bounds. Two functions reformat the same `MagicOutput` for
+other transport codes — pure formatting over the meshtal mesh bounds, with no
+new math:
+
+- `emit_openmc_weight_windows(tally, output, ...)` returns a `settings.xml`
+  fragment: a `<mesh>` element (`id`, `dimension`, `lower_left`,
+  `upper_right`) plus a `<weight_windows>` element that references it (`mesh`,
+  `particle_type`, `energy_bounds`, `lower_ww_bounds`, `upper_ww_bounds`,
+  `survival_ratio`, `max_split`, `weight_cutoff`). The element spelling
+  matches what OpenMC's own writer emits and its transport code parses
+  (settings specification §3.29 and §3.66). Energies are converted from MeV
+  to eV, and the window values are written with the x index varying fastest
+  inside each energy group — the same ordering OpenMC uses internally. Paste
+  the fragment inside the existing `<settings>` root.
+- `emit_serpent_wwin(tally, output, name, file)` returns the text of a
+  weight-window file plus the input card that references it. Serpent reads
+  third-party window meshes in the MCNP WWINP text format through
+  `wwin <name> wf "<file>" 2` (Serpent user guide §2.2.8.3), so that is the
+  spelling the emitter writes; the file re-parses cleanly with the workspace
+  WWINP reader. Serpent's own first file format is not publicly documented,
+  so it is not produced — requesting it raises a clear error.
+
+MAGIC computes lower bounds only. OpenMC requires upper bounds as well, so
+the emitter derives them as five times the lower bound (the same ratio OpenMC
+applies when importing MCNP files) and says so in its notes; Serpent derives
+its upper bounds itself at load time. Inputs that cannot be represented —
+negative or non-finite bounds, energy or mesh bounds that are not increasing,
+or tuning values outside the ranges the code accepts — raise a clear error
+instead of writing a partial file. Cells nulled by MAGIC (zero lower bounds)
+are written as zeros and called out in the notes.
+
+<Callout type="info" title="Where this lives in the code">
+  The emitters live in `crates/vr-tools/src/windows.rs`, exposed as
+  `nucleide.vr.emit_openmc_weight_windows` and `nucleide.vr.emit_serpent_wwin`.
+</Callout>
+
 ## Alias-table source sampling
 
 The `MeshSourceSampler` uses a **Walker/Vose alias table** to draw particle
@@ -303,6 +341,9 @@ To draw one index:
 - **Voxel resolution**: birth coordinates are returned as integer voxel indices;
   users must sample a uniform point inside the voxel themselves if sub-voxel
   positions are needed.
+- **Emission carries lower bounds only**: upper bounds are derived (OpenMC) or
+  code defaults (Serpent), and any structure the target format cannot spell is
+  a clear error rather than a silent approximation.
 
 ## Related work beyond Nucleide
 

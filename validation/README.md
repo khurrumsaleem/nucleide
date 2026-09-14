@@ -11,7 +11,7 @@ committed `results.md` holds the measured numbers that the paper quotes.
 | `depletion_vs_openmc.py` | CRAM-48 depletion on `fixtures/depletion/chain_ni.xml` + 3-nuclide analytic Bateman check |
 | `depletion_casl_vs_openmc.py` | CRAM-48 depletion on the full CASL/VERA chain (fission yields, branching) vs OpenMC |
 | `enrichment_vs_pyne.py` | Uranium and tungsten enrichment cascades vs PyNE `multicomponent` |
-| `magic_vs_pyne.py` | MAGIC weight-window generation vs PyNE (or equivalent formula when PyMOAB is missing) |
+| `magic_vs_pyne.py` | MAGIC weight-window generation vs PyNE (or equivalent formula when PyMOAB is missing), plus always-run OpenMC/Serpent weight-window emission probes (container OpenMC load cross-check; Serpent load is a loud SKIP) |
 | `nuclear_data_vs_refs.py` | Atomic masses, abundances, half-lives, name-dialect conversions vs PyNE/OpenMC |
 | `dose_vs_pyne.py` | Dose coefficients (`dose_factor`/`dose_per_g`) vs PyNE accessors |
 | `emit_vs_self.py` | Five-dialect emission + drift self-consistency (incl. ARMI-key equivalence; no external oracle exists) |

@@ -10,14 +10,16 @@
 //!
 //! # Accepted subset (everything else is loud, never silently misread)
 //!
-//! `SDEF` keywords: `POS`, `CELL`, `SURF`, `VEC`, `DIR`, `ERG`, `NRM`,
-//! `PAR`, `WGT`, `TME`. (`VEC` rides along because the decay-source emitter
-//! this reader round-trips writes `VEC=... DIR=1` lines.) Each keyword takes
-//! either an inline literal (`POS`/`VEC` take exactly three numbers, the
-//! rest take exactly one) or a `Dn` distribution reference (`ERG=D1`).
-//! Any other keyword — `AXS`, `EXT`, `ARA`, `RAD`, `X`, `Y`, `Z`, `CCC`,
-//! abbreviations such as `CEL`, and the rest — is kept verbatim in
-//! [`SdefCard::ignored`] as a drift note and never parsed.
+//! `SDEF` keywords: `POS`, `CELL`, `SURF`, `VEC`, `DIR`, `AXS`, `RAD`,
+//! `EXT`, `ERG`, `NRM`, `PAR`, `WGT`, `TME`. (`VEC` rides along because the
+//! decay-source emitter this reader round-trips writes `VEC=... DIR=1` lines;
+//! `AXS`/`RAD`/`EXT` were added for the plasma-source ring emitter, which
+//! writes `POS=... AXS=0 0 1 RAD=D1` delta-ring cards.) Each keyword takes
+//! either an inline literal (`POS`/`VEC`/`AXS` take exactly three numbers,
+//! the rest take exactly one) or a `Dn` distribution reference (`ERG=D1`).
+//! Any other keyword — `ARA`, `X`, `Y`, `Z`, `CCC`, abbreviations such as
+//! `CEL`, and the rest — is kept verbatim in [`SdefCard::ignored`] as a
+//! drift note and never parsed.
 //!
 //! Distributions: `SIn L ...` (discrete values), `SPn D ...` (discrete
 //! probabilities, finite and non-negative), `SBn D ...` (discrete bias
@@ -41,11 +43,11 @@
 //!
 //! # Canonical emission ([`SdefProblem::emit`])
 //!
-//! Fields emit in fixed order `POS CELL SURF VEC DIR ERG NRM WGT PAR TME`,
-//! each on its own five-space continuation line, except that a literal `VEC`
-//! together with a literal `DIR` shares one `VEC=... DIR=...` line — the
-//! shape the decay-source emitter writes. Distribution lists wrap at
-//! 80 columns with five-space continuations. Floats render in C++
+//! Fields emit in fixed order `POS CELL SURF VEC DIR AXS RAD EXT ERG NRM
+//! WGT PAR TME`, each on its own five-space continuation line, except that a
+//! literal `VEC` together with a literal `DIR` shares one `VEC=... DIR=...`
+//! line — the shape the decay-source emitter writes. Distribution lists wrap
+//! at 80 columns with five-space continuations. Floats render in C++
 //! default-float precision-6 form (matching the decay-source emitter), so
 //! that emitter's output parses and re-emits byte-identically; anything not
 //! preserved (letter case of `Dn` references and keywords, `$` comments,
@@ -304,6 +306,13 @@ pub struct SdefCard {
     pub vec: Option<SdefRef<[f64; 3]>>,
     /// `DIR=d` direction cosine (or `1` with `VEC` for a beam).
     pub dir: Option<SdefRef<f64>>,
+    /// `AXS=ax ay az` axis for `RAD`/`EXT` (the plasma-source ring shape).
+    pub axs: Option<SdefRef<[f64; 3]>>,
+    /// `RAD=r` radial distance from `POS` in the plane perpendicular to
+    /// `AXS` (literal or `Dn`).
+    pub rad: Option<SdefRef<f64>>,
+    /// `EXT=x` axial extent along `AXS` (literal or `Dn`).
+    pub ext: Option<SdefRef<f64>>,
     /// `ERG=e` energy or `ERG=Dn` energy distribution.
     pub erg: Option<SdefRef<f64>>,
     /// `NRM=n` direction cosine relative to the surface normal.
@@ -418,6 +427,15 @@ impl SdefProblem {
                     out.push_str(&format!("\n{CONTINUATION_INDENT}DIR={}", dir.render()));
                 }
             }
+        }
+        if let Some(axs) = &card.axs {
+            out.push_str(&format!("\n{CONTINUATION_INDENT}AXS={}", axs.render()));
+        }
+        if let Some(rad) = &card.rad {
+            out.push_str(&format!("\n{CONTINUATION_INDENT}RAD={}", rad.render()));
+        }
+        if let Some(ext) = &card.ext {
+            out.push_str(&format!("\n{CONTINUATION_INDENT}EXT={}", ext.render()));
         }
         if let Some(erg) = &card.erg {
             out.push_str(&format!("\n{CONTINUATION_INDENT}ERG={}", erg.render()));
@@ -762,9 +780,8 @@ fn parse_sdef_card(card: &DataCard) -> Result<SdefCard, SdefError> {
     for (key, head, values) in &spans {
         let upper = key.to_ascii_uppercase();
         let slot: Option<&str> = match upper.as_str() {
-            "POS" | "CELL" | "SURF" | "VEC" | "DIR" | "ERG" | "NRM" | "PAR" | "WGT" | "TME" => {
-                Some(upper.as_str())
-            }
+            "POS" | "CELL" | "SURF" | "VEC" | "DIR" | "AXS" | "RAD" | "EXT" | "ERG" | "NRM"
+            | "PAR" | "WGT" | "TME" => Some(upper.as_str()),
             _ => None,
         };
         let Some(slot) = slot else {
@@ -783,10 +800,13 @@ fn parse_sdef_card(card: &DataCard) -> Result<SdefCard, SdefError> {
         match slot {
             "POS" => model.pos = Some(parse_triplet(card, "SDEF POS", values)?),
             "VEC" => model.vec = Some(parse_triplet(card, "SDEF VEC", values)?),
+            "AXS" => model.axs = Some(parse_triplet(card, "SDEF AXS", values)?),
             "CELL" => model.cell = Some(parse_uint(card, "SDEF CELL", values)?),
             "SURF" => model.surf = Some(parse_uint(card, "SDEF SURF", values)?),
             "ERG" => model.erg = Some(parse_float(card, "SDEF ERG", values)?),
             "DIR" => model.dir = Some(parse_float(card, "SDEF DIR", values)?),
+            "RAD" => model.rad = Some(parse_float(card, "SDEF RAD", values)?),
+            "EXT" => model.ext = Some(parse_float(card, "SDEF EXT", values)?),
             "NRM" => model.nrm = Some(parse_float(card, "SDEF NRM", values)?),
             "WGT" => model.wgt = Some(parse_float(card, "SDEF WGT", values)?),
             "TME" => model.tme = Some(parse_float(card, "SDEF TME", values)?),
@@ -800,7 +820,7 @@ fn parse_sdef_card(card: &DataCard) -> Result<SdefCard, SdefError> {
                 }
                 model.par = Some(parse_particle(&values[0]));
             }
-            _ => unreachable!("slot is one of the ten accepted keywords"),
+            _ => unreachable!("slot is one of the thirteen accepted keywords"),
         }
     }
     Ok(model)
@@ -815,6 +835,9 @@ fn field_is_set(model: &SdefCard, slot: &str) -> bool {
         "SURF" => model.surf.is_some(),
         "VEC" => model.vec.is_some(),
         "DIR" => model.dir.is_some(),
+        "AXS" => model.axs.is_some(),
+        "RAD" => model.rad.is_some(),
+        "EXT" => model.ext.is_some(),
         "ERG" => model.erg.is_some(),
         "NRM" => model.nrm.is_some(),
         "PAR" => model.par.is_some(),
@@ -938,7 +961,9 @@ fn referenced_dists(card: &SdefCard) -> Vec<u32> {
     push(&card.nrm);
     push(&card.wgt);
     push(&card.tme);
-    for field in [&card.pos, &card.vec] {
+    push(&card.rad);
+    push(&card.ext);
+    for field in [&card.pos, &card.vec, &card.axs] {
         if let Some(SdefRef::Dist(number)) = field {
             numbers.push(*number);
         }
@@ -1087,14 +1112,51 @@ mod tests {
 
     #[test]
     fn unknown_keywords_are_loud_drift_notes() {
-        let text = "SDEF POS=0 0 0 ERG=0.662 AXS=0 0 1 EXT=D2";
+        let text = "SDEF POS=0 0 0 ERG=0.662 ARA=1.0 CCC=5";
         let problem = parse_sdef_text(text).unwrap();
         assert_eq!(
             problem.card.ignored,
-            vec!["AXS=0 0 0 1".to_string(), "EXT=D2 D2".to_string()]
+            vec!["ARA=1.0 1.0".to_string(), "CCC=5 5".to_string()]
         );
         // Ignored keywords do not disturb the typed fields.
         assert_eq!(problem.card.erg, Some(SdefRef::Literal(0.662)));
+    }
+
+    #[test]
+    fn ring_shape_with_axs_rad_ext_round_trips_byte_identical() {
+        // The plasma-source ring emitter's shape: axis + radial delta ring.
+        let text = "SDEF POS=0 0 25\n     AXS=0 0 1\n     RAD=D1\n     ERG=14.021\n     WGT=1\
+                    \n     PAR=n\nSI1 L 300 300\nSP1 D 0 1";
+        let problem = parse_sdef_text(text).unwrap();
+        assert_eq!(problem.card.axs, Some(SdefRef::Literal([0.0, 0.0, 1.0])));
+        assert_eq!(problem.card.rad, Some(SdefRef::Dist(1)));
+        assert!(problem.card.ext.is_none());
+        assert_eq!(problem.emit(), text);
+        // Case-insensitive keyword input normalizes to the canonical shape.
+        let lower = parse_sdef_text("sdef pos=0 0 25\n     axs=0 0 1\n     rad=d1\n     erg=14.021\n     wgt=1\n     par=n\nsi1 l 300 300\nsp1 d 0 1").unwrap();
+        assert_eq!(lower.emit(), text);
+    }
+
+    #[test]
+    fn ext_takes_literals_and_distribution_references() {
+        let text = "SDEF POS=0 0 0\
+                    \n     AXS=0 0 1\
+                    \n     RAD=D1\
+                    \n     EXT=D2\
+                    \n     ERG=14.1\
+                    \nSI1 L 300 300\
+                    \nSP1 D 0 1\
+                    \nSI2 L -5 5\
+                    \nSP2 D 0 1";
+        let problem = parse_sdef_text(text).unwrap();
+        assert_eq!(problem.card.ext, Some(SdefRef::Dist(2)));
+        assert_eq!(problem.dists.len(), 2);
+        assert_eq!(problem.emit(), text);
+
+        let bad = parse_sdef_text("SDEF POS=0 0 0 AXS=0 0 RAD=D1").unwrap_err();
+        assert!(bad.to_string().contains("exactly three numbers"), "{bad}");
+        let dup = parse_sdef_text("SDEF RAD=1 RAD=2").unwrap_err();
+        assert!(dup.to_string().contains("duplicate"), "{dup}");
     }
 
     #[test]

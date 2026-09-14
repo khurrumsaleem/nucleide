@@ -19,7 +19,10 @@ Comparisons cover:
 - **Enrichment cascades** — default uranium and von-Halle tungsten feeds, vs
   PyNE 0.7.5 `multicomponent` (numeric and symbolic solvers).
 - **MAGIC weight windows** — total-mode and per-group MAGIC on a synthetic MCNP
-  meshtal, vs PyNE's documented formula.
+  meshtal, vs PyNE's documented formula, plus always-run OpenMC/Serpent
+  weight-window emission re-parse probes (the container also loads the
+  emitted fragment through OpenMC's own XML readers; Serpent load is a loud
+  SKIP, proprietary and not installed).
 - **Point kinetics** — prescribed-reactivity transients vs analytic gates
   (prompt-jump, 1-group closed form, inhour stable period) plus a ramp
   cross-check against the upstream PyRK neutronics block.

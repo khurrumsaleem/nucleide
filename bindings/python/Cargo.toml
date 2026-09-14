@@ -34,3 +34,4 @@ nucleide-emit.workspace = true
 nucleide-tritium.workspace = true
 nucleide-csg-xlate.workspace = true
 nucleide-linalg.workspace = true
+nucleide-plasma-source.workspace = true

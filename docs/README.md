@@ -3,8 +3,9 @@
 Welcome! Nucleide is a Rust toolkit for nuclear-engineering workflow glue,
 exposed through a typed Python API: parse legacy code output (MCNP, Serpent,
 FLUKA, ALARA, and friends), build materials, and run solvers for depletion,
-point kinetics, enrichment cascades, spectroscopy, tritium transport, and
-variance reduction, plus uncertainty-quantification sampling.
+point kinetics, enrichment cascades, spectroscopy, tritium transport, fusion
+neutron sources, and variance reduction, plus uncertainty-quantification
+sampling.
 These docs are organized by audience, so you can jump straight to what you
 need.
 
@@ -39,7 +40,7 @@ need.
   <text x="530" y="148" text-anchor="middle" class="cm-i">Depletion (CRAM) &#xb7; Point kinetics</text>
   <text x="530" y="166" text-anchor="middle" class="cm-i">Enrichment cascades &#xb7; Spectroscopy</text>
   <text x="530" y="184" text-anchor="middle" class="cm-i">Variance reduction &#xb7; UQ sampling</text>
-  <text x="530" y="202" text-anchor="middle" class="cm-i">Tritium transport</text>
+  <text x="530" y="202" text-anchor="middle" class="cm-i">Tritium transport &#xb7; Fusion sources</text>
   <text x="530" y="216" text-anchor="middle" class="cm-s">plus the R2S workflow glue</text>
   <line x1="185" y1="252" x2="185" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
   <line x1="475" y1="252" x2="475" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
@@ -87,7 +88,7 @@ status, and license.
 | [Run spectroscopy](tutorials/python/run-spectroscopy.md) | Smooth spectra, count peaks, calibrate energy/efficiency, evaluate X-ray lines, read `.spe` files |
 | [MCPL particle interchange](tutorials/python/mcpl-interchange.md) | Read and write MCPL particle lists; merge, subset, and summarize them; repair interrupted writes |
 | [UQ sampling](tutorials/python/uq-sampling.md) | Draw seeded MVN, log-normal, and LHS samples over caller-supplied covariance blocks and perturb decay and fission-yield data |
-| [VR and MAGIC](tutorials/python/vr-magic.md) | Derive weight-window lower bounds with MAGIC and sample birth voxels through alias tables |
+| [VR and MAGIC](tutorials/python/vr-magic.md) | Derive weight-window lower bounds with MAGIC, emit them for OpenMC or Serpent, and sample birth voxels through alias tables |
 | [Reaction names](tutorials/python/rxname.md) | Resolve reaction names/ids/MT numbers and walk the parent/daughter reaction graph |
 | [Translate CSG](tutorials/python/translate-csg.md) | Translate scoped MCNP CSG decks to OpenMC, Serpent, or PHITS geometry, with a drift report listing every approximation the translator made |
 | [Run tritium](tutorials/python/run-tritium.md) | Solve steady-state and transient 1D tritium permeation with traps and recombination boundaries |
@@ -117,7 +118,7 @@ status, and license.
 | [Theory](theory/index.mdx) | Theory index and suggested reading order |
 | [Depletion](theory/depletion.mdx) | Burnup matrices, the Bateman equation, CRAM, and time-series integrators |
 | [Enrichment cascades](theory/enrichment.mdx) | MARC cascades, separation factors, and SWU |
-| [Variance reduction](theory/variance-reduction.mdx) | MAGIC weight windows and alias-table source sampling |
+| [Variance reduction](theory/variance-reduction.mdx) | MAGIC weight windows, OpenMC/Serpent weight-window emission, and alias-table source sampling |
 | [Nuclear data](theory/nuclear-data.mdx) | Nuclide IDs, name dialects, masses, half-lives, and screening data |
 | [Point kinetics](theory/kinetics.mdx) | Prescribed-reactivity PKE system, inhour relation, prompt jump, and the stiff-aware solver |
 | [Tritium transport](theory/tritium.mdx) | 1D diffusion-trapping equations, McNabb–Foster traps, surface taxonomy, and the closed-form permeation checks |

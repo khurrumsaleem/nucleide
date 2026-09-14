@@ -139,9 +139,11 @@ search/fit, activities, and plotting stay out. Depends on
 
 ### `nucleide-vr-tools`
 
-MAGIC weight-window generation, mesh source sampling with alias tables, and
-Gaussian KDE source sampling (`KdeSampler`). Depends on `nucleide-mcnp-io`
-(`nucleide-nuclei` comes in transitively).
+MAGIC weight-window generation, OpenMC/Serpent weight-window emission over
+`MagicOutput` (pinned `<weight_windows>`/WWINP spellings; Serpent text
+re-parses through the `nucleide-mcnp-io` WWINP reader), mesh source sampling
+with alias tables, and Gaussian KDE source sampling (`KdeSampler`). Depends
+on `nucleide-mcnp-io` (`nucleide-nuclei` comes in transitively).
 
 ### `nucleide-cccc-io`
 
@@ -189,6 +191,20 @@ the face-response construction, G5/G6); multi-D/FEM, heat coupling, and
 vendored property tables stay out. Depends on `nucleide-linalg` only among
 workspace crates; bindings depend on it, never the reverse.
 
+### `nucleide-plasma-source`
+
+Tokamak fusion-neutron source creation: ring and point sources over the D-D
+(2.45 MeV) and D-T (14.1 MeV) reactions with ion-temperature-broadened
+Gaussian spectra (Brysk 1973; Ballabio et al. 1998 coefficients), a seeded
+sampler to particle vectors (position, direction, energy, weight), and
+MCNP `SDEF` + Serpent `src` card emission with a drift report. SDEF cards
+round-trip byte-identically through the typed `nucleide-mcnp-io` reader
+(whose accepted subset carries the ring's `AXS`/`RAD`/`EXT` keywords);
+Serpent rows are analytic by design. Parametric Miller-geometry plasma
+profiles are the follow-up landing; MCPL projection stays caller-side
+(`vr-tools` KDE layering rule). Depends on `nucleide-mcnp-io` and
+`nucleide-nuclei`; never on `mcpl-io`, never on bindings.
+
 ### `nucleide-emit`
 
 Single-material emission to MCNP/Serpent/FLUKA/ALARA/PARTISN cards plus a
@@ -235,14 +251,15 @@ When publishing to crates.io, publish in dependency order:
 11. `nucleide-kinetics`
 12. `nucleide-spectroscopy`
 13. `nucleide-tritium`
-14. `nucleide-vr-tools`
-15. `nucleide-alara-io`
-16. `nucleide-cccc-io`
-17. `nucleide-fispact-io`
-18. `nucleide-origen-io`
-19. `nucleide-r2s`
-20. `nucleide-emit`
-21. `nucleide-bindings`
+14. `nucleide-plasma-source`
+15. `nucleide-vr-tools`
+16. `nucleide-alara-io`
+17. `nucleide-cccc-io`
+18. `nucleide-fispact-io`
+19. `nucleide-origen-io`
+20. `nucleide-r2s`
+21. `nucleide-emit`
+22. `nucleide-bindings`
 
 (`nucleide-wasm` is cdylib-only and never published; keep this list in
 sync with the publish list in `.github/workflows/release.yml`.)

@@ -91,6 +91,119 @@ class TestMagicAndSampling:
         assert 0 <= s["index"] < nve
 
 
+class TestWeightWindowEmission:
+    """MAGIC -> OpenMC settings.xml / Serpent WWINP emission round trips."""
+
+    def setup_method(self) -> None:
+        self.meshtal = nucleide.mcnp.read_meshtal(
+            str(FIX / "mcnp" / "meshtal" / "mcnp_meshtal_single_meshtal.txt")
+        )
+        self.tally = self.meshtal.tallies[4]
+
+    @staticmethod
+    def xfastest(lower: list[float], dims: tuple[int, int, int], groups: int) -> list[float]:
+        """Reorder ve-major z-fastest windows to the x-fastest group-outermost
+        flat layout both emitters write."""
+        nx, ny, nz = dims
+        flat: list[float] = []
+        for g in range(groups):
+            for k in range(nz):
+                for j in range(ny):
+                    for i in range(nx):
+                        ve = (i * ny + j) * nz + k
+                        flat.append(lower[ve * groups + g])
+        return flat
+
+    def test_openmc_fragment_recovers_magic_windows(self) -> None:
+        import xml.etree.ElementTree as ET
+
+        out = nucleide.vr.magic(self.tally, per_group=True)
+        result = nucleide.vr.emit_openmc_weight_windows(self.tally, out, mesh_id=7, window_id=9)
+        root = ET.fromstring(f"<settings>{result['xml']}</settings>")
+        mesh = root.find("mesh")
+        assert mesh is not None and mesh.get("id") == "7"
+        dims = self.tally.dims()
+        assert [int(v) for v in mesh.findtext("dimension", "").split()] == list(dims)
+        ww = root.find("weight_windows")
+        assert ww is not None and ww.get("id") == "9"
+        assert ww.findtext("mesh") == "7"
+        assert ww.findtext("particle_type") == "neutron"
+        n_groups = out.groups_per_ve
+        e_bounds = [float(v) for v in ww.findtext("energy_bounds", "").split()]
+        assert e_bounds == [0.0] + [e * 1.0e6 for e in out.e_upper_bounds]
+        nft = dims[0] * dims[1] * dims[2]
+        lower = [float(v) for v in ww.findtext("lower_ww_bounds", "").split()]
+        upper = [float(v) for v in ww.findtext("upper_ww_bounds", "").split()]
+        assert len(lower) == len(upper) == nft * n_groups
+        expected = self.xfastest(list(out.lower_bounds_ww), dims, n_groups)
+        assert lower == pytest.approx(expected, abs=1e-12)
+        assert upper == pytest.approx([5.0 * v for v in expected], abs=1e-12)
+        assert float(ww.findtext("survival_ratio", "0")) == 3.0
+        assert int(ww.findtext("max_split", "0")) == 10
+        assert float(ww.findtext("weight_cutoff", "1")) == 1e-38
+        assert any("upper-bounds-synthesized" in n for n in result["notes"])
+
+    def test_serpent_wwin_recovers_magic_windows(self) -> None:
+        out = nucleide.vr.magic(self.tally, per_group=True)
+        result = nucleide.vr.emit_serpent_wwin(self.tally, out, name="ww1", file="m.wwd")
+        assert result["card"] == 'wwin ww1 wf "m.wwd" 2'
+        assert any("FMT=1" in n for n in result["notes"])
+
+        # Minimal WWINP structural parse (header + block-3 window rows).
+        toks = iter(result["text"].split())
+        next(toks)  # if = 1
+        next(toks)  # iv = 1
+        ni = int(next(toks))
+        nr = int(next(toks))
+        assert (ni, nr) == (1, 10)
+        ne = [int(next(toks)) for _ in range(1)]
+        groups = ne[0]
+        nf = [int(float(next(toks))) for _ in range(3)]
+        origin = [float(next(toks)) for _ in range(3)]
+        nc = [int(float(next(toks))) for _ in range(3)]
+        next(toks)  # nwg
+        dims = self.tally.dims()
+        assert nf == list(dims)
+        assert origin == [
+            self.tally.x_bounds[0],
+            self.tally.y_bounds[0],
+            self.tally.z_bounds[0],
+        ]
+        for axis in range(3):
+            for _ in range(3 * nc[axis] + 1):
+                next(toks)
+        energies = [float(next(toks)) for _ in range(groups)]
+        assert energies == pytest.approx(list(out.e_upper_bounds), abs=1e-9)
+        nft = nf[0] * nf[1] * nf[2]
+        rows = [[float(next(toks)) for _ in range(nft)] for _ in range(groups)]
+        expected = self.xfastest(list(out.lower_bounds_ww), dims, groups)
+        for g in range(groups):
+            assert rows[g] == pytest.approx(expected[g * nft : (g + 1) * nft], abs=1e-6)
+
+    def test_serpent_total_mode_and_photon_header(self) -> None:
+        out = nucleide.vr.magic(self.tally)
+        result = nucleide.vr.emit_serpent_wwin(self.tally, out)
+        toks = result["text"].split()
+        assert int(toks[2]) == 1  # ni
+        assert [int(v) for v in toks[4:5]] == [1]  # one energy group
+        assert result["card"].endswith('wf "wwindows.wwd" 2')
+
+    def test_emission_loud_errors(self) -> None:
+        out = nucleide.vr.magic(self.tally)
+        # A negative null_value nulls every cell, exercising the loud
+        # negative-window rejection in both emitters.
+        out_neg = nucleide.vr.magic_with(
+            self.tally, selection="per_group", tolerance=-1.0, null_value=-1.0
+        )
+        assert any(v == -1.0 for v in out_neg.lower_bounds_ww)
+        with pytest.raises(ValueError, match="negative"):
+            nucleide.vr.emit_serpent_wwin(self.tally, out_neg)
+        with pytest.raises(ValueError, match="negative"):
+            nucleide.vr.emit_openmc_weight_windows(self.tally, out_neg)
+        with pytest.raises(ValueError, match="survival_ratio"):
+            nucleide.vr.emit_openmc_weight_windows(self.tally, out, survival_ratio=1.0)
+
+
 class TestKdeSampler:
     def test_fit_draw_pdf(self) -> None:
         kde = nucleide.vr.KdeSampler([[1.0, 2.0], [3.0, 4.0]], [0.5, 2.0])

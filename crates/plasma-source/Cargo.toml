@@ -1,0 +1,13 @@
+[package]
+name = "nucleide-plasma-source"
+description = "Tokamak fusion neutron sources (ring/point): sampled particle vectors and SDEF/Serpent source cards"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+nucleide-nuclei.workspace = true
+nucleide-mcnp-io.workspace = true

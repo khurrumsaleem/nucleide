@@ -519,6 +519,19 @@ def magic(tally: MeshTally, per_group: bool = False, tolerance: float = 0.5) -> 
 def magic_with(
     tally: MeshTally, selection: str = "total", tolerance: float = 0.5, null_value: float = 0.0
 ) -> MagicOutput: ...
+def emit_openmc_weight_windows(
+    tally: MeshTally,
+    output: MagicOutput,
+    mesh_id: int = 1,
+    window_id: int = 1,
+    upper_bound_ratio: float = 5.0,
+    survival_ratio: float = 3.0,
+    max_split: int = 10,
+    weight_cutoff: float = 1e-38,
+) -> dict[str, Any]: ...
+def emit_serpent_wwin(
+    tally: MeshTally, output: MagicOutput, name: str = "ww1", file: str = "wwindows.wwd"
+) -> dict[str, Any]: ...
 def write_ssw(ssw: SurfSrc, path: str, tracks: list[dict[str, float]] | None = None) -> None: ...
 def mesh_to_geom(
     x_bounds: Sequence[float],
@@ -716,6 +729,9 @@ def kinetics_prompt_jump(
 def kinetics_from_ifp(
     betas: list[float], lambda_gen: float, lambdas: list[float]
 ) -> dict[str, Any]: ...
+def plasma_source_particles(spec: dict[str, Any], n: int, seed: int) -> dict[str, Any]: ...
+def plasma_source_emit_cards(spec: dict[str, Any], bins: int = 21) -> dict[str, Any]: ...
+def plasma_source_spectrum_moments(reaction: str, ion_temperature_kev: float) -> dict[str, Any]: ...
 def tritium_steady(
     length: float,
     cells: int,

@@ -15,6 +15,49 @@ workspace crates from tags.
 
 ### Added
 
+- Tokamak fusion neutron sources in the new `nucleide-plasma-source`
+  crate (exposed as `nucleide.plasma_source`): ring and point sources over
+  the D-D (2.45 MeV) and D-T (14.1 MeV) reactions with ion-temperature-
+  broadened Gaussian spectra (Brysk, Plasma Phys. 15 (1973) 611; Ballabio
+  et al., Nucl. Fusion 38 (1998) 1723 Table III coefficients), a seeded
+  sampler to particle vectors (position/direction/energy/weight arrays,
+  deterministic under a pinned seed), and MCNP `SDEF` + Serpent `src`
+  card emission with a drift report (`rel_drift` of the tabulated
+  spectrum, `reparsed` flags). Emitted SDEF cards round-trip
+  byte-identically through the typed `nucleide-mcnp-io` reader, whose
+  accepted subset now also carries the ring keywords `AXS`/`RAD`/`EXT`;
+  Serpent rows are analytic by design (no Serpent source reader). MCPL
+  projection stays caller-side (`vr-tools` KDE layering rule): the crate
+  has no `mcpl-io` dependency. Parametric Miller-geometry plasma profiles,
+  mixed-fuel spectra, toroidal sectors, and the D(d,p)T proton branch are
+  loud named `NotYetSupported` errors — the second landing's scope.
+  New-crate checklist applied (workspace/release wiring, `gen-reference`
+  entries, crate-responsibilities section, README feature table); the
+  two-part `validation/plasma_source_vs_openmc.py` oracle adds always-run
+  analytic gates (ring/spectrum closed-form moments, determinism, card
+  round trips) plus container-only moment cross-checks against the
+  upstream MIT `openmc-plasma-source` package (loud SKIP outside the
+  container; the `Containerfile` gains the pinned oracle layer).
+
+- OpenMC/Serpent weight-window emission in `nucleide-vr-tools` (exposed as
+  `nucleide.vr.emit_openmc_weight_windows` / `emit_serpent_wwin`, taking the
+  same `MeshTally` + `MagicOutput` pair as `nucleide.vr.magic`): MAGIC lower
+  bounds are formatted into an OpenMC `settings.xml` fragment (`<mesh>` +
+  `<weight_windows>` — spelling pinned against the public OpenMC docs
+  §3.29/§3.66 with the sub-element layout the C++ reader parses; energies
+  converted MeV → eV; flat bounds emitted x-fastest per energy group) or into
+  the MCNP WWINP text spelling that Serpent reads via
+  `wwin <name> wf "<file>" 2` (user guide §2.2.8.3 — the only `wwin` FMT
+  whose layout is publicly pinned; the Serpent-native FMT=1 layout is never
+  emitted). OpenMC upper bounds are synthesized as `5 × lower` and drift
+  notes report synthesized or null-cell structure; ill-formed inputs
+  (negative/non-finite windows, unsorted energy or mesh bounds, OpenMC
+  tuning parameters outside the reader's ranges) are loud named errors.
+  Golden-text fixtures and re-parse assertions cover both emitters — the
+  Serpent file round-trips through the existing `nucleide-mcnp-io` WWINP
+  reader — and always-run structural probes extend the existing `magic`
+  validation report (container OpenMC load cross-check; Serpent load is a
+  loud SKIP, proprietary and not installed).
 - MCPL particle-list utilities in `nucleide-mcpl-io` (exposed as
   `nucleide.mcpl.merge_mcpl` / `extract_mcpl` / `mcpl_stats` /
   `repair_mcpl`, all file-based and `.gz`-transparent): `merge_mcpl`

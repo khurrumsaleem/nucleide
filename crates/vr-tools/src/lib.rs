@@ -3,6 +3,9 @@
 //!
 //! - [`magic`] — MAGIC weight-window generation operating on native
 //!   [`nucleide_mcnp_io::meshtal::MeshTallyData`] instead of MOAB-tagged meshes.
+//! - [`windows`] — emission of MAGIC weight windows for OpenMC
+//!   (`settings.xml` `<mesh>` + `<weight_windows>` text) and Serpent
+//!   (`wwin ... wf FILE 2`, the MCNP WWINP spelling Serpent reads).
 //! - [`sampling`] — Walker/Vose alias-table source sampling plus a
 //!   voxel-level `MeshSourceSampler` with ANALOG / UNIFORM / USER bias modes.
 //! - [`kde`] — Gaussian kernel-density source sampling (KDSource-class,
@@ -11,11 +14,15 @@
 pub mod kde;
 pub mod magic;
 pub mod sampling;
+pub mod windows;
 
 pub use kde::{Bandwidth, KdeSampler};
 
 pub use magic::{magic, magic_with, MagicOutput, MagicParams, MagicSelection};
 pub use sampling::{AliasTable, MeshSourceSampler, Mode, SampledVoxel};
+pub use windows::{
+    emit_openmc_weight_windows, emit_serpent_wwin, OpenMcOptions, OpenMcWeightWindows, SerpentWwin,
+};
 
 /// Result alias for the `vr-tools` crate.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -81,6 +88,46 @@ pub enum Error {
         /// The offending uniform value.
         value: f64,
     },
+    /// A weight-window lower bound is negative and has no spelling in either
+    /// target format (non-positive windows are inert; negative never is).
+    NegativeWindow {
+        /// Flat index into `MagicOutput::lower_bounds_ww`.
+        index: usize,
+        /// The offending value.
+        value: f64,
+    },
+    /// A weight-window lower bound is NaN or infinite.
+    NonFiniteWindow {
+        /// Flat index into `MagicOutput::lower_bounds_ww`.
+        index: usize,
+    },
+    /// Energy upper bounds are empty, non-finite, non-positive, or not
+    /// strictly increasing, so the window energy grid is ill-defined.
+    BadEnergyBounds {
+        /// Index of the offending bound.
+        index: usize,
+    },
+    /// Mesh bounds have fewer than two entries, are non-finite, or are not
+    /// strictly increasing.
+    BadMeshBounds {
+        /// Axis index (0 = x, 1 = y, 2 = z).
+        axis: usize,
+        /// Index of the offending bound.
+        index: usize,
+    },
+    /// An emission tuning parameter falls outside the range the target code
+    /// enforces when reading the file.
+    BadEmissionOption {
+        /// Parameter name (`upper_bound_ratio`, `survival_ratio`,
+        /// `max_split`, `weight_cutoff`).
+        option: &'static str,
+        /// The offending value.
+        value: f64,
+        /// Why it was rejected.
+        detail: &'static str,
+    },
+    /// The WWINP writer in `nucleide-mcnp-io` refused the assembled file.
+    Wwinp(String),
 }
 
 impl std::fmt::Display for Error {
@@ -117,6 +164,36 @@ impl std::fmt::Display for Error {
             Error::BadDraw { value } => {
                 write!(f, "kde draw uniform {value} is outside [0, 1)")
             }
+            Error::NegativeWindow { index, value } => {
+                write!(
+                    f,
+                    "weight-window lower bound at index {index} = {value} is negative"
+                )
+            }
+            Error::NonFiniteWindow { index } => {
+                write!(
+                    f,
+                    "weight-window lower bound at index {index} is not finite"
+                )
+            }
+            Error::BadEnergyBounds { index } => {
+                write!(
+                    f,
+                    "energy upper bound at index {index} is not positive and increasing"
+                )
+            }
+            Error::BadMeshBounds { axis, index } => {
+                write!(
+                    f,
+                    "mesh bound at axis {axis} index {index} is not finite and increasing"
+                )
+            }
+            Error::BadEmissionOption {
+                option,
+                value,
+                detail,
+            } => write!(f, "emission option {option} = {value}: {detail}"),
+            Error::Wwinp(m) => write!(f, "wwinp writer error: {m}"),
         }
     }
 }
@@ -165,6 +242,25 @@ mod tests {
             ),
             (Error::ZeroVarianceDim { dim: 1 }, "dimension 1"),
             (Error::BadDraw { value: 1.5 }, "outside [0, 1)"),
+            (
+                Error::NegativeWindow {
+                    index: 2,
+                    value: -0.1,
+                },
+                "index 2",
+            ),
+            (Error::NonFiniteWindow { index: 3 }, "index 3"),
+            (Error::BadEnergyBounds { index: 1 }, "index 1"),
+            (Error::BadMeshBounds { axis: 2, index: 4 }, "axis 2"),
+            (
+                Error::BadEmissionOption {
+                    option: "survival_ratio",
+                    value: 1.0,
+                    detail: "must be greater than 1",
+                },
+                "survival_ratio",
+            ),
+            (Error::Wwinp("disk".into()), "wwinp writer error"),
         ];
         for (err, needle) in cases {
             assert!(

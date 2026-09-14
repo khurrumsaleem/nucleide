@@ -3,8 +3,8 @@
 Nucleide is a modern Rust toolkit for nuclear-engineering data, measurement, and
  workflow glue: legacy transport-code I/O, nuclide identification, materials,
  CRAM depletion, enrichment analytics, point kinetics, gamma-ray spectroscopy,
- tritium transport, variance reduction, UQ sampling, CSG translation, and
- code-card emission — exposed through a typed Python API.
+ tritium transport, fusion neutron sources, variance reduction, UQ sampling,
+ CSG translation, and code-card emission — exposed through a typed Python API.
 
 The project is a fresh Rust implementation of capabilities pioneered by
 [PyNE](https://github.com/pyne/pyne), focused on memory safety, fast builds,
@@ -45,8 +45,9 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | Enrichment (`nucleide-enrichment`) | Multicomponent cascade solver (numeric), SWU closed-form helpers |
 | Point kinetics (`nucleide-kinetics`) | Prescribed-reactivity PKE solver, inhour roots, prompt-jump factor |
 | Tritium transport (`nucleide-tritium`) | 1D Fick + McNabb–Foster diffusion-trapping kernel, Dirichlet/Sieverts/Henry/zero-flux/recombination surfaces (steady state and transient), permeation breakthrough and time lag |
+| Fusion sources (`nucleide-plasma-source`) | Tokamak ring/point neutron sources (D-D 2.45 MeV, D-T 14.1 MeV) with ion-temperature-broadened Gaussian spectra (Brysk/Ballabio), seeded sampling to particle vectors, MCNP SDEF + Serpent source-card emission with drift report |
 | Spectroscopy (`nucleide-spectroscopy`) | Spectrum smoothing, gross/net counting, energy/efficiency calibration, X-ray lines, SPE parsing, decay-line SDEF source cards (E9) fed from caller lists or the runtime decay-lines TSV interchange |
-| Variance reduction (`nucleide-vr-tools`) | MAGIC weight-window generation, mesh source sampling with alias tables |
+| Variance reduction (`nucleide-vr-tools`) | MAGIC weight-window generation, OpenMC/Serpent weight-window emission, mesh source sampling with alias tables |
 | UQ sampling (`nucleide-linalg`) | Seeded MVN + log-normal + LHS draws over caller-supplied covariance blocks, SANDY-compatible estimators, decay-data and fission-yield perturbation consumers |
 | CCCC I/O (`nucleide-cccc-io`) | ISOTXS/RTFLUX text-subset parsers + PARTISN deck writer (no solver) |
 | FISPACT I/O (`nucleide-fispact-io`) | FISPACT-II inventory output parser reusing the ALARA response frame (output-only) |
@@ -77,11 +78,12 @@ nucleide/
 │   ├── fispact-io/    # FISPACT-II inventory output parser (output-only)
 │   ├── origen-io/     # scoped ORIGEN TAPE5/6/9 readers
 │   ├── r2s/           # scoped R2S workflow builder (photon tags + spectra)
-│   ├── vr-tools/      # MAGIC weight windows, source sampling
+│   ├── vr-tools/      # MAGIC weight windows + OpenMC/Serpent emission, source sampling
 │   ├── enrichment/    # cascades, SWU
 │   ├── depletion/     # CRAM + chain files
 │   ├── kinetics/      # prescribed-reactivity point kinetics + inhour
 │   ├── tritium/       # 1D diffusion-trapping kernel + permeation checks
+│   ├── plasma-source/ # tokamak ring/point fusion neutron sources + SDEF/Serpent cards
 │   ├── spectroscopy/  # smoothing, counting, calibration, X-ray, SPE
 │   ├── emit/          # five-dialect card emission + mass-drift reports
 │   └── linalg/        # isolation facade over the linear-algebra backend

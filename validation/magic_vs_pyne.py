@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 from common import Report, fmt
 
@@ -81,8 +82,128 @@ def run_magic(per_group: bool, tolerance: float) -> dict[str, float]:
     }
 
 
+def _xfastest_windows(lower: list[float], dims: tuple[int, int, int], groups: int) -> list[float]:
+    """Reorder ve-major z-fastest MAGIC windows to the x-fastest,
+    group-outermost flat layout both emitters write."""
+    nx, ny, nz = dims
+    flat: list[float] = []
+    for g in range(groups):
+        for k in range(nz):
+            for j in range(ny):
+                for i in range(nx):
+                    ve = (i * ny + j) * nz + k
+                    flat.append(lower[ve * groups + g])
+    return flat
+
+
+def structural_emission_probe(tally: Any) -> dict[str, object]:
+    """Always-run probes: emit both formats from per-group MAGIC output and
+    re-parse them structurally with the standard library only. Raises
+    AssertionError on any mismatch."""
+    import xml.etree.ElementTree as ET
+
+    out = nucleide.vr.magic(tally, per_group=True)
+    dims = tally.dims()
+    groups = out.groups_per_ve
+    nft = dims[0] * dims[1] * dims[2]
+    expected = _xfastest_windows(list(out.lower_bounds_ww), dims, groups)
+
+    # OpenMC: wrap the fragment in a <settings> root and parse it back.
+    om = nucleide.vr.emit_openmc_weight_windows(tally, out)
+    root = ET.fromstring(f"<settings>{om['xml']}</settings>")
+    ww_el = root.find("weight_windows")
+    mesh_el = root.find("mesh")
+    assert ww_el is not None and mesh_el is not None
+    assert [int(v) for v in mesh_el.findtext("dimension", "").split()] == list(dims)
+    e_bounds = [float(v) for v in ww_el.findtext("energy_bounds", "").split()]
+    assert e_bounds == [0.0] + [e * 1.0e6 for e in out.e_upper_bounds]
+    lower = [float(v) for v in ww_el.findtext("lower_ww_bounds", "").split()]
+    upper = [float(v) for v in ww_el.findtext("upper_ww_bounds", "").split()]
+    assert len(lower) == len(upper) == nft * groups
+    for got, want in zip(lower, expected, strict=True):
+        assert abs(got - want) < 1.0e-9, (got, want)
+    for got, want in zip(upper, expected, strict=True):
+        assert abs(got - 5.0 * want) < 1.0e-9, (got, want)
+
+    # Serpent: WWINP header plus block-3 energy/window rows via a whitespace
+    # tokenizer (the block-2 mesh stream length is derivable from nc).
+    sw = nucleide.vr.emit_serpent_wwin(tally, out)
+    toks = iter(sw["text"].split())
+    assert next(toks) == "1" and next(toks) == "1"  # if, iv
+    ni, nr = int(next(toks)), int(next(toks))
+    assert (ni, nr) == (1, 10)
+    assert [int(next(toks))] == [groups]
+    nf = [int(float(next(toks))) for _ in range(3)]
+    assert nf == list(dims)
+    for _ in range(3):
+        next(toks)  # origin
+    nc = [int(float(next(toks))) for _ in range(3)]
+    next(toks)  # nwg
+    for axis in range(3):
+        for _ in range(3 * nc[axis] + 1):
+            next(toks)
+    energies = [float(next(toks)) for _ in range(groups)]
+    assert len(energies) == groups and all(e > 0.0 for e in energies)
+    rows = [float(next(toks)) for _ in range(groups * nft)]
+    assert max(abs(g - w) for g, w in zip(rows, expected, strict=True)) < 1.0e-6
+
+    return {
+        "groups": groups,
+        "nft": nft,
+        "serpent_card": sw["card"],
+        "openmc_notes": len(om["notes"]),
+        "serpent_notes": len(sw["notes"]),
+    }
+
+
+def openmc_load_probe(tally: Any) -> str:
+    """Container cross-check: parse the emitted fragment with OpenMC's own XML
+    readers. Loud SKIP when openmc is not installed; an OpenMC-side parse
+    failure is a hard error (AssertionError), not a skip."""
+    try:
+        import openmc  # type: ignore[import-not-found]
+    except ImportError:
+        return "SKIP: openmc is not installed in this environment"
+
+    import xml.etree.ElementTree as ET
+
+    import numpy as np
+
+    out = nucleide.vr.magic(tally, per_group=True)
+    dims = tally.dims()
+    groups = out.groups_per_ve
+    om = nucleide.vr.emit_openmc_weight_windows(tally, out)
+    root = ET.fromstring(f"<settings>{om['xml']}</settings>")
+    meshes = {}
+    for mesh_el in root.findall("mesh"):
+        mesh = openmc.MeshBase.from_xml_element(mesh_el)
+        meshes[mesh.id] = mesh
+    wws = openmc.WeightWindows.from_xml_element(root.find("weight_windows"), meshes)
+    got = np.asarray(wws.lower_ww_bounds)
+    assert got.shape == (*dims, groups), got.shape
+    expected = (
+        np.array(_xfastest_windows(list(out.lower_bounds_ww), dims, groups))
+        .reshape(groups, dims[2], dims[1], dims[0])
+        .transpose(3, 2, 1, 0)
+    )
+    assert np.allclose(got, expected, atol=1.0e-9), "OpenMC bins disagree with MAGIC"
+    return "PASS: openmc.MeshBase/openmc.WeightWindows parsed the emitted fragment"
+
+
+def serpent_load_probe() -> str:
+    """Serpent has no importable reader and is not installed in this
+    environment, so a container load cross-check is a loud SKIP; the WWINP
+    (FMT=2) spelling is instead pinned by the in-tree WWINP reader round-trip
+    in `cargo test -p nucleide-vr-tools` plus the structural probe above."""
+    return (
+        "SKIP: Serpent is proprietary and not installed; the WWINP FMT=2 spelling is "
+        "verified by the in-tree reader round-trip instead"
+    )
+
+
 def main() -> int:
     report = Report("magic", "MAGIC weight windows (`magic_vs_pyne.py`)")
+    meshtal = nucleide.mcnp.read_meshtal(str(MAGIC_TALLY))
 
     pyne_available = False
     try:
@@ -123,6 +244,38 @@ def main() -> int:
     report.prose(
         "Nucleide's MAGIC output matched the reference formula exactly for the synthetic\n"
         "test tally."
+    )
+
+    report.heading("Weight-window emission probes")
+    report.prose(
+        "The per-group MAGIC output was also emitted as an OpenMC settings.xml fragment\n"
+        "(`<mesh>` + `<weight_windows>`) and as a Serpent-readable WWINP file (`wwin ... wf`)\n"
+        "and each emitted text was re-parsed structurally back to the MAGIC windows."
+    )
+    try:
+        probe = structural_emission_probe(meshtal.tallies[4])
+    except AssertionError as exc:
+        print(f"FAIL: weight-window emission probe: {exc}", file=sys.stderr)
+        return 1
+    report.table(
+        ["Probe", "Result"],
+        [
+            [
+                "OpenMC fragment re-parse (stdlib XML)",
+                f"PASS: {probe['nft']} cells x {probe['groups']} groups round-trip",
+            ],
+            [
+                "Serpent WWINP re-parse (tokenizer)",
+                f"PASS: {probe['nft']} cells x {probe['groups']} groups round-trip",
+            ],
+            ["OpenMC container load", openmc_load_probe(meshtal.tallies[4])],
+            ["Serpent container load", serpent_load_probe()],
+        ],
+    )
+    report.prose(
+        "The Serpent file is emitted in the MCNP WWINP text spelling that Serpent reads via\n"
+        '`wwin <name> wf "<file>" 2`; the returned card pins that reference:\n'
+        f"`{probe['serpent_card']}`."
     )
 
     report.emit()

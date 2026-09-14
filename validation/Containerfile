@@ -87,3 +87,12 @@ RUN pip install --no-cache-dir "mcpl==2.2.8" "mcpl-extra==2.2.8" \
 # is missing (e.g. local runs without this layer).
 RUN pip install --no-cache-dir "sandy==1.1.0" \
  && python -c "import sandy.samples, pandas; print('sandy oracle available')"
+
+# openmc-plasma-source: independent tokamak ring/point neutron-source oracle
+# for validation/plasma_source_vs_openmc.py (moment cross-checks of the
+# sampled particle vectors and the Ballabio-fit spectrum coefficients).
+# Pure-wheel, MIT-licensed; NeSST pulls numpy/scipy/matplotlib only.
+# Pinned for reproducibility; the oracle check SKIPs loudly when the import
+# is missing (e.g. local runs without this layer).
+RUN pip install --no-cache-dir --no-deps "openmc-plasma-source==0.7.0" "NeSST==1.1.5" \
+ && python -c "import openmc_plasma_source; print('openmc-plasma-source oracle available')"

@@ -32,6 +32,35 @@ print(grouped.groups_per_ve, len(grouped.lower_bounds_ww))
 Cells whose relative error exceeds `tolerance` receive `null_value` (0.0 by
 default) instead of a scaled bound.
 
+## Emitting windows for OpenMC and Serpent
+
+The same `MagicOutput` reformats for other transport codes. The OpenMC
+emitter returns a `<mesh>` + `<weight_windows>` fragment to paste into
+`settings.xml` (energies are converted to eV; upper bounds are derived as
+five times the lower bounds):
+
+```python
+from nucleide.vr import emit_openmc_weight_windows
+
+fragment = emit_openmc_weight_windows(tally, grouped, mesh_id=1, window_id=1)
+print(fragment["xml"])  # paste inside the existing <settings> root
+print(fragment["notes"])  # what was synthesized (e.g. derived upper bounds)
+```
+
+The Serpent emitter writes the MCNP WWINP text format that Serpent reads via
+`wwin <name> wf "<file>" 2`, and returns the card to add to the input:
+
+```python
+from nucleide.vr import emit_serpent_wwin
+
+ww = emit_serpent_wwin(tally, grouped, name="ww1", file="windows.wwd")
+print(ww["text"])  # file content, re-parses with the workspace WWINP reader
+print(ww["card"])  # wwin ww1 wf "windows.wwd" 2
+```
+
+Bounds that cannot be represented (negative or non-finite values, unsorted
+energy or mesh bounds) raise a clear error instead of writing a partial file.
+
 ## Mesh source sampling
 
 `MeshSourceSampler` builds a birth-voxel sampler over a tally's totals in

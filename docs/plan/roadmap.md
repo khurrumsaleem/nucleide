@@ -24,7 +24,8 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
   glue (solver out of scope).
 - CRAM depletion solver and chain XML parsing (`depletion`).
 - Multicomponent enrichment cascade solver (`enrichment`).
-- MAGIC weight windows and mesh source sampling (`vr-tools`).
+- MAGIC weight windows with OpenMC (`settings.xml`) and Serpent (WWINP
+  via `wwin ... wf 2`) emission, plus mesh source sampling (`vr-tools`).
 - CCCC text-subset parsers + PARTISN writer (`cccc-io`): ISOTXS/RTFLUX
   readers and deck validation (no solver).
 - FISPACT-II inventory output parser (`fispact-io`): output-only, reusing the
@@ -83,6 +84,11 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
 - EPA FGR 15 runtime-download dosimetry pack (`nuclei` + `nucleide.data`):
   hash-pinned fetch of the official EPA zip; the `fgr15` module parses the
   seven scenario tables (nothing vendored).
+- Tokamak fusion neutron sources (`plasma-source`): ring/point D-D and D-T
+  sources with ion-temperature-broadened spectra (Brysk 1973; Ballabio 1998),
+  seeded sampling to particle vectors, and MCNP SDEF + Serpent source-card
+  emission with drift reports (parametric plasma profiles are the follow-up
+  landing; MCPL projection stays caller-side).
 
 ## Upcoming priorities
 
