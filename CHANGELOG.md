@@ -13,6 +13,8 @@ workspace crates from tags.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-14
+
 ### Added
 
 - EPA FGR 15 external-dosimetry coefficients (EPA 402-R-25-001, July 2025)
