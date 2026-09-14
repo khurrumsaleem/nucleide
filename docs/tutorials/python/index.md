@@ -24,7 +24,8 @@ and assumes you have already installed the project (see
 8. [Deterministic I/O](deterministic-io.md) — read ISOTXS and flux files
    and write PARTISN decks.
 9. [Emit code cards](emit-cards.md) — render one material to MCNP, Serpent,
-   FLUKA, ALARA, and PARTISN cards with a mass-drift report.
+   FLUKA, ALARA, and PARTISN cards with a mass-drift report showing how much
+   mass each dialect kept.
 10. [Run kinetics](run-kinetics.md) — solve prescribed-reactivity
     point-kinetics transients.
 11. [Run spectroscopy](run-spectroscopy.md) — smooth spectra, count peaks,
@@ -38,6 +39,7 @@ and assumes you have already installed the project (see
 15. [Reaction names](rxname.md) — resolve reaction names/ids/MT numbers and
     walk the parent/daughter reaction graph.
 16. [Translate CSG](translate-csg.md) — translate scoped MCNP CSG decks to
-    OpenMC, Serpent, or PHITS geometry with a drift report.
+    OpenMC, Serpent, or PHITS geometry with a drift report listing every
+    approximation the translator made.
 17. [Run tritium](run-tritium.md) — steady-state and transient 1D tritium
     permeation solves with traps and recombination boundaries.

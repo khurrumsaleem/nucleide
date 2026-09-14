@@ -200,8 +200,9 @@ print(bundle["workflow"]["steps"], bundle["workflow"]["top_schedule"])
 print(len(r2s_expand(bundle["deck"])), len(bundle["decks"]))
 ```
 
-## Fixtures
+## Sample files
 
-Reference files live under `fixtures/alara` (decks, flux files, output
+Sample reference files live under `fixtures/alara` (decks, flux files, output
 listings), `fixtures/fispact` (inventory tables), and `fixtures/origen`
-(TAPE5/6/9 samples).
+(TAPE5/6/9 samples); see the
+[sample data files](../../reference/fixtures.mdx) index for the full list.

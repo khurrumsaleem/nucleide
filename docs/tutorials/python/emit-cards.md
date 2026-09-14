@@ -31,8 +31,9 @@ print(cards["ALARA"])
 
 ## Mass-drift report
 
-`emit_drift_table` returns one row per dialect with the represented mass,
-the relative drift, dropped nuclides with reasons, and whether the text was
+`emit_drift_table` returns one row per dialect with the represented mass, the
+relative drift (the fraction of the input mass the dialect's text could not
+represent), dropped nuclides with reasons, and whether the text was
 re-parse verified (MCNP and ALARA only):
 
 ```python

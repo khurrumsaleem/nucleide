@@ -89,7 +89,7 @@ status, and license.
 | [UQ sampling](tutorials/python/uq-sampling.md) | Draw seeded MVN, log-normal, and LHS samples over caller-supplied covariance blocks and perturb decay data |
 | [VR and MAGIC](tutorials/python/vr-magic.md) | Derive weight-window lower bounds with MAGIC and sample birth voxels through alias tables |
 | [Reaction names](tutorials/python/rxname.md) | Resolve reaction names/ids/MT numbers and walk the parent/daughter reaction graph |
-| [Translate CSG](tutorials/python/translate-csg.md) | Translate scoped MCNP CSG decks to OpenMC, Serpent, or PHITS geometry with a drift report |
+| [Translate CSG](tutorials/python/translate-csg.md) | Translate scoped MCNP CSG decks to OpenMC, Serpent, or PHITS geometry, with a drift report listing every approximation the translator made |
 | [Run tritium](tutorials/python/run-tritium.md) | Solve steady-state and transient 1D tritium permeation with traps and recombination boundaries |
 | [Interactive tutorials](tutorials/interactive/index.mdx) | Run Nucleide in the browser through the WASM build |
 | [Interactive — nuclides](tutorials/interactive/nuclides.mdx) | Nuclide identifiers and nuclear data |
@@ -97,14 +97,18 @@ status, and license.
 | [Interactive — enrichment](tutorials/interactive/enrichment.mdx) | Solve MARC cascades live |
 | [Interactive — depletion](tutorials/interactive/depletion.mdx) | One-step CRAM depletion |
 | [Interactive — MCNP I/O](tutorials/interactive/mcnp-io.mdx) | Parse MCNP file snippets |
+| [Interactive — Serpent I/O](tutorials/interactive/serpent-io.mdx) | Parse Serpent `_res.m`, `_dep.m`, and `_det.m` output |
+| [Interactive — FLUKA I/O](tutorials/interactive/fluka-io.mdx) | Read USRBIN mesh tallies from `.lis` files |
 | [Interactive — variance reduction](tutorials/interactive/variance-reduction.mdx) | MAGIC bounds and alias-table sampling |
 | [Interactive — activation](tutorials/interactive/activation.mdx) | ALARA decks/outputs, FISPACT, R2S workflows |
 | [Interactive — deterministic I/O](tutorials/interactive/deterministic.mdx) | ISOTXS fluxes and PARTISN decks |
-| [Interactive — code-card emission](tutorials/interactive/emitter.mdx) | Five-dialect card emission and mass drift |
+| [Interactive — deck editor](tutorials/interactive/deck-editor.mdx) | Parse, validate, and edit full MCNP decks |
+| [Interactive — code-card emission](tutorials/interactive/emitter.mdx) | Five-dialect card emission with a per-dialect mass-drift audit |
 | [Interactive — point kinetics](tutorials/interactive/kinetics.mdx) | Step-reactivity transients and the prompt jump |
 | [Interactive — tritium permeation](tutorials/interactive/tritium.mdx) | 1D breakthrough curve and time lag |
 | [Interactive — spectroscopy](tutorials/interactive/spectroscopy.mdx) | Spectrum smoothing and peak counting |
 | [Interactive — UQ sampling](tutorials/interactive/uq.mdx) | Seeded MVN sampling over caller-supplied covariance blocks (Python API and theory add log-normal + LHS) |
+| [Interactive — MCPL particle lists](tutorials/interactive/mcpl-io.mdx) | Read and write MCPL particle lists |
 
 ### Theory
 
@@ -116,8 +120,9 @@ status, and license.
 | [Variance reduction](theory/variance-reduction.mdx) | MAGIC weight windows and alias-table source sampling |
 | [Nuclear data](theory/nuclear-data.mdx) | Nuclide IDs, name dialects, masses, half-lives, and screening data |
 | [Point kinetics](theory/kinetics.mdx) | Prescribed-reactivity PKE system, inhour relation, prompt jump, and the stiff-aware solver |
-| [Tritium transport](theory/tritium.mdx) | 1D diffusion-trapping equations, McNabb–Foster traps, surface taxonomy, and the analytic permeation gates |
+| [Tritium transport](theory/tritium.mdx) | 1D diffusion-trapping equations, McNabb–Foster traps, surface taxonomy, and the closed-form permeation checks |
 | [Gamma-ray spectroscopy](theory/spectroscopy.mdx) | Smoothing, peak counting, energy/efficiency calibration, X-ray lines, and SPE readers |
+| [UQ-lite sampling](theory/uq-sampling.mdx) | Seeded MVN, log-normal, and LHS sampling over caller-supplied covariance blocks, SANDY-compatible estimators, and the decay perturbation consumer |
 
 ### Reference
 
@@ -126,7 +131,7 @@ status, and license.
 | [Reference](reference/index.md) | Reference index and quick links |
 | [Crate overview](reference/crate-overview.mdx) | One-line responsibilities for every workspace crate |
 | [Python API](reference/python-api.mdx) | Python facade overview and module map |
-| [Fixtures](reference/fixtures.mdx) | Golden-byte test data index with per-file source links |
+| [Sample data files](reference/fixtures.mdx) | Index of the sample files the test suite reads, with per-file source links |
 
 ### Development
 

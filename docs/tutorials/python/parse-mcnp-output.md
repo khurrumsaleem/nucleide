@@ -81,8 +81,8 @@ rectangular/cylindrical/spherical mesh tallies (`mesh_tallies`, with the
 `ni`/`nj`/`nk` mesh counts and `cora`/`corb`/`corc` bounds), and the `kcode`
 cycles. Total/cumulative card variants (`ut`/`uc`/…) and the `c`/`e`/`t`
 third-token flags are stored verbatim, never interpreted. Radiograph and
-point-detector specials plus perturbation bodies raise a named-open error
-instead of parsing silently. `tally_vals_array(number)` exposes one tally's
+point-detector specials plus perturbation bodies are not yet supported —
+reading them raises a clear error instead of parsing silently. `tally_vals_array(number)` exposes one tally's
 pairs as a NumPy `(n_pairs, 2)` array (`mesh_tally_vals_array` covers mesh
 tallies).
 
@@ -131,7 +131,8 @@ print(parsed["card"])  # canonical re-render of the full card
 ```
 
 Unknown keywords are not dropped silently: they land in the `ignored` list as
-loud drift notes. A deck read through `read_deck`/`parse_deck` exposes the
+drift notes — entries in the drift report, the running list of every judgment
+call the parser made. A deck read through `read_deck`/`parse_deck` exposes the
 same view as the `sdef` property (`None` when the deck has no source card),
 and cards emitted by the spectroscopy SDEF source round-trip byte-identical:
 
@@ -172,10 +173,12 @@ deck.set_cell_universe(4, 5, True)  # writes U=-5
 deck.validate()
 ```
 
-## Fixtures
+## Sample files
 
-Golden-byte reference files live under `fixtures/mcnp/`. Tests assert that
-Nucleide reproduces them byte-for-byte where parity is intended.
+Sample reference files live under `fixtures/mcnp/`. The test suite checks
+that Nucleide reproduces them byte-for-byte where exact reproduction is
+intended; see the
+[sample data files](../../reference/fixtures.mdx) index for the full list.
 
 ## ENDL, SSW combining, PTRAC export, and mesh data
 

@@ -4,10 +4,12 @@ sidebar:
   order: 4
 ---
 
-Nucleide models materials as maps from canonical nuclide identifiers to masses,
-with optional density and metadata. Materials live in the `material` crate and
-are exposed through `nucleide.material.MaterialsCompendium`, `from_formula`, and
-related helpers.
+This tutorial shows you how to build materials from chemical formulas and the
+PNNL Materials Compendium, mix them by mass or volume, and export them with
+the Python API. Nucleide models materials as maps from canonical nuclide
+identifiers to masses, with optional density and metadata. Materials live in
+the `material` crate and are exposed through `nucleide.material.MaterialsCompendium`,
+`from_formula`, and related helpers.
 
 ## Build from a chemical formula
 
@@ -123,4 +125,4 @@ before combining.
 ## See also
 
 - Crate docs in [`crates/material/src/lib.rs`](https://github.com/nukehub-dev/nucleide/blob/main/crates/material/src/lib.rs).
-- Fixture license in `fixtures/data/MaterialsCompendium.LICENSE`.
+- License for the compendium sample data: `fixtures/data/MaterialsCompendium.LICENSE`.

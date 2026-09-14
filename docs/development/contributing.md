@@ -150,7 +150,8 @@ generated API docs, or fixture READMEs. Link instead.
    explicit order the site sidebar falls back to alphabetical sorting. Keep the
    order values aligned with the reading order in the section index tables, and
    do not repeat the title as an in-body `#` heading (the site renders the
-   frontmatter title as the page heading).
+   frontmatter title as the page heading). Register every new page in the
+   [docs home](../../README.md) full index as well as in its section index.
 8. **Figures are hand-authored SVGs.** Theory figures live in
    `docs/theory/figures/` and are embedded with the kit's `<SvgFigure>`
    shortcode, which inlines the markup at build time so `currentColor` and CSS

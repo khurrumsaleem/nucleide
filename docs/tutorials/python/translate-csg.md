@@ -9,7 +9,8 @@ to OpenMC `geometry.xml`, Serpent `surf`/`cell` cards, or PHITS
 `[Surface]`/`[Cell]` sections with the `nucleide-csg-xlate` crate. The scope
 is deliberately narrow — everything inside it translates; everything outside
 it raises a `ValueError` instead of guessing. Each call returns the emitted
-text plus a drift report of every non-lossless step.
+text plus a drift report: a list of every approximation the translator made
+(expanded macrobodies, dropped parameters, …).
 
 ## Translate a deck
 
@@ -47,7 +48,7 @@ assert any(d["action"] == "lattice-emitted" and d["target"] == "10" for d in dri
 ```
 
 Assert on structure, never on emitted bytes — the text is a rendering detail;
-the drift report is the contract (see below). The same deck renders to the
+the drift report is the authoritative record (see below). The same deck renders to the
 other codes with the scoped per-code simplifications:
 
 ```python
@@ -88,9 +89,9 @@ surfaces), `complement-expansion` (`#n` inlined), `universe-assigned` and
 `fill-applied` (universe plumbing), `lattice-emitted` (the matrix `FILL`
 became a lattice element), `reflective-applied` / `periodic-link` (boundary
 mapping), and `dropped-cell-param` / `dropped-data-card` (tokens with no
-target-code spelling — kept audible instead of vanishing).
+target-code spelling — listed in the report instead of vanishing silently).
 
-## What stays loud
+## What is not translated
 
 Out-of-scope geometry fails with a `ValueError` that names the offending
 cell, in all three directions. Hexagonal `LAT=2` lattices, lattice `FILL`
@@ -106,7 +107,7 @@ except ValueError as e:
 # needs lattice translation (rectangular LAT=1 only)
 ```
 
-Transforms are equally loud, on any card that carries them:
+Transforms are rejected the same way on any card that carries them:
 
 ```python
 try:
@@ -118,13 +119,14 @@ except ValueError as e:
 
 The same funnel rejects cones, quadrics, and tori, `U=-n`, transformed fills,
 matrix fills without `LAT=1`, tallies, source cards, and `READ` includes.
-Serpent and PHITS add their own direction-specific loud cases: reflecting and
-periodic boundaries have no verified Serpent mapping, and periodic pointers
-have no PHITS spelling.
+Serpent and PHITS add their own direction-specific unsupported cases —
+reflecting and periodic boundaries have no verified Serpent mapping, and
+periodic pointers have no PHITS spelling — and each raises a clear error.
 
 ## See also
 
 - `tests/test_csg_xlate.py` for the full structural-assertion and reject
-  suites, and `fixtures/mcnp/inp/deck_csg_*.txt` for the golden decks.
+  suites, and `fixtures/mcnp/inp/deck_csg_*.txt` for the sample decks they
+  read.
 - [Parse MCNP output](parse-mcnp-output.md) for the deck reader underneath
   (`read_deck` / `parse_deck`).

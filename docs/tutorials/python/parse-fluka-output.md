@@ -33,19 +33,21 @@ fastest), so `len(data) == nx * ny * nz` and each of `x_bounds`,
 ## Multiple detectors per file
 
 A `.lis` file can hold several USRBIN blocks; each becomes one tally. The
-degenerate fixture shows that per-axis bin counts need not be ordered
-largest-first:
+sample with degenerate binning shows that per-axis bin counts need not be
+ordered largest-first:
 
 ```python
 tallies = read_usrbin("fixtures/fluka/fluka_usrbin_multiple.lis")
 print([t.name for t in tallies])
 ```
 
-## Fixtures
+## Sample files
 
-Golden-byte reference files live under `fixtures/fluka/` (single, multiple,
-and degenerate binning cases plus the generating input deck). Tests assert
-that Nucleide reproduces them byte-for-byte where parity is intended.
+Sample reference files live under `fixtures/fluka/` (single, multiple, and
+degenerate binning cases plus the generating input deck). The test suite
+checks that Nucleide reproduces them byte-for-byte where exact reproduction
+is intended; see the
+[sample data files](../../reference/fixtures.mdx) index for the full list.
 
 See the
 [Python API reference](../../reference/python-api.mdx#nucleidefluka) for

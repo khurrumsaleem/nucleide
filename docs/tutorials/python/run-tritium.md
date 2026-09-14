@@ -7,8 +7,8 @@ sidebar:
 Nucleide's 1D tritium kernel solves diffusion-trapping permeation problems in a
 slab with the `nucleide-tritium` crate. This tutorial covers the Python API;
 the implementation lives in `crates/tritium`. For the physics — the
-McNabb–Foster trap kinetics, the surface-law taxonomy, and the analytic
-permeation gates — see the
+McNabb–Foster trap kinetics, the surface-law taxonomy, and the closed-form
+permeation checks (G1–G6 on the theory page) — see the
 [Tritium transport theory](../../theory/tritium.mdx) page.
 
 ## Steady-state permeation
@@ -141,7 +141,7 @@ limit and a tiny one the sealed slab.
 
 ## Closed-form helpers
 
-The gate helpers used by the tests are exported directly:
+The closed-form helpers behind those checks are exported directly:
 
 ```python
 from nucleide.tritium import irreversible_fill, langmuir, oriani, sieverts
@@ -155,7 +155,8 @@ print(irreversible_fill(0.1, 1.0, 100.0, [1.0, 10.0]))  # c_t = N * (1 - e^{-kct
 ## See also
 
 - [Tritium transport theory](../../theory/tritium.mdx) for the T1–T2
-  equation set and the G1–G6 analytic gates.
-- `tests/test_tritium.py` for the gate replays and input-error cases.
+  equation set and the G1–G6 closed-form checks.
+- `tests/test_tritium.py` for replays of those checks and the input-error
+  cases.
 - [Interactive tritium permeation](../interactive/tritium.mdx) to run
   breakthrough curves in the browser.

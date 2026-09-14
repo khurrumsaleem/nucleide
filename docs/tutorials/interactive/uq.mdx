@@ -30,11 +30,12 @@ samples.
 LHS mode keeps the same inputs and result shape but swaps the normal source
 for stratified draws — one jittered uniform per stratum per dimension
 (Fisher–Yates permutation, inverse-normal CDF), then the shared factor path
-— so the IID $k$-SE gate is the wrong null: stratified draws have smaller
-variance than IID by construction. The kernel's separate gate is therefore
-G1 stratification-exact (each dimension hits each of the $n$ strata exactly
-once at the pinned seed) plus G2 with the IID standard errors as an upper
-bound on the sample mean/covariance, never an equality null. LHS is a draw
+— so the IID $k$-SE standard-error null is the wrong benchmark: stratified
+draws have smaller variance than IID by construction. The kernel's separate
+correctness checks (G1/G2 on the theory page) therefore require
+stratification-exactness (each dimension hits each of the $n$ strata exactly
+once at the pinned seed) and use the IID standard errors as an upper bound
+on the sample mean/covariance, never an equality null. LHS is a draw
 mode, not a perturbation convention.
 
 <InteractiveDemo kind="uq" />

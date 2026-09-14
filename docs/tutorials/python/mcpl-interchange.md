@@ -74,8 +74,10 @@ m = mcpl2ssw("surface.mcpl", "surface.w", "back.w")  # reference header cloned
 counts patched to the converted tally) with surface ids from each particle's
 `userflags` unless `surface=` overrides them. Anything outside neutrons
 (PDG 2112) and gammas (PDG 22) is an error, never a silent skip; see the
-`ssw` module docs for the mapping table and the named-open list.
+`ssw` module docs for the mapping table and the list of cases that are not
+yet supported (each raises a clear error).
 
 Cross-tool byte compatibility beyond self-consistent round-trips is
-oracle-gated in `validation/mcpl_vs_refs.py` (loud SKIP when the upstream
-`mcpl` package is absent).
+cross-checked against the upstream `mcpl` package in the automated
+[validation harness](../../development/validation.md); the check is skipped
+when that package is not installed.

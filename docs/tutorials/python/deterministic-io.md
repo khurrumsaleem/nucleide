@@ -76,7 +76,8 @@ except ValueError as exc:
     print("dangling label:", exc)
 ```
 
-## Fixtures
+## Sample files
 
-Reference files live under `fixtures/cccc`. Both samples are synthetic
-fixtures authored for parser tests, not measured data.
+Sample reference files live under `fixtures/cccc`. Both are synthetic sample
+files authored for parser tests, not measured data; see the
+[sample data files](../../reference/fixtures.mdx) index for the full list.

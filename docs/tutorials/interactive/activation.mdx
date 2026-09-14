@@ -29,8 +29,9 @@ or load the sample output, and pick the matching parser tab; when the listing
 carries a specific-activity table, the demo plots the reported `total`
 activity against cooling time (one trace per zone). The **ORIGEN
 TAPE5/TAPE6/TAPE9** tabs parse the scoped ORIGEN input echo, output
-inventory, and decay-constant table. TAPE5 flux-vs-step renders as a scatter
-chart and TAPE6 per-nuclide activity as a log bar chart (chart-only); the
+inventory, and decay-constant table. TAPE5 flux-vs-step renders as a
+scatter chart and TAPE6 per-nuclide activity as a log bar chart (chart
+views only, no value table); the
 TAPE6 tab's **Compare steps** button re-parses each pasted snapshot below it
 with the same reader into an N-step per-nuclide series chart (same grouped
 log-bar bundle; multi-snapshot file grammar stays out — pasted snapshots
@@ -46,12 +47,12 @@ runs in the browser through the **R2S snapshot** tab below over an inline
 two-zone JSON snapshot (zone volumes, ARMI-keyed number densities, fluxes,
 cooling times), returning workflow steps plus the template and per-step deck
 count. The same tab hosts an **R2S voxels** section mapping zone totals onto
-native-mesh voxels through a drift-accepted `VoxelTags` copy-port
-(`voxelTagsFromTotals` copies each zone total onto its voxels or splits it
-conservatively; `voxelPhotonSums` selects and adds `.photonSrc` group spectra
-by nuclide and cooling time): per-voxel strengths render in a
-scatter/bar/heatmap/histogram chart bundle capped at 200 voxels, following the
-deterministic RTFLUX values-cap precedent.
+native-mesh voxels with the `VoxelTags` copy (`voxelTagsFromTotals` copies
+each zone total onto its voxels or splits it conservatively;
+`voxelPhotonSums` selects and adds `.photonSrc` group spectra by nuclide and
+cooling time): per-voxel strengths render in a
+scatter/bar/heatmap/histogram chart bundle capped at 200 voxels, the same
+cap the deterministic demo applies to its RTFLUX flux profile.
 
 ## Try it
 

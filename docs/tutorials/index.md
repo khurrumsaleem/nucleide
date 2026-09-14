@@ -26,7 +26,8 @@ assumes you have already installed the project (see
 9. [Deterministic I/O](python/deterministic-io.md) — read ISOTXS and flux files
    and write PARTISN decks.
 10. [Emit code cards](python/emit-cards.md) — render one material to MCNP,
-    Serpent, FLUKA, ALARA, and PARTISN cards with a mass-drift report.
+    Serpent, FLUKA, ALARA, and PARTISN cards with a mass-drift report showing
+    how much mass each dialect kept.
 
 ## Finding more examples
 
@@ -34,4 +35,6 @@ assumes you have already installed the project (see
   and [Parse FLUKA output](python/parse-fluka-output.md) mirror the MCNP one.
 - Rust unit tests live in inline `#[cfg(test)]` modules under `crates/<name>/src/`.
 - Python tests live under `tests/`.
-- Golden-byte fixtures and their descriptions live under `fixtures/`.
+- Sample files used by the test suite (with per-file descriptions) live under
+  `fixtures/`; see the
+  [sample data files](../reference/fixtures.mdx) index for the full list.

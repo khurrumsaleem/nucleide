@@ -10,15 +10,15 @@ caller blocks) with no vendored covariance stores. Engine note: SANDY
 itself factorises with SVD behind NumPy's PCG64 stream, while this kernel
 uses Cholesky-with-eigen-clip behind ChaCha8 — same target distribution,
 so draws are not interchangeable, but the moment estimators agree exactly
-(`sample_mean`/`sample_cov` match `Samples.get_mean`/`get_cov` at 1e-9 in
-the oracle-check gate). This tutorial covers the Python API; the
+(the automated validation harness checks `sample_mean`/`sample_cov`
+against `Samples.get_mean`/`get_cov` to 1e-9). This tutorial covers the Python API; the
 kernel lives in the `linalg` crate (`sample` + `decay` modules).
 
 ## Sample a covariance block
 
 `sample_mvn` draws `n` samples `x ~ N(mean, cov)` reproducibly from `seed`:
 identical inputs always yield identical samples. The block below is the
-synthetic 2x2 from `fixtures/uq/cov_2x2.json` (variances 0.25/0.16,
+synthetic 2x2 sample from `fixtures/uq/cov_2x2.json` (variances 0.25/0.16,
 covariance 0.10 — round numbers, no evaluated data):
 
 ```python
@@ -44,7 +44,7 @@ from `seed`: per dimension, one jittered draw per stratum
 and `w ~ U(0,1)`, both from the seeded `StdRng`), mapped through the
 hand-rolled `inv_normal_cdf` to standard normals, then the shared
 Cholesky/eigen-clip factor path with `x = μ + Bz`. The block below is the
-synthetic 2x2 from `fixtures/uq/lhs_2x2.json` (mean `[1, 2]`, variances
+synthetic 2x2 sample from `fixtures/uq/lhs_2x2.json` (mean `[1, 2]`, variances
 0.25/0.16, covariance 0.10 — round numbers, no evaluated data; `n = 5000`,
 `k = 5`, seed `20260916`):
 
@@ -58,11 +58,12 @@ print(out["method"])  # "cholesky" (positive-definite path)
 
 Return shape matches `sample_mvn` (`samples`, `method`, `min_eigen`/
 `max_eigen`), and identical inputs always yield identical samples. The
-separate U6 gate (theory U7) is **G1 stratification-exact** (each dimension
-hits each of the `n` strata exactly once at the pinned seed) plus **G2
-LHS-valid moment bound** (sample mean/covariance within `k` IID standard
-errors as an *upper* bound — the IID `k`-SE null is wrong for stratified
-draws, whose variance is smaller by construction, never an equality null).
+theory page's separate U6/U7 correctness checks (checks G1/G2 there)
+require **stratification-exactness** (each dimension hits each of the `n`
+strata exactly once at the pinned seed) plus an **LHS-valid moment bound**
+(sample mean/covariance within `k` IID standard errors as an *upper* bound
+— the IID `k`-SE null is wrong for stratified draws, whose variance is
+smaller by construction, never an equality null).
 LHS is a draw mode, not a perturbation convention
 (`perturb_energies(..., "lhs")` stays an error).
 
@@ -82,8 +83,8 @@ print(rep["passed"], rep["mean_err_max"], rep["cov_err_fro"])
 `perturb_branches` applies relative deltas to one parent's kept branch
 fractions and renormalises to preserve the incoming `1 - BR(SF)` deficit —
 the evaluated store drops spontaneous-fission branches, so the synthetic
-`fixtures/uq/decay_perturb.json` vector sums to 0.90 and the output sums to
-0.90 too. `perturb_energies` perturbs per-nuclide energies with no sum
+sample vector in `fixtures/uq/decay_perturb.json` sums to 0.90 and the
+output sums to 0.90 too. `perturb_energies` perturbs per-nuclide energies with no sum
 constraint (`"relative"` or `"absolute"`, negatives clamped to zero):
 
 ```python
@@ -114,4 +115,5 @@ print(perturb_fission_yields([0.9, 0.7, 0.4], [0.1, -0.2, 0.0]))
   for the Rust API.
 - `tests/test_uq.py` for worked examples.
 - [Cross-code validation results](https://github.com/nukehub-dev/nucleide/blob/main/validation/results.md)
-  for the SANDY moment cross-check (`validation/uq_lite_vs_sandy.py`).
+  for the SANDY moment cross-check, reproduced by the automated
+  [validation harness](../../development/validation.md).

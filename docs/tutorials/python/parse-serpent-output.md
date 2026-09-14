@@ -60,14 +60,15 @@ print(det["DET1E"][0])  # energy bin: [lower, upper, midpoint]
 
 The bin-grid arrays keep Serpent's naming: `DET1E` energies, `DET1T`
 times, `DET2X`/`DET2Y` spatial edges. Serpent 1 detector files (the
-`sample_det.m` fixture) expose their shapes through `DET<name>_VALS` and
+`sample_det.m` sample) expose their shapes through `DET<name>_VALS` and
 `DET<name>_EBINS` scalars instead.
 
-## Fixtures
+## Sample files
 
-Golden-byte reference files live under `fixtures/serpent/` (`sample_*` for
-Serpent 1, `serp2_*` for Serpent 2). Tests assert that Nucleide reproduces
-them byte-for-byte where parity is intended.
+Sample reference files live under `fixtures/serpent/` (`sample_*` for
+Serpent 1, `serp2_*` for Serpent 2). The test suite checks that Nucleide
+reproduces them byte-for-byte where exact reproduction is intended; see the
+[sample data files](../../reference/fixtures.mdx) index for the full list.
 
 See the
 [Python API reference](../../reference/python-api.mdx#nucleideserpent) for

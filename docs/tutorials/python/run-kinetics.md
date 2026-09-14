@@ -84,5 +84,5 @@ delayed-neutron library the IFP run used (the `from_ifp` provenance note in
   for the Rust API.
 - `tests/test_kinetics.py` for worked examples.
 - [Cross-code validation results](https://github.com/nukehub-dev/nucleide/blob/main/validation/results.md)
-  for these transients: analytic gates (prompt jump, inhour) plus a PyRK
+  for these transients: analytic checks (prompt jump, inhour) plus a PyRK
   cross-check.
