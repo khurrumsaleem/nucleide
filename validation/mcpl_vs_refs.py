@@ -1,6 +1,6 @@
 """MCPL interchange oracle (`nucleide-mcpl-io` vs upstream `mcpl` tooling).
 
-Three parts:
+Four parts:
 
 1. Synthetic gates (always run): hand-built axis-vector records are written
    with :func:`nucleide.mcpl.write_mcpl`, read back, and checked for
@@ -21,6 +21,12 @@ Three parts:
    (shipped by the `mcpl-extra` 2.2.8 package, pinned in `Containerfile`)
    runs when those binaries are present and SKIP-reports with its reason
    otherwise (never fails without the oracle).
+4. Utility gates (always run, synthetic fixtures only): merge/extract/stats/
+   repair over the committed hand-framed `fixtures/mcpl/utils/` pair inputs
+   and golden outputs — concat order, first-file header + provenance comment,
+   `stat:sum` never synthesized, precision promotion, loud incompatibilities,
+   extract subsets with verbatim headers, hand moments, and repair of an
+   unpatched count field.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ from nucleide.mcnp import read_ssw
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SSW_REF = REPO_ROOT / "fixtures" / "mcpl" / "ssw_conversion" / "reference.w"
+UTILS_DIR = REPO_ROOT / "fixtures" / "mcpl" / "utils"
 SSW_SURFS = [100, 200]
 SSW_KINDS = ["neutron", "gamma"]
 
@@ -434,6 +441,192 @@ def ssw_oracle(tmp: str) -> tuple[list[list[str]], list[str], bool]:
     return rows, notes, False
 
 
+def utils_gates(tmp: str) -> tuple[list[list[str]], list[str]]:
+    """Utility gates U1-U9 on the committed synthetic utils fixtures.
+
+    Merge/extract/stats/repair over the hand-framed `fixtures/mcpl/utils/`
+    pair inputs and golden outputs: concat order and first-file header with
+    provenance comment (U1-U2), `stat:sum` carried verbatim and never
+    synthesized (U3), precision promotion on mixed merge (U4), loud
+    incompatibilities and empty merge (U5), extract subsets with the header
+    preserved verbatim (U6-U7), hand moments + PDG histogram (U8), and repair
+    of a count field that was never patched (U9). Synthetic fixtures only.
+    """
+    rows: list[list[str]] = []
+    notes: list[str] = []
+
+    def utils(name: str) -> str:
+        return str(UTILS_DIR / name)
+
+    def golden_bytes(name: str) -> bytes:
+        return (UTILS_DIR / name).read_bytes()
+
+    merged = os.path.join(tmp, "u_merged.mcpl")
+    n = mcpl.merge_mcpl([utils("merge_a.mcpl"), utils("merge_b.mcpl")], merged)
+    got = mcpl.read_mcpl(merged)
+    ok = n == 4 and Path(merged).read_bytes() == golden_bytes("merge_ab.mcpl")
+    rows.append(["U1 merge concat order", "4, golden bytes", str(n), _check(ok, "U1 merge")])
+
+    ok = (
+        got.srcname == "merge-a"
+        and got.comments == ["first file", "Merged by nucleide-mcpl-io merge_mcpl from 2 files"]
+        and "second file" not in got.comments
+    )
+    rows.append(
+        [
+            "U2 first-file header + provenance",
+            "srcname merge-a, 2 comments",
+            f"{got.srcname}, {got.comments}",
+            _check(ok, "U2 header"),
+        ]
+    )
+
+    src_sum = os.path.join(tmp, "u_sum.mcpl")
+    mcpl.write_mcpl(
+        src_sum,
+        {**HEADER, "comments": ["run a", mcpl.mcpl_statsum_comment("nps", 2.0)]},
+        PARTICLES,
+    )
+    mcpl.merge_mcpl([src_sum, utils("merge_b.mcpl")], merged)
+    comments = mcpl.read_mcpl(merged).comments
+    ok = (
+        comments[1] == mcpl.mcpl_statsum_comment("nps", 2.0)
+        and sum(c.startswith("stat:sum:") for c in comments) == 1
+    )
+    rows.append(
+        [
+            "U3 stat:sum verbatim, not synthesized",
+            "stat:sum:nps(2.0) once",
+            f"{comments[1]!r}",
+            _check(ok, "U3 statsum"),
+        ]
+    )
+
+    mcpl.merge_mcpl([utils("merge_a.mcpl"), utils("merge_c.mcpl")], merged)
+    got = mcpl.read_mcpl(merged)
+    ekins = [p["ekin"] for p in got.particles()]
+    ok = (
+        got.nparticles == 3
+        and got.double_prec
+        and ekins[0] == 2.5
+        and abs(ekins[1] - 0.6620000004768372) < 1e-15
+        and ekins[2] == 14.1
+    )
+    rows.append(
+        [
+            "U4 precision promotes to double",
+            "3, double, f32 values exact",
+            f"{got.nparticles}, {got.double_prec}, {fmt(ekins[1])}",
+            _check(ok, "U4 promote"),
+        ]
+    )
+
+    polarised = os.path.join(tmp, "u_pol.mcpl")
+    mcpl.write_mcpl(polarised, {**HEADER, "has_polarisation": True}, PARTICLES)
+    rejected = False
+    for inputs in ([utils("merge_a.mcpl"), polarised], []):
+        try:
+            mcpl.merge_mcpl(inputs, merged)
+        except ValueError:
+            rejected = True
+        else:
+            rejected = False
+            break
+    rows.append(
+        [
+            "U5 incompatible merge is loud",
+            "ValueError",
+            "ValueError" if rejected else "no error",
+            _check(rejected, "U5 incompatible"),
+        ]
+    )
+
+    sub = os.path.join(tmp, "u_sub.mcpl")
+    n = mcpl.extract_mcpl(utils("extract_src.mcpl"), sub, {"start": 1, "stop": 3})
+    got = mcpl.read_mcpl(sub)
+    src = mcpl.read_mcpl(utils("extract_src.mcpl"))
+    ok = (
+        n == 2
+        and Path(sub).read_bytes() == golden_bytes("extract_range.mcpl")
+        and got.srcname == src.srcname
+        and got.comments == src.comments
+        and got.blobs == src.blobs
+        and [p["pdgcode"] for p in got.particles()] == [22, 2112]
+    )
+    rows.append(
+        [
+            "U6 extract range, header verbatim",
+            "2, [22, 2112]",
+            f"{n}, {[p['pdgcode'] for p in got.particles()]}",
+            _check(ok, "U6 extract range"),
+        ]
+    )
+
+    n = mcpl.extract_mcpl(
+        utils("extract_src.mcpl"),
+        sub,
+        {"predicate": lambda p: p["pdgcode"] == 2112},
+    )
+    got_ekins = [p["ekin"] for p in mcpl.read_mcpl(sub).particles()]
+    ok = (
+        n == 2
+        and Path(sub).read_bytes() == golden_bytes("extract_pdg.mcpl")
+        and got_ekins == [2.5, 14.1]
+    )
+    rows.append(
+        [
+            "U7 extract predicate (PDG)",
+            "2, [2.5, 14.1] MeV",
+            f"{n}, {got_ekins}",
+            _check(ok, "U7 extract predicate"),
+        ]
+    )
+
+    s = mcpl.mcpl_stats(utils("extract_src.mcpl"))
+    ok = (
+        s["nparticles"] == 4
+        and abs(s["ekin_sum"] - (2.5 + 0.662 + 14.1 + 5.0)) < 1e-12
+        and abs(s["ekin_min"] - 0.662) < 1e-12
+        and abs(s["ekin_max"] - 14.1) < 1e-12
+        and abs(s["ekin_mean"] - (2.5 + 0.662 + 14.1 + 5.0) / 4.0) < 1e-12
+        and abs(s["weight_sum"] - 5.0) < 1e-12
+        and s["pdg_counts"] == [(22, 1), (2112, 2), (2212, 1)]
+    )
+    rows.append(
+        [
+            "U8 stats hand moments",
+            "n=4, sum 22.262, min 0.662, max 14.1",
+            (
+                f"n={s['nparticles']}, sum {fmt(s['ekin_sum'])}, "
+                f"min {fmt(s['ekin_min'])}, max {fmt(s['ekin_max'])}"
+            ),
+            _check(ok, "U8 stats"),
+        ]
+    )
+
+    broken = os.path.join(tmp, "u_broken.mcpl")
+    mcpl.write_mcpl(broken, HEADER, PARTICLES)
+    good = Path(broken).read_bytes()
+    damaged = bytearray(good)
+    damaged[8:16] = (1).to_bytes(8, "little")
+    Path(broken).write_bytes(bytes(damaged))
+    n = mcpl.repair_mcpl(broken)
+    ok = n == 2 and Path(broken).read_bytes() == good
+    rows.append(
+        [
+            "U9 repair unpatched count",
+            "2, bytes identical",
+            str(n),
+            _check(ok, "U9 repair"),
+        ]
+    )
+    notes.append(
+        "Utility gates run over the committed hand-framed utils fixtures "
+        "(synthetic axis-vector records only; no upstream files are read)."
+    )
+    return rows, notes
+
+
 def main() -> int:
     report = Report("mcpl", "MCPL interchange vs upstream tooling")
     with tempfile.TemporaryDirectory() as tmp:
@@ -459,6 +652,10 @@ def main() -> int:
         else:
             report.table(["Check", "Expected", "Got", "Status"], rows4)
         for note in notes4:
+            report.prose(note)
+        rows5, notes5 = utils_gates(tmp)
+        report.table(["Gate", "Expected", "Got", "Status"], rows5)
+        for note in notes5:
             report.prose(note)
     report.emit()
     return 1 if FAILURES else 0

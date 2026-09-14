@@ -37,7 +37,7 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | Materials (`nucleide-material`) | Compositions, mixing arithmetic, unit conversions, DOE/PNNL Materials Compendium loading, materials XML export, activity/decay-heat/dose-per-gram analytics, label-collision checks and conservation audits, mass-efficiency separator / fixed-ratio blender, Page CUSUM change detector |
 | MCNP I/O (`nucleide-mcnp-io`) | xsdir, meshtal, SSW/SURFSRC, PTRAC, WWINP, MCTAL (headers, kcode, standard tally bodies), ENDL readers; typed legacy SDEF fixed-source reader (round-trips the spectroscopy emitter byte-identically); NumPy `result_array()` / `totals_array()` meshtal and `tally_vals_array()` MCTAL bridges; material extraction from input decks; full-deck parse/edit/write round-trip (cells, surfaces, materials); L3 semantic views (MODE/TRn/universes/lattices/FILL/tallies) with validation; mesh-to-geometry deck generation |
 | CSG translation (`nucleide-csg-xlate`) | Scoped MCNP CSG translation to OpenMC `geometry.xml`, Serpent, and PHITS input (surfaces, cells, universes/fills, rectangular `LAT=1` lattices, material stub) with a drift report; macrobodies expand, unsupported constructs fail with a clear error |
-| MCPL I/O (`nucleide-mcpl-io`) | Monte Carlo Particle List interchange reader/writer (format versions 2/3, single/double precision, gzip-transparent) plus neutron/gamma-only SSW↔MCPL conversion |
+| MCPL I/O (`nucleide-mcpl-io`) | Monte Carlo Particle List interchange reader/writer (format versions 2/3, single/double precision, gzip-transparent) plus SSW↔MCPL conversion and the merge/extract/stats/repair particle-list utilities |
 | Serpent I/O (`nucleide-serpent-io`) | `_res.m`, `_dep.m`, `_det.m` readers producing structured records |
 | FLUKA I/O (`nucleide-fluka-io`) | USRBIN tally reader, material/compound card generation |
 | ALARA I/O (`nucleide-alara-io`) | Deck/flux/matlib-elelib-WDR/output/photon/schedule-expansion glue; solver out of scope |
@@ -69,7 +69,7 @@ nucleide/
 │   ├── material/      # compositions, mixing, libraries, XML export
 │   ├── mcnp-io/       # xsdir/meshtal/SSW/MCTAL/PTRAC/WWINP
 │   ├── csg-xlate/     # scoped MCNP CSG -> OpenMC/Serpent/PHITS translation
-│   ├── mcpl-io/       # MCPL interchange read/write + SSW conversion
+│   ├── mcpl-io/       # MCPL interchange read/write + SSW conversion + merge/extract/stats/repair
 │   ├── serpent-io/    # res/dep/det readers
 │   ├── fluka-io/      # usrbin reader, material cards
 │   ├── alara-io/      # ALARA deck/flux/libs/output/photon/schedule glue (no solver)

@@ -1,6 +1,6 @@
 [package]
 name = "nucleide-mcpl-io"
-description = "MCPL Monte Carlo Particle List read/write (v2/v3, single/double precision, gzip-transparent)"
+description = "MCPL Monte Carlo Particle List read/write (v2/v3, single/double precision, gzip-transparent) with merge/extract/stats/repair utilities"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

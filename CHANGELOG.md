@@ -13,6 +13,25 @@ workspace crates from tags.
 
 ## [Unreleased]
 
+### Added
+
+- MCPL particle-list utilities in `nucleide-mcpl-io` (exposed as
+  `nucleide.mcpl.merge_mcpl` / `extract_mcpl` / `mcpl_stats` /
+  `repair_mcpl`, all file-based and `.gz`-transparent): `merge_mcpl`
+  concatenates compatible files with the first-file header plus a
+  provenance comment (`stat:sum` comments ride along verbatim; sums are
+  never synthesized or updated; mixed single/double input promotes to
+  double, the lossless direction; any other header-option disagreement is
+  a loud error); `extract_mcpl` writes an index-range (`start`/`stop`) or
+  predicate subset with the source header preserved verbatim;
+  `mcpl_stats` returns record counts, energy moments, total weight, and a
+  per-PDG-code histogram; `repair_mcpl` implements the paper-pinned
+  `mcpl_repair` semantics, recomputing the particle count of a file whose
+  writer never patched it and ignoring a partially written trailing
+  record. Synthetic golden fixtures in `fixtures/mcpl/utils/` pin merge
+  concat order, precision promotion, and extract subsets; new always-run
+  U1-U9 gates in `validation/mcpl_vs_refs.py` cover the same contracts.
+
 ## [0.11.0] - 2026-09-14
 
 ### Added

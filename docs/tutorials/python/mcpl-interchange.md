@@ -77,6 +77,40 @@ counts patched to the converted tally) with surface ids from each particle's
 `ssw` module docs for the mapping table and the list of cases that are not
 yet supported (each raises a clear error).
 
+## Merging, extracting, and statistics
+
+Four utilities cover the day-to-day particle-list workflows (matching the
+upstream `mcpltool` merge/extract/repair surface plus record statistics):
+
+- `merge_mcpl(paths, out_path)` concatenates compatible files. The first
+  file's header wins (`srcname`, `comments`, `blobs`) and a provenance
+  comment is appended; header statistics comments (`stat:sum:...`) from the
+  first file ride along verbatim and sums are never synthesized or updated.
+  All inputs must agree on the header options except floating-point
+  precision, which promotes to double when single- and double-precision
+  files are mixed (the lossless direction); anything else raises a clear
+  error.
+- `extract_mcpl(src_path, out_path, options=None)` writes a subset with the
+  source header preserved verbatim. The options dict selects either an index
+  range (`{"start": 1, "stop": 3}` — the half-open interval `[start, stop)`,
+  each bound optional) or a predicate (`{"predicate": f}` with `f` over one
+  particle dict); omitting options copies the whole file.
+- `mcpl_stats(path)` returns record counts, energy moments (sum/min/max/mean
+  in MeV), the total weight, and a per-PDG-code histogram.
+- `repair_mcpl(path)` fixes a file whose writer never updated the particle
+  count (for example after an interrupted job): the count is recomputed
+  from the complete records, a partially written trailing record is
+  ignored, and the file is rewritten in place.
+
+```python
+from nucleide.mcpl import extract_mcpl, mcpl_stats, merge_mcpl, repair_mcpl
+
+n = merge_mcpl(["run_1.mcpl", "run_2.mcpl"], "combined.mcpl")
+m = extract_mcpl("combined.mcpl", "neutrons.mcpl", {"predicate": lambda p: p["pdgcode"] == 2112})
+stats = mcpl_stats("neutrons.mcpl")
+print(stats["nparticles"], stats["ekin_mean"], stats["pdg_counts"])
+```
+
 Cross-tool byte compatibility beyond self-consistent round-trips is
 cross-checked against the upstream `mcpl` package in the automated
 [validation harness](../../development/validation.md); the check is skipped

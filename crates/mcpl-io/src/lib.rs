@@ -11,7 +11,10 @@
 //! position in cm, unit direction, time in ms, weight, PDG code, user flags),
 //! and the per-file option flags (userflags / polarisation /
 //! single-vs-double precision / universal PDG / universal weight) with
-//! little-endian storage. No upstream code is vendored here.
+//! little-endian storage. No upstream code is vendored here. On top of the
+//! codec sit the particle-list utilities: [`merge_mcpl`], [`extract_mcpl`],
+//! [`mcpl_stats`], and [`repair_mcpl`] cover the upstream `mcpltool`
+//! merge/extract/repair surface plus record statistics.
 //!
 //! Validation status: byte-exact round-trips on hand-built synthetic records
 //! (closed-form packing math), `stat:sum` syntax validated per the upstream
@@ -52,10 +55,11 @@
 //!
 //! - Big-endian (`'B'`) files: rejected with [`Error::UnsupportedEndianness`]
 //!   (upstream byteswaps; this reader stays little-endian only).
-//! - `stat:sum` merge/scale semantics (files merged by third-party tools):
-//!   such comments round-trip verbatim and their syntax is validated
-//!   ([`statsum_validate`], [`statsum_comment`]) but values are never
-//!   interpreted.
+//! - `stat:sum` value semantics: such comments round-trip verbatim and their
+//!   syntax is validated ([`statsum_validate`], [`statsum_comment`]) but
+//!   values are never interpreted. [`merge_mcpl`] keeps the first file's
+//!   comments verbatim, appends a provenance comment, and never synthesizes
+//!   or updates sums.
 //! - SSW↔MCPL conversion beyond the neutron/gamma-only v1 in [`ssw`]:
 //!   other particle kinds are named errors, never silent skips.
 //! - `.gz` compression levels: gzip transport is transparent, but compressed
@@ -156,6 +160,34 @@ pub enum Error {
     /// open time).
     #[error("comment {0} duplicates stat:sum key {1:?}")]
     DuplicateStatSum(usize, String),
+    /// [`merge_mcpl`] was called without any input files.
+    #[error("merge requires at least one input file")]
+    EmptyMerge,
+    /// Two files passed to [`merge_mcpl`] disagree on a header option; only
+    /// floating-point precision may differ (single promotes to double, the
+    /// lossless direction).
+    #[error("merge input {index} disagrees on {field} ({found}, expected {expected} from the first file)")]
+    IncompatibleOption {
+        /// Position of the disagreeing input file in the merge list.
+        index: usize,
+        /// Header option that disagrees.
+        field: &'static str,
+        /// Value carried by the first input file.
+        expected: String,
+        /// Value carried by the disagreeing input file.
+        found: String,
+    },
+    /// An [`extract_mcpl`] range is inverted or extends past the particle
+    /// count (ranges are the half-open index interval `[start, stop)`).
+    #[error("extract range {start}..{stop} is outside the particle count {nparticles}")]
+    ExtractOutOfRange {
+        /// Requested range start.
+        start: usize,
+        /// Requested range stop (exclusive).
+        stop: usize,
+        /// Number of particles in the source file.
+        nparticles: u64,
+    },
 }
 
 impl Error {
@@ -960,15 +992,218 @@ pub fn write_to_path<P: AsRef<Path>>(
     particles: &[Particle],
 ) -> Result<()> {
     let bytes = encode_file(header, particles)?;
+    write_bytes_to_path(path, &bytes)
+}
+
+/// Write already-encoded MCPL bytes to a file path.
+///
+/// A `.gz` suffix compresses through gzip transparently (compressed bytes
+/// are encoder-dependent and never asserted); other paths write the bytes
+/// verbatim. This is the low-level sink behind [`write_to_path`] and the
+/// repair facade, which emit header bytes they did not re-encode.
+pub fn write_bytes_to_path<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<()> {
     if path.as_ref().extension().is_some_and(|e| e == "gz") {
         let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        enc.write_all(&bytes)
-            .map_err(|e| Error::Io(e.to_string()))?;
+        enc.write_all(bytes).map_err(|e| Error::Io(e.to_string()))?;
         let compressed = enc.finish().map_err(|e| Error::Io(e.to_string()))?;
         std::fs::write(path, compressed).map_err(|e| Error::Io(e.to_string()))
     } else {
         std::fs::write(path, bytes).map_err(|e| Error::Io(e.to_string()))
     }
+}
+
+/// Selection rule for [`extract_mcpl`].
+pub enum ExtractSpec {
+    /// Half-open particle index interval `[start, stop)`.
+    Range(std::ops::Range<usize>),
+    /// Keep the particles for which the caller predicate returns `true`.
+    Predicate(Box<dyn Fn(&Particle) -> bool>),
+}
+
+impl std::fmt::Debug for ExtractSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExtractSpec::Range(r) => write!(f, "ExtractSpec::Range({r:?})"),
+            ExtractSpec::Predicate(_) => write!(f, "ExtractSpec::Predicate(..)"),
+        }
+    }
+}
+
+/// Extract a particle subset from a file, preserving its header verbatim.
+///
+/// The returned header is a clone of the source header (same `srcname`,
+/// `comments`, `blobs`, and option flags) and the particles are the decoded
+/// records selected by `spec`, in source order. The version field is set to
+/// [`FORMAT_VERSION_WRITE`], the only version this crate writes: writing
+/// with [`encode_file`]/[`write_to_path`] patches the stored count to the
+/// subset length and re-emits format 3, so readers of the extracted file see
+/// the source header fields unchanged.
+///
+/// Ranges are validated against the particle count ([`Error::ExtractOutOfRange`]);
+/// the predicate form cannot fail beyond the initial decode.
+pub fn extract_mcpl(file: &McplFile, spec: &ExtractSpec) -> Result<(Header, Vec<Particle>)> {
+    let all = file.particles()?;
+    let selected = match spec {
+        ExtractSpec::Range(r) => {
+            if r.start > r.end || r.end > all.len() {
+                return Err(Error::ExtractOutOfRange {
+                    start: r.start,
+                    stop: r.end,
+                    nparticles: all.len() as u64,
+                });
+            }
+            all[r.start..r.end].to_vec()
+        }
+        ExtractSpec::Predicate(p) => all.iter().filter(|particle| p(particle)).cloned().collect(),
+    };
+    let mut header = file.header.clone();
+    header.version = FORMAT_VERSION_WRITE;
+    Ok((header, selected))
+}
+
+/// Merge compatible MCPL files into one particle list.
+///
+/// The first file's header wins: `srcname`, `comments`, and `blobs` are
+/// carried over unchanged, and a provenance comment recording the input
+/// count is appended. `stat:sum` comments from the first file round-trip
+/// verbatim; sums are never synthesized or updated, and `stat:sum` comments
+/// of later inputs are dropped with the rest of their headers. Input order
+/// is the particle order of the merged list.
+///
+/// Compatibility follows the upstream `mcpl_merge_files` contract — headers
+/// must agree except for the particle count — with one decided relaxation:
+/// floating-point precision may differ and promotes to double (the lossless
+/// direction; single+single stays single). Any other option disagreement
+/// ([`Error::IncompatibleOption`]) and empty input ([`Error::EmptyMerge`])
+/// are loud errors. Like every writer here, the merged file re-emits format 3.
+pub fn merge_mcpl(files: &[McplFile]) -> Result<(Header, Vec<Particle>)> {
+    let first = files.first().ok_or(Error::EmptyMerge)?;
+    for (index, f) in files.iter().enumerate().skip(1) {
+        check_merge_compat(index, &first.header, &f.header)?;
+    }
+    let mut header = first.header.clone();
+    header.version = FORMAT_VERSION_WRITE;
+    header.double_prec = files.iter().any(|f| f.header.double_prec);
+    header.comments.push(format!(
+        "Merged by nucleide-mcpl-io merge_mcpl from {} files",
+        files.len()
+    ));
+    let mut particles = Vec::new();
+    for f in files {
+        particles.extend(f.particles()?);
+    }
+    Ok((header, particles))
+}
+
+fn check_merge_compat(index: usize, first: &Header, other: &Header) -> Result<()> {
+    let render = |v: &dyn std::fmt::Debug| format!("{v:?}");
+    let check = |field: &'static str, a: &dyn std::fmt::Debug, b: &dyn std::fmt::Debug| {
+        if render(a) == render(b) {
+            Ok(())
+        } else {
+            Err(Error::IncompatibleOption {
+                index,
+                field,
+                expected: render(a),
+                found: render(b),
+            })
+        }
+    };
+    check("has_userflags", &first.has_userflags, &other.has_userflags)?;
+    check(
+        "has_polarisation",
+        &first.has_polarisation,
+        &other.has_polarisation,
+    )?;
+    check(
+        "universal_pdgcode",
+        &first.universal_pdgcode,
+        &other.universal_pdgcode,
+    )?;
+    check(
+        "universal_weight",
+        &first.universal_weight,
+        &other.universal_weight,
+    )?;
+    Ok(())
+}
+
+/// Aggregate statistics over a decoded particle list (`mcpl_stats`).
+///
+/// All quantities are unweighted per-record tallies over the decoded
+/// particles: universal PDG codes and weights are unfolded by the reader
+/// before counting, so a file-wide code or weight appears on every record.
+#[derive(Debug, Clone, PartialEq)]
+pub struct McplStats {
+    /// Number of particle records.
+    pub nparticles: u64,
+    /// Sum of kinetic energies (MeV).
+    pub ekin_sum: f64,
+    /// Minimum kinetic energy (MeV); `None` for an empty list.
+    pub ekin_min: Option<f64>,
+    /// Maximum kinetic energy (MeV); `None` for an empty list.
+    pub ekin_max: Option<f64>,
+    /// Mean kinetic energy (MeV); `None` for an empty list.
+    pub ekin_mean: Option<f64>,
+    /// Sum of statistical weights.
+    pub weight_sum: f64,
+    /// Record count per PDG code, sorted by PDG code.
+    pub pdg_counts: Vec<(i32, u64)>,
+}
+
+/// Compute [`McplStats`] over all particles in a file.
+pub fn mcpl_stats(file: &McplFile) -> Result<McplStats> {
+    let particles = file.particles()?;
+    let mut ekin_sum = 0.0;
+    let mut ekin_min = f64::INFINITY;
+    let mut ekin_max = f64::NEG_INFINITY;
+    let mut weight_sum = 0.0;
+    let mut pdg_counts: Vec<(i32, u64)> = Vec::new();
+    for p in &particles {
+        ekin_sum += p.ekin;
+        ekin_min = ekin_min.min(p.ekin);
+        ekin_max = ekin_max.max(p.ekin);
+        weight_sum += p.weight;
+        match pdg_counts.binary_search_by_key(&p.pdgcode, |entry| entry.0) {
+            Ok(i) => pdg_counts[i].1 += 1,
+            Err(i) => pdg_counts.insert(i, (p.pdgcode, 1)),
+        }
+    }
+    let (ekin_min, ekin_max, ekin_mean) = if particles.is_empty() {
+        (None, None, None)
+    } else {
+        (
+            Some(ekin_min),
+            Some(ekin_max),
+            Some(ekin_sum / particles.len() as f64),
+        )
+    };
+    Ok(McplStats {
+        nparticles: particles.len() as u64,
+        ekin_sum,
+        ekin_min,
+        ekin_max,
+        ekin_mean,
+        weight_sum,
+        pdg_counts,
+    })
+}
+
+/// Repair the header of a file that was never properly closed.
+///
+/// Implements the paper-pinned `mcpl_repair` semantics (CPC 218 (2017) 17,
+/// section 2.2): the stored particle count is recomputed from the file size
+/// as the number of complete particle records, ignoring any partially
+/// written record at the end, and the header field is updated. The repair is
+/// byte-level — records are neither decoded nor validated — and everything
+/// else (header fields, record bytes, format version) passes through
+/// untouched, so an already-consistent file comes back byte-identical.
+pub fn repair_mcpl(file: &McplFile) -> Vec<u8> {
+    let size = file.header.particle_size();
+    let n_complete = (file.data.len() - file.header_len) / size;
+    let mut bytes = file.data[..file.header_len + n_complete * size].to_vec();
+    bytes[8..16].copy_from_slice(&(n_complete as u64).to_le_bytes());
+    bytes
 }
 
 #[cfg(test)]
@@ -1344,5 +1579,480 @@ mod tests {
             encode_file(&h, &[]).unwrap_err(),
             Error::DuplicateBlobKey(_)
         ));
+    }
+
+    // ── merge ─────────────────────────────────────────────────────
+
+    fn probe_file(h: &Header, ps: &[Particle]) -> McplFile {
+        McplFile::from_bytes(encode_file(h, ps).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn merge_concat_order_and_provenance() {
+        let ha = Header {
+            srcname: "a".to_string(),
+            comments: vec!["first file".to_string()],
+            ..Header::default()
+        };
+        let hb = Header {
+            srcname: "b".to_string(),
+            comments: vec!["second file".to_string()],
+            ..Header::default()
+        };
+        let pa = axis_particles();
+        let mut pb = axis_particles();
+        pb[0].ekin = 14.1;
+        let fa = probe_file(&ha, &pa);
+        let fb = probe_file(&hb, &pb);
+        // Decode-side expectations: single precision quantizes energies and
+        // the default header drops userflags.
+        let da = fa.particles().unwrap();
+        let db = fb.particles().unwrap();
+        let (h, ps) = merge_mcpl(&[fa, fb]).unwrap();
+        assert_eq!(h.srcname, "a");
+        assert_eq!(
+            h.comments,
+            vec![
+                "first file",
+                "Merged by nucleide-mcpl-io merge_mcpl from 2 files"
+            ]
+        );
+        assert_eq!(ps.len(), 4);
+        // Concat order: all of a, then all of b, decoded fields verbatim.
+        assert_eq!(ps[0], da[0]);
+        assert_eq!(ps[1], da[1]);
+        assert_eq!(ps[2], db[0]);
+        assert_eq!(ps[3], db[1]);
+        // Re-encoding the merged list is byte-identical (write/read
+        // round-trip stability of the merged output).
+        let bytes = encode_file(&h, &ps).unwrap();
+        let back = McplFile::from_bytes(bytes.clone()).unwrap();
+        assert_eq!(
+            encode_file(&back.header, &back.particles().unwrap()).unwrap(),
+            bytes
+        );
+    }
+
+    #[test]
+    fn merge_byte_exact_against_direct_encode() {
+        // Merging crate-written files equals encoding their concatenation
+        // under the merged header (single+single keeps single precision).
+        let ha = Header {
+            srcname: "a".to_string(),
+            ..Header::default()
+        };
+        let pa = axis_particles();
+        let pb = vec![Particle::neutron()];
+        let fa = probe_file(&ha, &pa);
+        let fb = probe_file(&ha, &pb);
+        let (h, ps) = merge_mcpl(&[fa, fb]).unwrap();
+        assert!(!h.double_prec);
+        let mut expected_h = ha;
+        expected_h.comments = h.comments.clone();
+        let mut expected_p = pa.clone();
+        expected_p.extend(pb);
+        assert_eq!(
+            encode_file(&h, &ps).unwrap(),
+            encode_file(&expected_h, &expected_p).unwrap()
+        );
+    }
+
+    #[test]
+    fn merge_promotes_precision_to_double() {
+        // Single+double merges promote to double, losslessly: the f32 values
+        // of the single file are exactly representable in f64.
+        let single = probe_file(&Header::default(), &axis_particles());
+        let decoded_single = single.particles().unwrap();
+        let hd = Header {
+            double_prec: true,
+            ..Header::default()
+        };
+        let pd = vec![Particle {
+            ekin: 1.0 / 3.0,
+            ..Particle::neutron()
+        }];
+        let double = probe_file(&hd, &pd);
+        let (h, ps) = merge_mcpl(&[single, double.clone()]).unwrap();
+        assert!(h.double_prec);
+        assert_eq!(ps.len(), 3);
+        // Single-precision inputs decode to f64 exactly (lossless promotion).
+        assert_eq!(ps[0], decoded_single[0]);
+        assert_eq!(ps[1], decoded_single[1]);
+        assert_eq!(ps[2].ekin, 1.0 / 3.0);
+        // Double+single also promotes (first-file header wins except precision).
+        let single2 = probe_file(&Header::default(), &axis_particles());
+        let (h2, _) = merge_mcpl(&[double, single2]).unwrap();
+        assert!(h2.double_prec);
+    }
+
+    #[test]
+    fn merge_rejects_incompatible_options() {
+        let base = probe_file(&Header::default(), &axis_particles());
+        let polarised = probe_file(
+            &Header {
+                has_polarisation: true,
+                ..Header::default()
+            },
+            &axis_particles(),
+        );
+        assert!(matches!(
+            merge_mcpl(&[base.clone(), polarised]).unwrap_err(),
+            Error::IncompatibleOption {
+                index: 1,
+                field: "has_polarisation",
+                ..
+            }
+        ));
+        let universal_pdg = probe_file(
+            &Header {
+                universal_pdgcode: Some(2112),
+                ..Header::default()
+            },
+            &axis_particles(),
+        );
+        assert!(matches!(
+            merge_mcpl(&[base.clone(), universal_pdg]).unwrap_err(),
+            Error::IncompatibleOption {
+                field: "universal_pdgcode",
+                ..
+            }
+        ));
+        let universal_weight = probe_file(
+            &Header {
+                universal_weight: Some(1.5),
+                ..Header::default()
+            },
+            &axis_particles(),
+        );
+        assert!(matches!(
+            merge_mcpl(&[base.clone(), universal_weight]).unwrap_err(),
+            Error::IncompatibleOption {
+                field: "universal_weight",
+                ..
+            }
+        ));
+        let userflags = probe_file(
+            &Header {
+                has_userflags: true,
+                ..Header::default()
+            },
+            &axis_particles(),
+        );
+        assert!(matches!(
+            merge_mcpl(&[base, userflags]).unwrap_err(),
+            Error::IncompatibleOption {
+                field: "has_userflags",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn merge_requires_inputs() {
+        assert_eq!(merge_mcpl(&[]).unwrap_err(), Error::EmptyMerge);
+    }
+
+    #[test]
+    fn merge_keeps_first_file_statsum_verbatim() {
+        // First-file stat:sum comments ride along byte-verbatim; the second
+        // file's stat:sum is dropped with its header; no sums are synthesized.
+        let first = Header {
+            comments: vec![
+                "first file".to_string(),
+                statsum_comment("nps", 2.0).unwrap(),
+            ],
+            ..Header::default()
+        };
+        let second = Header {
+            comments: vec![statsum_comment("nps", 5.0).unwrap()],
+            ..Header::default()
+        };
+        let fa = probe_file(&first, &axis_particles());
+        let fb = probe_file(&second, &axis_particles());
+        let (h, ps) = merge_mcpl(&[fa, fb]).unwrap();
+        assert_eq!(ps.len(), 4);
+        assert_eq!(h.comments[0], "first file");
+        assert_eq!(h.comments[1], statsum_comment("nps", 2.0).unwrap());
+        assert_eq!(h.comments.len(), 3);
+        assert!(h.comments[2].starts_with("Merged by nucleide-mcpl-io merge_mcpl"));
+        // The merged file passes the same write-time validation as any other.
+        let bytes = encode_file(&h, &ps).unwrap();
+        McplFile::from_bytes(bytes).unwrap();
+    }
+
+    #[test]
+    fn merge_reads_v2_inputs() {
+        // Hand-framed format-2 single-record file merges with a v3 file; the
+        // merged output re-emits as format 3 (the only version written here).
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"MCPL002L");
+        bytes.extend_from_slice(&1u64.to_le_bytes());
+        let opts = [0u32, 0, 0, 0, 1, 0, 7 * 4 + 4 + 4, 0];
+        for o in opts {
+            bytes.extend_from_slice(&o.to_le_bytes());
+        }
+        put_string(&mut bytes, "srcname", "v2probe").unwrap();
+        for v in [0.0f32, 0.0, 0.0, 0.0, 0.0, 1.25, 0.0, 1.0] {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        bytes.extend_from_slice(&2112i32.to_le_bytes());
+        let v2 = McplFile::from_bytes(bytes).unwrap();
+        let v3 = probe_file(&Header::default(), &axis_particles());
+        let (h, ps) = merge_mcpl(&[v2, v3]).unwrap();
+        assert_eq!(h.version, FORMAT_VERSION_WRITE);
+        assert_eq!(ps.len(), 3);
+        assert!((ps[0].ekin - 1.25).abs() < 1e-9);
+        assert_eq!(ps[1].ekin, 2.5);
+    }
+
+    // ── extract ───────────────────────────────────────────────────
+
+    #[test]
+    fn extract_range_subset_header_verbatim() {
+        let h = Header {
+            srcname: "src".to_string(),
+            comments: vec!["keep me".to_string()],
+            blobs: vec![Blob {
+                key: "meta".to_string(),
+                data: vec![1, 2, 3],
+            }],
+            ..Header::default()
+        };
+        let ps = axis_particles();
+        let f = probe_file(&h, &ps);
+        let decoded = f.particles().unwrap();
+        let (eh, eps) = extract_mcpl(&f, &ExtractSpec::Range(1..2)).unwrap();
+        assert_eq!(eh.srcname, "src");
+        assert_eq!(eh.comments, vec!["keep me".to_string()]);
+        assert_eq!(eh.blobs, h.blobs);
+        assert_eq!(eps, vec![decoded[1].clone()]);
+        // Writing the subset yields a self-consistent file with the patched
+        // count and byte-identical re-emission (round-trip both directions).
+        let bytes = encode_file(&eh, &eps).unwrap();
+        let back = McplFile::from_bytes(bytes).unwrap();
+        assert_eq!(back.header.nparticles, 1);
+        assert_eq!(back.particles().unwrap(), eps);
+    }
+
+    #[test]
+    fn extract_full_copy_when_range_covers_all() {
+        let h = Header::default();
+        let ps = axis_particles();
+        let f = probe_file(&h, &ps);
+        let decoded = f.particles().unwrap();
+        let (_, eps) = extract_mcpl(&f, &ExtractSpec::Range(0..decoded.len())).unwrap();
+        assert_eq!(eps, decoded);
+    }
+
+    #[test]
+    fn extract_range_out_of_bounds() {
+        let f = probe_file(&Header::default(), &axis_particles());
+        assert_eq!(
+            extract_mcpl(&f, &ExtractSpec::Range(0..3)).unwrap_err(),
+            Error::ExtractOutOfRange {
+                start: 0,
+                stop: 3,
+                nparticles: 2
+            }
+        );
+        // Constructed without range syntax: a literal `2..1` trips
+        // clippy::reversed_empty_ranges even though the error path is the point.
+        let reversed = std::ops::Range { start: 2, end: 1 };
+        assert_eq!(
+            extract_mcpl(&f, &ExtractSpec::Range(reversed)).unwrap_err(),
+            Error::ExtractOutOfRange {
+                start: 2,
+                stop: 1,
+                nparticles: 2
+            }
+        );
+        // Empty ranges are legal.
+        let (_, eps) = extract_mcpl(&f, &ExtractSpec::Range(1..1)).unwrap();
+        assert!(eps.is_empty());
+    }
+
+    #[test]
+    fn extract_predicate_by_pdg() {
+        let f = probe_file(&Header::default(), &axis_particles());
+        let decoded = f.particles().unwrap();
+        let (_, eps) =
+            extract_mcpl(&f, &ExtractSpec::Predicate(Box::new(|p| p.pdgcode == 2112))).unwrap();
+        assert_eq!(eps.len(), 1);
+        assert_eq!(eps[0], decoded[0]);
+    }
+
+    // ── stats ─────────────────────────────────────────────────────
+
+    #[test]
+    fn stats_hand_moments_and_pdg_histogram() {
+        let h = Header::default();
+        let mut ps = axis_particles();
+        ps.push(Particle {
+            ekin: 14.1,
+            ..Particle::neutron()
+        });
+        let f = probe_file(&h, &ps);
+        // Single precision quantizes the gamma energy; hand moments are over
+        // the decoded values.
+        let decoded = f.particles().unwrap();
+        let e1 = decoded[0].ekin;
+        let e2 = decoded[1].ekin;
+        let e3 = decoded[2].ekin;
+        let s = mcpl_stats(&f).unwrap();
+        assert_eq!(s.nparticles, 3);
+        assert!((s.ekin_sum - (e1 + e2 + e3)).abs() < 1e-12);
+        assert_eq!(s.ekin_min, Some(e2));
+        assert_eq!(s.ekin_max, Some(e3));
+        assert!((s.ekin_mean.unwrap() - (e1 + e2 + e3) / 3.0).abs() < 1e-15);
+        assert_eq!(s.weight_sum, 2.5);
+        assert_eq!(s.pdg_counts, vec![(22, 1), (2112, 2)]);
+    }
+
+    #[test]
+    fn stats_empty_file() {
+        let f = probe_file(&Header::default(), &[]);
+        let s = mcpl_stats(&f).unwrap();
+        assert_eq!(s.nparticles, 0);
+        assert_eq!(s.ekin_sum, 0.0);
+        assert_eq!(s.ekin_min, None);
+        assert_eq!(s.ekin_max, None);
+        assert_eq!(s.ekin_mean, None);
+        assert_eq!(s.weight_sum, 0.0);
+        assert!(s.pdg_counts.is_empty());
+    }
+
+    #[test]
+    fn stats_unfolds_universal_fields() {
+        let h = Header {
+            universal_pdgcode: Some(2112),
+            universal_weight: Some(1.5),
+            ..Header::default()
+        };
+        let f = probe_file(&h, &axis_particles());
+        let s = mcpl_stats(&f).unwrap();
+        assert_eq!(s.pdg_counts, vec![(2112, 2)]);
+        assert_eq!(s.weight_sum, 3.0);
+    }
+
+    // ── repair ────────────────────────────────────────────────────
+
+    #[test]
+    fn repair_fixes_unpatched_count() {
+        // A file whose writer never patched nparticles (interrupted job):
+        // header claims 1, two complete records are present.
+        let h = Header::default();
+        let ps = axis_particles();
+        let good = encode_file(&h, &ps).unwrap();
+        let decoded = McplFile::from_bytes(good.clone())
+            .unwrap()
+            .particles()
+            .unwrap();
+        let mut bytes = good.clone();
+        bytes[8..16].copy_from_slice(&1u64.to_le_bytes());
+        let broken = McplFile::from_bytes(bytes).unwrap();
+        assert!(matches!(
+            broken.particles().unwrap_err(),
+            Error::TrailingBytes { .. }
+        ));
+        let repaired = repair_mcpl(&broken);
+        assert_eq!(repaired, good);
+        let fixed = McplFile::from_bytes(repaired).unwrap();
+        assert_eq!(fixed.particles().unwrap(), decoded);
+    }
+
+    #[test]
+    fn repair_drops_partial_trailing_record() {
+        // An interrupted final write leaves a half-record at the end; repair
+        // recomputes the count from the complete records only.
+        let h = Header::default();
+        let ps = axis_particles();
+        let mut bytes = encode_file(&h, &ps).unwrap();
+        let first = McplFile::from_bytes(bytes.clone())
+            .unwrap()
+            .particles()
+            .unwrap()[0]
+            .clone();
+        let size = h.particle_size();
+        bytes.truncate(bytes.len() - size / 2);
+        bytes[8..16].copy_from_slice(&2u64.to_le_bytes());
+        let broken = McplFile::from_bytes(bytes).unwrap();
+        assert!(matches!(
+            broken.particles().unwrap_err(),
+            Error::Truncated(_)
+        ));
+        let repaired = repair_mcpl(&broken);
+        let fixed = McplFile::from_bytes(repaired).unwrap();
+        assert_eq!(fixed.header.nparticles, 1);
+        assert_eq!(fixed.particles().unwrap(), vec![first]);
+    }
+
+    #[test]
+    fn repair_is_idempotent_on_consistent_file() {
+        let h = Header::default();
+        let ps = axis_particles();
+        let bytes = encode_file(&h, &ps).unwrap();
+        let f = McplFile::from_bytes(bytes.clone()).unwrap();
+        assert_eq!(repair_mcpl(&f), bytes);
+    }
+
+    #[test]
+    fn repair_leaves_v2_version_untouched() {
+        // Repair is byte-level: a v2 file stays v2, only the count field is
+        // patched (contrast with the writers, which always re-emit v3).
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"MCPL002L");
+        bytes.extend_from_slice(&1u64.to_le_bytes());
+        let opts = [0u32, 0, 0, 0, 1, 0, 7 * 4 + 4 + 4, 0];
+        for o in opts {
+            bytes.extend_from_slice(&o.to_le_bytes());
+        }
+        put_string(&mut bytes, "srcname", "v2probe").unwrap();
+        for v in [0.0f32, 0.0, 0.0, 0.0, 0.0, 1.25, 0.0, 1.0] {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        bytes.extend_from_slice(&2112i32.to_le_bytes());
+        bytes[8..16].copy_from_slice(&9u64.to_le_bytes());
+        let broken = McplFile::from_bytes(bytes).unwrap();
+        let repaired = repair_mcpl(&broken);
+        assert_eq!(&repaired[..8], b"MCPL002L");
+        assert_eq!(u64::from_le_bytes(repaired[8..16].try_into().unwrap()), 1);
+        assert_eq!(repaired.len(), broken.raw_bytes().len());
+    }
+
+    #[test]
+    fn utils_round_trip_both_directions() {
+        // merge then extract-back recovers each input; re-merging is
+        // deterministic; predicate extraction commutes with decoding.
+        let ha = Header::default();
+        let pa = axis_particles();
+        let pb = vec![Particle::neutron(), Particle::neutron()];
+        let fa = probe_file(&ha, &pa);
+        let fb = probe_file(&ha, &pb);
+        let da = fa.particles().unwrap();
+        let db = fb.particles().unwrap();
+        let (mh, mps) = merge_mcpl(&[fa.clone(), fb.clone()]).unwrap();
+        let merged_bytes = encode_file(&mh, &mps).unwrap();
+        let merged = McplFile::from_bytes(merged_bytes.clone()).unwrap();
+        let (_, back_a) = extract_mcpl(&merged, &ExtractSpec::Range(0..da.len())).unwrap();
+        assert_eq!(back_a, da);
+        let (_, back_b) = extract_mcpl(&merged, &ExtractSpec::Range(da.len()..mps.len())).unwrap();
+        assert_eq!(back_b, db);
+        // Merging the same inputs again is deterministic byte-for-byte.
+        let (h2, p2) = merge_mcpl(&[fa, fb]).unwrap();
+        let reencoded = encode_file(&h2, &p2).unwrap();
+        assert_eq!(reencoded, merged_bytes);
+        // Predicate extraction commutes with decoding.
+        let (_, neutrons) = extract_mcpl(
+            &merged,
+            &ExtractSpec::Predicate(Box::new(|p| p.pdgcode == 2112)),
+        )
+        .unwrap();
+        let want: Vec<Particle> = da
+            .into_iter()
+            .chain(db)
+            .filter(|p| p.pdgcode == 2112)
+            .collect();
+        assert_eq!(neutrons.len(), 3);
+        assert_eq!(neutrons, want);
     }
 }

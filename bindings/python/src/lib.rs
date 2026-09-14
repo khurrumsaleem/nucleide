@@ -1703,6 +1703,198 @@ fn mcpl2ssw(
     Ok(tracks.len() as u64)
 }
 
+/// Merge MCPL particle-list files into a new file (see `nucleide-mcpl-io`).
+///
+/// The first file's header wins (`srcname`, `comments`, `blobs`) and a
+/// provenance comment is appended; `stat:sum` sums are never synthesized or
+/// updated. All inputs must agree on the header options except
+/// floating-point precision, which promotes to double on mixed input (the
+/// lossless direction). Input order is the particle order of the output.
+/// A `.gz` suffix on `out_path` compresses through gzip transparently.
+/// Returns the merged particle count. Thin wrapper over `nucleide-mcpl-io`.
+#[pyfunction]
+fn merge_mcpl(paths: Vec<String>, out_path: &str) -> PyResult<u64> {
+    let mut files = Vec::with_capacity(paths.len());
+    for (i, p) in paths.iter().enumerate() {
+        files.push(
+            nucleide_mcpl_io::McplFile::open(p)
+                .map_err(|e| PyValueError::new_err(format!("merge_mcpl: input {i} {p}: {e}")))?,
+        );
+    }
+    let (header, particles) =
+        nucleide_mcpl_io::merge_mcpl(&files).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    nucleide_mcpl_io::write_to_path(out_path, &header, &particles)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(particles.len() as u64)
+}
+
+/// Parsed `extract_mcpl` options: the selection rule plus, for the predicate
+/// form, the handle where a Python callback exception is parked until the
+/// Rust-side extraction returns.
+struct ParsedExtract {
+    spec: nucleide_mcpl_io::ExtractSpec,
+    pending: Option<std::rc::Rc<std::cell::RefCell<Option<PyErr>>>>,
+}
+
+/// Parse the `extract_mcpl` options dict (see the `extract_mcpl` docs).
+fn parse_extract_spec(
+    options: Option<&Bound<'_, PyAny>>,
+    nparticles: usize,
+) -> PyResult<ParsedExtract> {
+    let Some(d) = options else {
+        return Ok(ParsedExtract {
+            spec: nucleide_mcpl_io::ExtractSpec::Range(0..nparticles),
+            pending: None,
+        });
+    };
+    if !d.is_instance_of::<pyo3::types::PyDict>() {
+        return Err(PyValueError::new_err("options must be a dict or None"));
+    }
+    let opt_usize = |key: &str| -> PyResult<Option<usize>> {
+        match d.get_item(key) {
+            Err(_) => Ok(None),
+            Ok(v) if v.is_none() => Ok(None),
+            Ok(v) => v.extract::<usize>().map(Some).map_err(|_| {
+                PyValueError::new_err(format!("options `{key}` must be a non-negative int"))
+            }),
+        }
+    };
+    let start = opt_usize("start")?;
+    let stop = opt_usize("stop")?;
+    if let Ok(cb) = d.get_item("predicate") {
+        if !cb.is_none() {
+            if start.is_some() || stop.is_some() {
+                return Err(PyValueError::new_err(
+                    "options `start`/`stop` and `predicate` cannot be combined",
+                ));
+            }
+            if !cb.is_callable() {
+                return Err(PyValueError::new_err(
+                    "options `predicate` must be callable",
+                ));
+            }
+            let cb = cb.unbind();
+            let pending: std::rc::Rc<std::cell::RefCell<Option<PyErr>>> =
+                std::rc::Rc::new(std::cell::RefCell::new(None));
+            let pending_inner = std::rc::Rc::clone(&pending);
+            let spec = nucleide_mcpl_io::ExtractSpec::Predicate(Box::new(
+                move |p: &nucleide_mcpl_io::Particle| -> bool {
+                    if pending_inner.borrow().is_some() {
+                        return false;
+                    }
+                    Python::attach(|py| {
+                        let dict = match mcpl_particle_to_dict(py, p) {
+                            Ok(d) => d,
+                            Err(e) => {
+                                *pending_inner.borrow_mut() = Some(e);
+                                return false;
+                            }
+                        };
+                        match cb.call1(py, (dict,)) {
+                            Ok(v) => match v.is_truthy(py) {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    *pending_inner.borrow_mut() = Some(e);
+                                    false
+                                }
+                            },
+                            Err(e) => {
+                                *pending_inner.borrow_mut() = Some(e);
+                                false
+                            }
+                        }
+                    })
+                },
+            ));
+            return Ok(ParsedExtract {
+                spec,
+                pending: Some(pending),
+            });
+        }
+    }
+    Ok(ParsedExtract {
+        spec: nucleide_mcpl_io::ExtractSpec::Range(start.unwrap_or(0)..stop.unwrap_or(nparticles)),
+        pending: None,
+    })
+}
+
+/// Extract a particle subset from an MCPL file into a new file (see
+/// `nucleide-mcpl-io`).
+///
+/// The source header (`srcname`, `comments`, `blobs`, option flags) is
+/// preserved verbatim on the output; only the particle count is patched.
+/// `options` (dict or None) selects the subset: `start`/`stop` (ints) for
+/// the half-open index range `[start, stop)`, or `predicate` (callable over
+/// one particle dict) to keep selected records; absent options copy the
+/// whole file. A `.gz` suffix on either path is transparent. Returns the
+/// extracted particle count. Thin wrapper over `nucleide-mcpl-io`.
+#[pyfunction]
+#[pyo3(signature = (src_path, out_path, options=None))]
+fn extract_mcpl(
+    src_path: &str,
+    out_path: &str,
+    options: Option<Bound<'_, PyAny>>,
+) -> PyResult<u64> {
+    let file = nucleide_mcpl_io::McplFile::open(src_path)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let nparticles = file.header.nparticles as usize;
+    let parsed = parse_extract_spec(options.as_ref(), nparticles)?;
+    let (header, particles) = nucleide_mcpl_io::extract_mcpl(&file, &parsed.spec)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    // Surface a predicate callback exception raised mid-extraction.
+    if let Some(err) = parsed.pending.and_then(|p| p.borrow_mut().take()) {
+        return Err(err);
+    }
+    nucleide_mcpl_io::write_to_path(out_path, &header, &particles)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(particles.len() as u64)
+}
+
+/// Compute record statistics over an MCPL file (see `nucleide-mcpl-io`).
+///
+/// Returns a dict with `nparticles`, `ekin_sum`/`ekin_min`/`ekin_max`/
+/// `ekin_mean` (MeV; the `min`/`max`/`mean` entries are `None` for an empty
+/// file), `weight_sum`, and `pdg_counts` (list of `(pdgcode, count)` pairs
+/// sorted by PDG code). Thin wrapper over `nucleide-mcpl-io`.
+#[pyfunction]
+fn mcpl_stats(py: Python<'_>, path: &str) -> PyResult<Py<PyAny>> {
+    use pyo3::types::PyDict;
+    let file =
+        nucleide_mcpl_io::McplFile::open(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let s =
+        nucleide_mcpl_io::mcpl_stats(&file).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let d = PyDict::new(py);
+    d.set_item("nparticles", s.nparticles)?;
+    d.set_item("ekin_sum", s.ekin_sum)?;
+    d.set_item("ekin_min", s.ekin_min)?;
+    d.set_item("ekin_max", s.ekin_max)?;
+    d.set_item("ekin_mean", s.ekin_mean)?;
+    d.set_item("weight_sum", s.weight_sum)?;
+    d.set_item("pdg_counts", s.pdg_counts)?;
+    Ok(d.into_any().unbind())
+}
+
+/// Repair an MCPL file that was never properly closed (see `nucleide-mcpl-io`).
+///
+/// Recomputes the stored particle count from the file size (complete
+/// records only, ignoring a partially written trailing record) and rewrites
+/// the header in place; record bytes and format version pass through
+/// untouched. A `.gz` suffix reads and writes through gzip transparently.
+/// Returns the repaired particle count. Thin wrapper over `nucleide-mcpl-io`.
+#[pyfunction]
+fn repair_mcpl(path: &str) -> PyResult<u64> {
+    let file =
+        nucleide_mcpl_io::McplFile::open(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let repaired = nucleide_mcpl_io::repair_mcpl(&file);
+    let n = nucleide_mcpl_io::McplFile::from_bytes(repaired.clone())
+        .map_err(|e| PyValueError::new_err(e.to_string()))?
+        .header
+        .nparticles;
+    nucleide_mcpl_io::write_bytes_to_path(path, &repaired)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(n)
+}
+
 /// Parsed ENDL evaluation file (EEDL/EPDL scope).
 #[pyclass(name = "EndlLibrary")]
 struct PyEndlLibrary {
@@ -7662,6 +7854,10 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(write_mcpl, m)?)?;
     m.add_function(wrap_pyfunction!(ssw2mcpl, m)?)?;
     m.add_function(wrap_pyfunction!(mcpl2ssw, m)?)?;
+    m.add_function(wrap_pyfunction!(merge_mcpl, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_mcpl, m)?)?;
+    m.add_function(wrap_pyfunction!(mcpl_stats, m)?)?;
+    m.add_function(wrap_pyfunction!(repair_mcpl, m)?)?;
     m.add_function(wrap_pyfunction!(read_endl, m)?)?;
     m.add_function(wrap_pyfunction!(endl_endftod, m)?)?;
     m.add_function(wrap_pyfunction!(combine_ssw_files, m)?)?;

@@ -61,6 +61,7 @@ import ast
 import difflib
 import re
 import sys
+import textwrap
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -302,6 +303,18 @@ def render_crate_cards(crates: list[dict[str, object]], crate_to_module: dict[st
         name = str(crate["name"])
         path = str(crate["path"])
         desc = _md_text(str(crate["description"]).strip())
+        if len(desc) > MARKDOWN_LINE_LENGTH:
+            # Long descriptions still fit the line-length budget under a
+            # lint glob that covers .mdx (wrap only splits at spaces, so
+            # escaped tokens like ``merge\_mcpl`` stay intact).
+            desc = "\n".join(
+                textwrap.wrap(
+                    desc,
+                    width=MARKDOWN_LINE_LENGTH,
+                    break_long_words=False,
+                    break_on_hyphens=False,
+                )
+            )
         deps = list(crate["deps"])  # type: ignore[arg-type]
         if deps:
             pill_lines = "\n  ".join(_pill(_responsibilities_url(str(d)), str(d)) for d in deps)

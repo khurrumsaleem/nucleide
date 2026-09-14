@@ -65,10 +65,15 @@ spectroscopy decay-source emitter). Depends on `nucleide-nuclei`.
 ### `nucleide-mcpl-io`
 
 MCPL particle-list interchange read/write (format versions 2 and 3,
-single/double precision, gzip-transparent paths) plus the neutron/gamma-only
+single/double precision, gzip-transparent paths), the neutron/gamma-only
 SSW↔MCPL conversion v1 (`ssw` module: explicit per-track surface/kind
 parameters, reference-header cloning for the return leg, named errors past
-n/γ). Depends on `nucleide-mcnp-io` for the SSW header/track types.
+n/γ), and the particle-list utilities (`merge_mcpl` first-file header wins
+plus provenance comment, `stat:sum` never synthesized, precision promotes
+to double on mixed merge; `extract_mcpl` range/predicate subset with the
+header preserved verbatim; `mcpl_stats` counts/energy moments/PDG
+histogram; `repair_mcpl` paper-pinned count repair for interrupted writes).
+Depends on `nucleide-mcnp-io` for the SSW header/track types.
 
 ### `nucleide-csg-xlate`
 

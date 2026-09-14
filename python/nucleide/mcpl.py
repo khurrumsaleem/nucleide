@@ -12,16 +12,28 @@ through unless `niss=` stamps an override). PDG codes outside the table are
 errors, never silent skips. Opt-ins: `ssw2mcpl` `polarisation` /
 `universal_pdg` / `universal_weight`; `mcpl2ssw` `force_cs_to_one` / `niss` /
 `allow_polarisation`.
+
+Particle-list utilities: :func:`merge_mcpl` concatenates compatible files
+(first-file header wins plus a provenance comment; `stat:sum` sums are never
+synthesized; mixed precision promotes to double), :func:`extract_mcpl`
+writes an index-range or predicate subset with the source header preserved
+verbatim, :func:`mcpl_stats` returns record counts, energy moments, and a
+PDG histogram, and :func:`repair_mcpl` recomputes the particle count of a
+file that was never properly closed.
 Cross-tool byte compatibility beyond self-consistent round-trips is
 oracle-gated (see `validation/mcpl_vs_refs.py`).
 """
 
 from nucleide._internal import (
     McplFile,
+    extract_mcpl,
     mcpl2ssw,
+    mcpl_stats,
     mcpl_statsum_comment,
     mcpl_statsum_validate,
+    merge_mcpl,
     read_mcpl,
+    repair_mcpl,
     ssw2mcpl,
     write_mcpl,
 )
@@ -30,6 +42,10 @@ __all__ = [
     "McplFile",
     "read_mcpl",
     "write_mcpl",
+    "merge_mcpl",
+    "extract_mcpl",
+    "mcpl_stats",
+    "repair_mcpl",
     "ssw2mcpl",
     "mcpl2ssw",
     "mcpl_statsum_validate",

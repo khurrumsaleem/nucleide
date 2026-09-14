@@ -353,3 +353,220 @@ def test_mcpl2ssw_polarisation_gate(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         mcpl.mcpl2ssw(probe, SSW_REF, out)
     assert mcpl.mcpl2ssw(probe, SSW_REF, out, allow_polarisation=True) == 1
+
+
+# ── Particle-list utilities: merge / extract / stats / repair ──────────
+
+UTILS = os.path.join(os.path.dirname(__file__), "..", "fixtures", "mcpl", "utils")
+
+
+def _utils(name: str) -> str:
+    return os.path.join(UTILS, name)
+
+
+def test_merge_mcpl_golden_concat_order(tmp_path: Path) -> None:
+    out = str(tmp_path / "merged.mcpl")
+    n = mcpl.merge_mcpl([_utils("merge_a.mcpl"), _utils("merge_b.mcpl")], out)
+    assert n == 4
+    with open(out, "rb") as fh_out, open(_utils("merge_ab.mcpl"), "rb") as fh_golden:
+        assert fh_out.read() == fh_golden.read()
+    # Field-level: first-file header wins plus the provenance comment.
+    merged = mcpl.read_mcpl(out)
+    assert merged.srcname == "merge-a"
+    assert merged.comments == ["first file", "Merged by nucleide-mcpl-io merge_mcpl from 2 files"]
+    assert merged.double_prec is False
+    got = merged.particles()
+    assert [p["userflags"] for p in got] == [100, 200, 300, 0]
+    assert [p["ekin"] for p in got[:3]] == pytest.approx([2.5, 0.662, 1.0], abs=1e-6)
+
+
+def test_merge_mcpl_promotes_precision_golden(tmp_path: Path) -> None:
+    out = str(tmp_path / "merged.mcpl")
+    n = mcpl.merge_mcpl([_utils("merge_a.mcpl"), _utils("merge_c.mcpl")], out)
+    assert n == 3
+    with open(out, "rb") as fh_out, open(_utils("merge_ac.mcpl"), "rb") as fh_golden:
+        assert fh_out.read() == fh_golden.read()
+    merged = mcpl.read_mcpl(out)
+    assert merged.double_prec is True
+    # The single-precision input decodes exactly into the double output.
+    ekins = [p["ekin"] for p in merged.particles()]
+    assert ekins[0] == 2.5
+    assert ekins[1] == pytest.approx(0.6620000004768372)
+    assert ekins[2] == 14.1
+
+
+def test_merge_mcpl_rejects_incompatible_and_empty(tmp_path: Path) -> None:
+    out = str(tmp_path / "merged.mcpl")
+    polarised = str(tmp_path / "pol.mcpl")
+    mcpl.write_mcpl(polarised, {**HEADER, "has_polarisation": True}, PARTICLES)
+    with pytest.raises(ValueError):
+        mcpl.merge_mcpl([_utils("merge_a.mcpl"), polarised], out)
+    with pytest.raises(ValueError):
+        mcpl.merge_mcpl([], out)
+    # Two double-precision inputs with different universal codes disagree.
+    u1 = str(tmp_path / "u1.mcpl")
+    u2 = str(tmp_path / "u2.mcpl")
+    mcpl.write_mcpl(u1, {**HEADER, "universal_pdgcode": 2112}, PARTICLES)
+    mcpl.write_mcpl(u2, {**HEADER, "universal_pdgcode": 22}, PARTICLES)
+    with pytest.raises(ValueError):
+        mcpl.merge_mcpl([u1, u2], out)
+
+
+def test_merge_mcpl_never_synthesizes_statsum(tmp_path: Path) -> None:
+    src = str(tmp_path / "sum.mcpl")
+    mcpl.write_mcpl(
+        src,
+        {**HEADER, "comments": ["run a", mcpl.mcpl_statsum_comment("nps", 2.0)]},
+        PARTICLES,
+    )
+    out = str(tmp_path / "merged.mcpl")
+    mcpl.merge_mcpl([src, _utils("merge_b.mcpl")], out)
+    comments = mcpl.read_mcpl(out).comments
+    # First-file stat:sum rides along verbatim, no sums synthesized or updated.
+    assert comments[1] == mcpl.mcpl_statsum_comment("nps", 2.0)
+    assert sum(c.startswith("stat:sum:") for c in comments) == 1
+    assert comments[-1].startswith("Merged by nucleide-mcpl-io merge_mcpl")
+
+
+def test_extract_mcpl_range_golden_header_verbatim(tmp_path: Path) -> None:
+    out = str(tmp_path / "sub.mcpl")
+    n = mcpl.extract_mcpl(_utils("extract_src.mcpl"), out, {"start": 1, "stop": 3})
+    assert n == 2
+    with open(out, "rb") as fh_out, open(_utils("extract_range.mcpl"), "rb") as fh_golden:
+        assert fh_out.read() == fh_golden.read()
+    sub = mcpl.read_mcpl(out)
+    src = mcpl.read_mcpl(_utils("extract_src.mcpl"))
+    assert sub.srcname == src.srcname == "extract-src"
+    assert sub.comments == src.comments == ["extract source"]
+    assert sub.blobs == src.blobs == [("meta", b"\x01\x02\x03")]
+    assert sub.double_prec is True
+    got = sub.particles()
+    assert [p["pdgcode"] for p in got] == [22, 2112]
+    assert [p["ekin"] for p in got] == pytest.approx([0.662, 14.1])
+
+
+def test_extract_mcpl_predicate_golden(tmp_path: Path) -> None:
+    out = str(tmp_path / "sub.mcpl")
+    n = mcpl.extract_mcpl(
+        _utils("extract_src.mcpl"),
+        out,
+        {"predicate": lambda p: p["pdgcode"] == 2112},
+    )
+    assert n == 2
+    with open(out, "rb") as fh_out, open(_utils("extract_pdg.mcpl"), "rb") as fh_golden:
+        assert fh_out.read() == fh_golden.read()
+    assert [p["ekin"] for p in mcpl.read_mcpl(out).particles()] == pytest.approx([2.5, 14.1])
+
+
+def test_extract_mcpl_options_and_errors(tmp_path: Path) -> None:
+    src = _utils("extract_src.mcpl")
+    out = str(tmp_path / "sub.mcpl")
+    # Default copies the whole file; open-ended ranges slice like Python.
+    assert mcpl.extract_mcpl(src, out) == 4
+    assert mcpl.extract_mcpl(src, out, {"stop": 2}) == 2
+    assert mcpl.extract_mcpl(src, out, {"start": 3}) == 1
+    # Round-trip both directions: extracted subset merges back losslessly.
+    mcpl.extract_mcpl(src, out, {"start": 1, "stop": 3})
+    back = str(tmp_path / "back.mcpl")
+    mcpl.merge_mcpl([out], back)
+    assert [p["ekin"] for p in mcpl.read_mcpl(back).particles()] == pytest.approx([0.662, 14.1])
+    with pytest.raises(ValueError):
+        mcpl.extract_mcpl(src, out, {"start": 3, "stop": 99})
+    with pytest.raises(ValueError):
+        mcpl.extract_mcpl(src, out, {"start": -1})
+    with pytest.raises(ValueError):
+        mcpl.extract_mcpl(src, out, {"predicate": "not-callable"})
+    with pytest.raises(ValueError):
+        mcpl.extract_mcpl(src, out, {"start": 0, "predicate": lambda p: True})
+    with pytest.raises(ValueError):
+        mcpl.extract_mcpl(src, out, "not-a-dict")  # type: ignore[arg-type]
+
+
+def test_extract_mcpl_predicate_exception_propagates(tmp_path: Path) -> None:
+    src = _utils("extract_src.mcpl")
+    out = str(tmp_path / "sub.mcpl")
+
+    def boom(p: dict[str, object]) -> bool:
+        raise RuntimeError("predicate blew up")
+
+    with pytest.raises(RuntimeError, match="predicate blew up"):
+        mcpl.extract_mcpl(src, out, {"predicate": boom})
+
+
+def test_mcpl_stats_hand_moments(tmp_path: Path) -> None:
+    s = mcpl.mcpl_stats(_utils("extract_src.mcpl"))
+    assert s["nparticles"] == 4
+    assert s["ekin_sum"] == pytest.approx(2.5 + 0.662 + 14.1 + 5.0)
+    assert s["ekin_min"] == pytest.approx(0.662)
+    assert s["ekin_max"] == pytest.approx(14.1)
+    assert s["ekin_mean"] == pytest.approx((2.5 + 0.662 + 14.1 + 5.0) / 4.0)
+    assert s["weight_sum"] == pytest.approx(1.0 + 0.5 + 2.0 + 1.5)
+    assert s["pdg_counts"] == [(22, 1), (2112, 2), (2212, 1)]
+
+
+def test_mcpl_stats_empty_and_universal(tmp_path: Path) -> None:
+    empty = str(tmp_path / "empty.mcpl")
+    mcpl.write_mcpl(empty, HEADER, [])
+    s = mcpl.mcpl_stats(empty)
+    assert s["nparticles"] == 0
+    assert s["ekin_min"] is None
+    assert s["ekin_max"] is None
+    assert s["ekin_mean"] is None
+    assert s["ekin_sum"] == 0.0
+    assert s["weight_sum"] == 0.0
+    assert s["pdg_counts"] == []
+
+    uni = str(tmp_path / "uni.mcpl")
+    mcpl.write_mcpl(uni, {**HEADER, "universal_pdgcode": 2112, "universal_weight": 1.5}, PARTICLES)
+    s = mcpl.mcpl_stats(uni)
+    assert s["pdg_counts"] == [(2112, 2)]
+    assert s["weight_sum"] == pytest.approx(3.0)
+
+
+def test_repair_mcpl_unpatched_count(tmp_path: Path) -> None:
+    probe = tmp_path / "broken.mcpl"
+    mcpl.write_mcpl(str(probe), HEADER, PARTICLES)
+    good = probe.read_bytes()
+    # Simulate an interrupted job: the count field never got patched.
+    broken = bytearray(good)
+    broken[8:16] = (1).to_bytes(8, "little")
+    probe.write_bytes(bytes(broken))
+    with pytest.raises(ValueError):
+        mcpl.read_mcpl(str(probe)).particles()
+    n = mcpl.repair_mcpl(str(probe))
+    assert n == 2
+    assert probe.read_bytes() == good
+    assert mcpl.read_mcpl(str(probe)).particles()[0]["ekin"] == pytest.approx(2.5)
+
+
+def test_repair_mcpl_drops_partial_trailing_record(tmp_path: Path) -> None:
+    probe = tmp_path / "broken.mcpl"
+    mcpl.write_mcpl(str(probe), HEADER, PARTICLES)
+    good = probe.read_bytes()
+    # Particle record size lives in the 7th header option field (offset 40).
+    particle_size = int.from_bytes(good[40:44], "little")
+    header_len = len(good) - 2 * particle_size
+    # An interrupted final write leaves a half-record at the end.
+    probe.write_bytes(good[: len(good) - particle_size // 2])
+    n = mcpl.repair_mcpl(str(probe))
+    assert n == 1
+    repaired = mcpl.read_mcpl(str(probe))
+    assert repaired.nparticles == 1
+    assert repaired.particles()[0]["ekin"] == pytest.approx(2.5)
+    # Only the complete records are kept: header plus one record.
+    assert len(probe.read_bytes()) == header_len + particle_size
+
+
+def test_repair_mcpl_gzip_transparent(tmp_path: Path) -> None:
+    path = str(tmp_path / "broken.mcpl.gz")
+    mcpl.write_mcpl(path, HEADER, PARTICLES)
+    with gzip.open(path, "rb") as fh:
+        good = fh.read()
+    broken = bytearray(good)
+    broken[8:16] = (9).to_bytes(8, "little")
+    with gzip.open(path, "wb") as fh:
+        fh.write(bytes(broken))
+    n = mcpl.repair_mcpl(path)
+    assert n == 2
+    with gzip.open(path, "rb") as fh:
+        assert fh.read() == good
