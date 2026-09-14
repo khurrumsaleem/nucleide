@@ -22,6 +22,7 @@ SECTION_ORDER = [
     "kinetics",
     "spectroscopy",
     "nuclear_data",
+    "library",
     "dose",
     "parsers",
     "mcpl",

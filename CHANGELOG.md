@@ -34,29 +34,74 @@ workspace crates from tags.
   inlines, reflecting/periodic links, dropped params/cards, each with
   reasons). Axis planes, spheres, on-axis cylinders, `SPH`, `RPP`, and
   axis-aligned `RCC` map; cones, quadrics, tori, general planes, other
-  macrobodies, non-flat complements, transforms, universes/lattices/fills,
-  tallies, and sources are loud named errors. Thin Python
+  macrobodies, non-flat complements, transforms, lattices, matrix or
+  transformed fills, tallies, and sources are loud named errors, while
+  simple nested universes (`U=k`, single-universe `FILL n`) map to
+  `universe=`/`fill=`. Thin Python
   `nucleide.mcnp.parse_csg_to_openmc` / `read_csg_to_openmc` facades plus
   synthetic `fixtures/mcnp/inp/deck_csg_*.txt` decks and a CSG section in
   `validation/parsers_vs_refs.py` (structural probes always run; the OpenMC
    `Region.from_expression` cross-check runs in the container).
+- Scoped MCNP→Serpent CSG translation (same `nucleide-csg-xlate` crate):
+  `deck_csg_to_serpent_input` emits `surf`/`cell` cards over the same v2
+  scope with Serpent-native simplifications (`RPP` to `cuboid`,
+  axis-aligned `RCC` to truncated cylinders, `#n` passed through as the
+  native cell complement, empty regions via a synthesized `inf` surface;
+  materials as `m<n>`/`void` names for caller-supplied `mat` cards).
+  Reflecting/periodic boundaries are a loud `SerpentBoundaryOutOfScope`
+  (Serpent `set bc` is global; per-surface mapping unverified). Thin
+  Python `nucleide.mcnp.parse_csg_to_serpent` / `read_csg_to_serpent`
+  facades plus structural `serpent structure` probe rows in
+  `validation/parsers_vs_refs.py`.
+- Scoped MCNP→PHITS CSG translation (same `nucleide-csg-xlate` crate):
+  `deck_csg_to_phits_input` emits `[Surface]`/`[Cell]` sections over the
+  same v2 scope with manual-verified identical symbols (planes, spheres,
+  on-axis cylinders, `SPH`/`RPP`/`RCC`-any-orientation/axis-aligned
+  `BOX`, coefficients verbatim), native `#` complements, `U=`/`FILL=`
+  params, `*` reflective surfaces, verbatim densities, and an outer-void
+  `-1` heuristic for void union/complement cells (drift-noted).
+  Periodic pointers are a loud `PhitsBoundaryOutOfScope`. Thin Python
+  `nucleide.mcnp.parse_csg_to_phits` / `read_csg_to_phits` facades plus
+  structural `phits structure` probe rows in
+  `validation/parsers_vs_refs.py`.
 - Tritium-transport analytic-gate spec (no kernel yet):
   `docs/theory/tritium.mdx` pins the T1–T2 equation set and the G1–G5
   gate contract (steady linear, permeation time-lag, single-trap limits,
-  Sieverts steady; recombination stays named-open) plus
+  Sieverts steady, recombination steady; recombination transient stays
+  named-open) plus
    `fixtures/tritium/` oracles for the analytic-gate replay at kernel landing.
 - 1D tritium-transport kernel v1 (new `nucleide-tritium` crate): T1 mobile
   diffusion with N extrinsic McNabb–Foster trap species (T2), caller
   supplied Arrhenius data and steady temperature profile (no tables, no
-  heat solve), Dirichlet/Sieverts/Henry/zero-flux surface taxonomy
-  (recombination stays a named-open G5 error), and a cell-centred
+  heat solve), Dirichlet/Sieverts/Henry/zero-flux/recombination surface
+  taxonomy (recombination steady state closed by the exact face-response
+  construction with G5a/G5b gates; recombination transient stays a
+  named-open G5 error), and a cell-centred
   finite-volume theta-stepper (Crank–Nicolson default, backward Euler on
   request) solving through the new shared `nucleide-linalg` `tridiag`
    Thomas-solver module. Analytic-gate replay only (Rust fixture tests
-   plus `tests/test_tritium.py` on G1–G4 at the pinned tolerances; no
+   plus `tests/test_tritium.py` on G1–G5 steady at the pinned tolerances; no
    `validation/*_vs_*.py`, no FESTIM oracle). Thin Python
   `nucleide.tritium` facade, WASM `tritiumBreakthrough` facade with a
   breakthrough-curve interactive tutorial.
+- Gaussian KDE source sampling (KDSource-class, clean-room) in
+  `nucleide-vr-tools`: `KdeSampler` fits an axis-aligned Gaussian KDE over
+  caller particle vectors (Silverman or fixed bandwidths; zero-variance
+  dims are loud) with deterministic `draw`/`pdf` (caller randoms, no RNG
+  inside), gated by Gaussian recovery, normalization, and determinism
+  tests. Thin Python `nucleide.vr.KdeSampler` facade.
+- WATTS-class sweep expansion in `nucleide-r2s`: `SweepAxis` validation,
+  deterministic cartesian `expand_sweep` to named case bundles, and
+  `assemble_results` requiring exact per-case coverage, plus thin Python
+  `nucleide.r2s.r2s_expand_sweep` facade.
+- Facility-flow accounting in `nucleide-r2s`: `snapshot_inventory` totals
+  atoms per ARMI bare name (`N × V × 1e-24` over snapshot zones) for
+  differencing facility snapshots, plus thin Python
+  `nucleide.r2s.r2s_snapshot_inventory` facade.
+- JADE-class library assessment oracle
+  (`validation/library_vs_refs.py`, auto-discovered): data hygiene,
+  independent-block sums to 2.0, and cumulative coverage over the
+  committed fission-yield pack (synthetic thresholds, no tapes).
 
 ## [0.10.0] - 2026-09-14
 

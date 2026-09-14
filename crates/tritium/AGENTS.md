@@ -25,8 +25,9 @@ with no other consumer yet.
   comments cite equation labels, never external paths.
 - Boundary taxonomy: `dirichlet` (default surface), `sieverts`
   (`c = K_S sqrt(p)`), `henry` (linear variant), `zero_flux` (symmetry /
-  impermeable wall); `recombination` (`J = K_r c²`) is data-valid but
-  solve-rejected (G5 named-open) — never a silent pass.
+  impermeable wall); `recombination` (`J = K_r c²`) is closed in the
+  steady state by the exact face-response construction and stays
+  named-open in the transient (G5) — never a silent pass.
 - Discretization rule: cell-centred finite volume with implicit
   theta-stepping (Crank–Nicolson default, backward Euler on request);
   diffusion implicit, traps via the exact per-cell backward-Euler map with
@@ -36,7 +37,8 @@ with no other consumer yet.
   is read-only for this crate (no new fixture files; analytic oracles
   already exist).
 - Oracle tolerances are gates, not claims: 1e-12 algebraic (G1/G3a/G3b
-  isotherm/G3c/G4), 1e-6 transient breakthrough curve (G2), 2% time-lag
+  isotherm/G3c/G4/G5a steady, G5b recovery at 1e-6), 1e-6 transient
+  breakthrough curve (G2), 2% time-lag
   intercept, roundoff mass conservation.
 - Out of scope (do not expand here): multi-D/FEM, heat coupling,
   plasma-facing implantation models, TBR coupling, FESTIM-file I/O, any

@@ -5,9 +5,14 @@
 //!   [`nucleide_mcnp_io::meshtal::MeshTallyData`] instead of MOAB-tagged meshes.
 //! - [`sampling`] — Walker/Vose alias-table source sampling plus a
 //!   voxel-level `MeshSourceSampler` with ANALOG / UNIFORM / USER bias modes.
+//! - [`kde`] — Gaussian kernel-density source sampling (KDSource-class,
+//!   clean-room): fit over caller particle vectors, deterministic resampling.
 
+pub mod kde;
 pub mod magic;
 pub mod sampling;
+
+pub use kde::{Bandwidth, KdeSampler};
 
 pub use magic::{magic, magic_with, MagicOutput, MagicParams, MagicSelection};
 pub use sampling::{AliasTable, MeshSourceSampler, Mode, SampledVoxel};
@@ -65,6 +70,17 @@ pub enum Error {
         /// Index of the non-finite entry.
         index: usize,
     },
+    /// A KDE Silverman dimension has zero variance (a zero bandwidth is a
+    /// delta spike, never a density); use an explicit fixed width instead.
+    ZeroVarianceDim {
+        /// Index of the zero-variance dimension.
+        dim: usize,
+    },
+    /// A KDE draw uniform falls outside `[0, 1)`.
+    BadDraw {
+        /// The offending uniform value.
+        value: f64,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -91,6 +107,15 @@ impl std::fmt::Display for Error {
             ),
             Error::NonFiniteTally { field, index } => {
                 write!(f, "{field}[{index}] is not finite")
+            }
+            Error::ZeroVarianceDim { dim } => {
+                write!(
+                    f,
+                    "kde dimension {dim} has zero variance; use a fixed bandwidth"
+                )
+            }
+            Error::BadDraw { value } => {
+                write!(f, "kde draw uniform {value} is outside [0, 1)")
             }
         }
     }
@@ -138,6 +163,8 @@ mod tests {
                 },
                 "flux[7]",
             ),
+            (Error::ZeroVarianceDim { dim: 1 }, "dimension 1"),
+            (Error::BadDraw { value: 1.5 }, "outside [0, 1)"),
         ];
         for (err, needle) in cases {
             assert!(

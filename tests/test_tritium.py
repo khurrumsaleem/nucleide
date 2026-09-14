@@ -93,10 +93,41 @@ def test_g4_sieverts() -> None:
     assert out["inventory_mobile"] == pytest.approx(oracle["inventory"], rel=1e-12)
 
 
-def test_recombination_is_named_open() -> None:
+def test_g5a_dirichlet_recombination() -> None:
+    # G5a closed form: D=1e-9, L=1e-3, c0=1.0, K_r=1e-6 ->
+    # c_s=(sqrt(5)-1)/2, J=K_r c_s^2, I=(c0+c_s)L/2.
+    cs = (5.0**0.5 - 1.0) / 2.0
+    out = tri.steady(1e-3, 512, 1e-9, DIR0, {"kind": "recombination", "rate": 1e-6})
+    n = len(out["mobile"])
+    for i, c in enumerate(out["mobile"]):
+        assert c == pytest.approx(1.0 + (cs - 1.0) * (i + 0.5) / n, rel=1e-12)
+    assert out["flux_right"] == pytest.approx(1e-6 * cs * cs, rel=1e-12)
+    assert out["flux_left"] == pytest.approx(-1e-6 * cs * cs, rel=1e-12)
+    assert out["inventory_mobile"] == pytest.approx((1.0 + cs) * 1e-3 / 2.0, rel=1e-12)
+    assert all(c >= 0.0 for c in out["mobile"])
+
+
+def test_g5b_large_rate_recovers_dirichlet() -> None:
+    out = tri.steady(1e-3, 64, 1e-9, DIR0, {"kind": "recombination", "rate": 1e12})
+    assert out["flux_right"] == pytest.approx(1e-6, rel=1e-6)
+    assert out["inventory_mobile"] == pytest.approx(5e-4, rel=1e-6)
+
+
+def test_g5_recombination_rate_helper() -> None:
+    assert tri.recombination_rate(1.0, 0.0, 500.0) == pytest.approx(1.0, rel=1e-15)
+    import math
+
+    assert tri.recombination_rate(2.0, 8.314 * 500.0, 500.0) == pytest.approx(
+        2.0 / math.e, rel=1e-12
+    )
+    with pytest.raises(ValueError):
+        tri.recombination_rate(-1.0, 0.0, 500.0)
+    with pytest.raises(ValueError):
+        tri.recombination_rate(1.0, 0.0, 0.0)
+
+
+def test_recombination_transient_is_named_open() -> None:
     rec = {"kind": "recombination", "rate": 1.0}
-    with pytest.raises(ValueError, match="named-open"):
-        tri.steady(1e-3, 8, 1e-9, DIR0, rec)
     with pytest.raises(ValueError, match="named-open"):
         tri.transient(1e-3, 8, 1e-9, rec, DIR1, [1.0])
 

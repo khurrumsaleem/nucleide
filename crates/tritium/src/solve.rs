@@ -419,6 +419,13 @@ pub fn sieverts_concentration(solubility: f64, pressure: f64) -> Result<f64, Err
     Ok(solubility * pressure.sqrt())
 }
 
+/// Recombination rate `K_r = kr0 * exp(-e_r / R / temp)` \[m⁴/mol/s\] (G5
+/// surface Arrhenius helper; same validation as
+/// [`crate::params::arrhenius`]).
+pub fn recombination_rate_arrhenius(kr0: f64, e_r: f64, temp: f64) -> Result<f64, Error> {
+    crate::params::arrhenius(kr0, e_r, temp)
+}
+
 // ---------------------------------------------------------------------------
 // Discrete operator
 // ---------------------------------------------------------------------------
@@ -433,7 +440,7 @@ struct DiffusionSystem {
     face_d: Vec<f64>,
 }
 
-/// Reject recombination ends (G5 named-open) before assembly.
+/// Reject recombination ends (G5 transient named-open) before assembly.
 fn reject_recombination(left: &Boundary, right: &Boundary) -> Result<(), Error> {
     if left.is_recombination() || right.is_recombination() {
         return Err(Error::RecombinationOpen);
@@ -457,7 +464,6 @@ fn assemble(
     left: &Boundary,
     right: &Boundary,
 ) -> Result<DiffusionSystem, Error> {
-    reject_recombination(left, right)?;
     let n = params.cells;
     let dx = params.dx();
     let d_cell = params.diffusivities()?;
@@ -544,26 +550,134 @@ const MAX_PICARD: usize = 100;
 // Steady state (G1/G3b/G4)
 // ---------------------------------------------------------------------------
 
-/// Trap-free-style steady state of (T1–T2).
+/// Cap on the two-face G5 Newton iterations.
+const G5_NEWTON_MAX: usize = 50;
+/// Relative tolerance on the G5 face residuals.
+const G5_RTOL: f64 = 1e-9;
+/// Absolute tolerance on the G5 face residuals.
+const G5_ATOL: f64 = 1e-12;
+
+/// Steady state with at least one recombination end (G5).
 ///
-/// Solves `A c + b = 0` through [`nucleide_linalg::tridiag`] (exact to
-/// roundoff for the G1/G4 linear profiles) and evaluates the Langmuir
-/// isotherm (T2-eq) pointwise for the trapped loads (G3b). Rejects
-/// recombination ends with [`Error::RecombinationOpen`].
-pub fn steady_state(
+/// The mobile profile is affine in the recombination face values (the
+/// steady system is linear for frozen faces, and traps evaluate pointwise
+/// afterwards), so `1 + n_rec` Thomas solves pin the face-adjacent
+/// response exactly: one basis profile with all recombination faces at
+/// zero plus one unit-perturbation column per recombination end. A single
+/// end then closes in closed form from
+/// `K_r cf² + g (1 − b) cf − g a = 0`; two ends close by Newton iteration
+/// on the face pair with the analytic Jacobian (quadratic convergence).
+/// Fails with [`Error::NotConverged`] only if the face Newton exhausts
+/// its cap.
+fn steady_recombination(
     params: &TransportParams,
     left: &Boundary,
     right: &Boundary,
+    kr_left: Option<f64>,
+    kr_right: Option<f64>,
 ) -> Result<SteadyState, Error> {
-    let sys = assemble(params, left, right)?;
     let n = params.cells;
     let dx = params.dx();
-    let neg_sub: Vec<f64> = sys.sub.iter().map(|v| -v).collect();
-    let neg_diag: Vec<f64> = sys.diag.iter().map(|v| -v).collect();
-    let neg_sup: Vec<f64> = sys.sup.iter().map(|v| -v).collect();
-    let mobile = nucleide_linalg::tridiag::solve(&neg_sub, &neg_diag, &neg_sup, &sys.rhs)
-        .map_err(tridiag_err)?;
-    // Langmuir trapped loads at the cell temperatures.
+    let d_cell = params.diffusivities()?;
+    // Recombination ends in (end, rate, conductance) form (`0` = left).
+    let ends: Vec<(usize, f64, f64)> = [
+        kr_left.map(|kr| (0, kr, 2.0 * d_cell[0] / dx)),
+        kr_right.map(|kr| (1, kr, 2.0 * d_cell[n - 1] / dx)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let solve_faces = |face: [f64; 2]| -> Result<Vec<f64>, Error> {
+        let bl = kr_left.map_or_else(|| left.clone(), |_| Boundary::Dirichlet(face[0]));
+        let br = kr_right.map_or_else(|| right.clone(), |_| Boundary::Dirichlet(face[1]));
+        linear_steady(&assemble(params, &bl, &br)?)
+    };
+    // Basis: faces at zero, then one unit column per recombination end.
+    // Response rows hold (a, b0, b1) with c_adj = a + b0*cfL + b1*cfR.
+    let adj = |e: usize| if e == 0 { 0 } else { n - 1 };
+    let base = solve_faces([0.0, 0.0])?;
+    let mut resp = [[0.0_f64; 3]; 2];
+    for e in 0..2 {
+        resp[e][0] = base[adj(e)];
+    }
+    for (j, &(e, _, _)) in ends.iter().enumerate() {
+        let mut face = [0.0, 0.0];
+        face[e] = 1.0;
+        let col = solve_faces(face)?;
+        for r in 0..2 {
+            resp[r][1 + j] = col[adj(r)] - base[adj(r)];
+        }
+    }
+    // Face values from the recombination quadratics.
+    let mut face = [0.0_f64; 2];
+    match ends.as_slice() {
+        [(e, kr, g)] => {
+            let (a, b) = (resp[*e][0], resp[*e][1]);
+            // K_r cf² + g(1−b) cf − g a = 0, positive root (a ≥ 0, b < 1).
+            let lin = g * (1.0 - b);
+            let disc = lin.mul_add(lin, 4.0 * kr * g * a.max(0.0));
+            face[*e] = (disc.sqrt() - lin) / (2.0 * kr);
+        }
+        [(e0, kr0, g0), (e1, kr1, g1)] => {
+            let (a0, b00, b01) = (resp[*e0][0], resp[*e0][1], resp[*e0][2]);
+            let (a1, b10, b11) = (resp[*e1][0], resp[*e1][1], resp[*e1][2]);
+            let (mut x0, mut x1) = (0.0_f64, 0.0_f64);
+            let mut ok = false;
+            for _ in 0..G5_NEWTON_MAX {
+                let c0 = a0 + b00 * x0 + b01 * x1;
+                let c1 = a1 + b10 * x0 + b11 * x1;
+                let f0 = kr0 * x0 * x0 - g0 * (c0 - x0);
+                let f1 = kr1 * x1 * x1 - g1 * (c1 - x1);
+                if f0.abs() <= G5_ATOL + G5_RTOL * (kr0 * x0 * x0).abs()
+                    && f1.abs() <= G5_ATOL + G5_RTOL * (kr1 * x1 * x1).abs()
+                {
+                    ok = true;
+                    break;
+                }
+                let j00 = 2.0 * kr0 * x0 - g0 * (b00 - 1.0);
+                let j01 = -g0 * b01;
+                let j10 = -g1 * b10;
+                let j11 = 2.0 * kr1 * x1 - g1 * (b11 - 1.0);
+                let det = j00 * j11 - j01 * j10;
+                if !det.is_finite() || det == 0.0 {
+                    break;
+                }
+                x0 = (x0 - (j11 * f0 - j01 * f1) / det).max(0.0);
+                x1 = (x1 - (j00 * f1 - j10 * f0) / det).max(0.0);
+            }
+            if !ok {
+                return Err(Error::NotConverged);
+            }
+            face[*e0] = x0;
+            face[*e1] = x1;
+        }
+        _ => unreachable!("steady_recombination needs a recombination end"),
+    }
+    let mobile = solve_faces(face)?;
+    let bl = kr_left.map_or_else(|| left.clone(), |_| Boundary::Dirichlet(face[0]));
+    let br = kr_right.map_or_else(|| right.clone(), |_| Boundary::Dirichlet(face[1]));
+    let sys = assemble(params, &bl, &br)?;
+    let flux_left = kr_left.map_or_else(
+        || outward_flux(left, mobile[0], sys.face_d[0], dx),
+        |kr| kr * face[0] * face[0],
+    );
+    let flux_right = kr_right.map_or_else(
+        || outward_flux(right, mobile[n - 1], sys.face_d[n], dx),
+        |kr| kr * face[1] * face[1],
+    );
+    finish_steady(params, mobile, flux_left, flux_right)
+}
+
+/// Langmuir trapped loads, inventories, and the [`SteadyState`] bundle for
+/// a converged mobile profile with known outward fluxes.
+fn finish_steady(
+    params: &TransportParams,
+    mobile: Vec<f64>,
+    flux_left: f64,
+    flux_right: f64,
+) -> Result<SteadyState, Error> {
+    let n = params.cells;
+    let dx = params.dx();
     let mut trapped = vec![vec![0.0; params.traps.len()]; n];
     for i in 0..n {
         let rates = params.trap_rates_at(i)?;
@@ -580,13 +694,48 @@ pub fn steady_state(
         * dx;
     Ok(SteadyState {
         centres: params.cell_centres(),
-        flux_left: outward_flux(left, mobile[0], sys.face_d[0], dx),
-        flux_right: outward_flux(right, mobile[n - 1], sys.face_d[n], dx),
+        flux_left,
+        flux_right,
         mobile,
         trapped,
         inventory_mobile,
         inventory_trapped,
     })
+}
+
+/// Solve one linear steady system `-A c = rhs` through the Thomas path.
+fn linear_steady(sys: &DiffusionSystem) -> Result<Vec<f64>, Error> {
+    let neg_sub: Vec<f64> = sys.sub.iter().map(|v| -v).collect();
+    let neg_diag: Vec<f64> = sys.diag.iter().map(|v| -v).collect();
+    let neg_sup: Vec<f64> = sys.sup.iter().map(|v| -v).collect();
+    nucleide_linalg::tridiag::solve(&neg_sub, &neg_diag, &neg_sup, &sys.rhs).map_err(tridiag_err)
+}
+
+/// Trap-free-style steady state of (T1–T2).
+///
+/// Solves `A c + b = 0` through [`nucleide_linalg::tridiag`] (exact to
+/// roundoff for the G1/G4 linear profiles) and evaluates the Langmuir
+/// isotherm (T2-eq) pointwise for the trapped loads (G3b). A recombination
+/// end (G5) closes through the exact face-response construction
+/// ([`steady_recombination`]); the transient still rejects recombination
+/// ends with [`Error::RecombinationOpen`].
+pub fn steady_state(
+    params: &TransportParams,
+    left: &Boundary,
+    right: &Boundary,
+) -> Result<SteadyState, Error> {
+    let kr_left = left.recombination_rate();
+    let kr_right = right.recombination_rate();
+    if kr_left.is_some() || kr_right.is_some() {
+        return steady_recombination(params, left, right, kr_left, kr_right);
+    }
+    let sys = assemble(params, left, right)?;
+    let mobile = linear_steady(&sys)?;
+    let dx = params.dx();
+    let n = params.cells;
+    let flux_left = outward_flux(left, mobile[0], sys.face_d[0], dx);
+    let flux_right = outward_flux(right, mobile[n - 1], sys.face_d[n], dx);
+    finish_steady(params, mobile, flux_left, flux_right)
 }
 
 // ---------------------------------------------------------------------------
@@ -872,18 +1021,66 @@ mod tests {
     }
 
     #[test]
-    fn recombination_is_named_open() {
+    fn recombination_transient_is_named_open() {
+        // G5 steady state is closed (tested below); the transient stays open.
         let p = no_traps(1e-3, 8, 1e-9);
         let rec = Boundary::recombination(1.0).unwrap();
         let dir = Boundary::dirichlet(1.0).unwrap();
-        assert_eq!(steady_state(&p, &dir, &rec), Err(Error::RecombinationOpen));
-        assert_eq!(steady_state(&p, &rec, &dir), Err(Error::RecombinationOpen));
         let init = InitialState::zeros(&p);
         let grid = TimeGrid::new(vec![1.0]).unwrap();
         assert_eq!(
             solve(&p, &dir, &rec, &grid, &init, &SolverOptions::default()),
             Err(Error::RecombinationOpen)
         );
+        assert_eq!(
+            solve(&p, &rec, &dir, &grid, &init, &SolverOptions::default()),
+            Err(Error::RecombinationOpen)
+        );
+        // Arrhenius constructor flows through the same validation.
+        assert!(Boundary::recombination_arrhenius(1.0, 0.0, 500.0).is_ok());
+        assert_eq!(
+            Boundary::recombination_arrhenius(1.0, 0.0, 500.0).unwrap(),
+            Boundary::recombination(1.0).unwrap()
+        );
+        assert!(Boundary::recombination_arrhenius(-1.0, 0.0, 500.0).is_err());
+        assert!(Boundary::recombination_arrhenius(1.0, 0.0, 0.0).is_err());
+    }
+
+    #[test]
+    fn g5a_dirichlet_recombination_closed_form() {
+        // G5a: trap-free, S=0, c(0)=c0, J(L)=K_r c_s². D=1e-9, L=1e-3,
+        // c0=1.0, K_r=1e-6 gives c_s=(√5−1)/2≈0.6180339887498949,
+        // J=K_r c_s²≈3.819660112501052e-7, I=(c0+c_s)L/2≈8.090169943744474e-4.
+        let p = no_traps(1e-3, 512, 1e-9);
+        let s = steady_state(
+            &p,
+            &Boundary::dirichlet(1.0).unwrap(),
+            &Boundary::recombination(1e-6).unwrap(),
+        )
+        .unwrap();
+        let cs = 0.618_033_988_749_894_9;
+        for (i, c) in s.mobile.iter().enumerate() {
+            let x = (i as f64 + 0.5) / 512.0;
+            assert!((c - (1.0 + (cs - 1.0) * x)).abs() < 1e-12, "cell {i}: {c}");
+        }
+        assert!((s.flux_right - 3.819_660_112_501_052e-7).abs() < 1e-12 * 3.82e-7 + 1e-18);
+        assert!((s.flux_left + s.flux_right).abs() < 1e-12);
+        assert!((s.inventory_mobile - 8.090_169_943_744_474e-4).abs() < 1e-12);
+        assert!(s.mobile.iter().all(|&c| c >= 0.0));
+    }
+
+    #[test]
+    fn g5b_large_rate_recovers_dirichlet() {
+        // G5b: K_r→∞ recovers the G1 Dirichlet end (c_s→0, J→D c0/L).
+        let p = no_traps(1e-3, 64, 1e-9);
+        let s = steady_state(
+            &p,
+            &Boundary::dirichlet(1.0).unwrap(),
+            &Boundary::recombination(1e12).unwrap(),
+        )
+        .unwrap();
+        assert!((s.flux_right - 1e-6).abs() / 1e-6 < 1e-6);
+        assert!((s.inventory_mobile - 5e-4).abs() / 5e-4 < 1e-6);
     }
 
     #[test]

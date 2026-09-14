@@ -2204,6 +2204,65 @@ impl PyMeshSourceSampler {
     }
 }
 
+/// Gaussian KDE sampler over caller particle vectors (KDSource-class).
+#[pyclass(name = "KdeSampler")]
+struct PyKdeSampler {
+    inner: nucleide_vr_tools::kde::KdeSampler,
+}
+
+#[pymethods]
+impl PyKdeSampler {
+    /// Fit over `samples` (rectangular row lists); `bandwidth` is
+    /// "silverman" (default) or a per-dimension width list.
+    #[new]
+    #[pyo3(signature = (samples, bandwidth=None))]
+    fn new(samples: Vec<Vec<f64>>, bandwidth: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let rule = match bandwidth {
+            None => nucleide_vr_tools::kde::Bandwidth::Silverman,
+            Some(b) => {
+                if let Ok(name) = b.extract::<String>() {
+                    match name.as_str() {
+                        "silverman" => nucleide_vr_tools::kde::Bandwidth::Silverman,
+                        other => {
+                            return Err(PyValueError::new_err(format!(
+                                "bandwidth must be silverman or a width list, got `{other}`"
+                            )))
+                        }
+                    }
+                } else {
+                    let widths = b.extract::<Vec<f64>>().map_err(|_| {
+                        PyValueError::new_err("bandwidth must be silverman or a width list")
+                    })?;
+                    nucleide_vr_tools::kde::Bandwidth::Fixed(widths)
+                }
+            }
+        };
+        nucleide_vr_tools::kde::KdeSampler::fit(&samples, rule)
+            .map(|inner| PyKdeSampler { inner })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+    /// KDE density at `point`.
+    fn pdf(&self, point: Vec<f64>) -> PyResult<f64> {
+        self.inner
+            .pdf(&point)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+    /// Resample: `u` in [0, 1) picks the centre, `normals` perturbs it.
+    fn draw(&self, u: f64, normals: Vec<f64>) -> PyResult<Vec<f64>> {
+        self.inner
+            .draw(u, &normals)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+    /// Fitted per-dimension bandwidths.
+    fn bandwidths(&self) -> Vec<f64> {
+        self.inner.bandwidths().to_vec()
+    }
+    /// Number of fitted samples.
+    fn n_samples(&self) -> usize {
+        self.inner.n_samples()
+    }
+}
+
 /// Write a SurfSrc file back to disk. `tracks` defaults to re-reading the
 /// original file's tracks.
 #[pyfunction]
@@ -3990,6 +4049,66 @@ fn snapshot_input_from_dict(
     })
 }
 
+/// Total facility inventory over snapshot zones (flow accounting).
+///
+/// Same `snapshot` dict shape as [`r2s_from_snapshot`]; returns
+/// `{ARMI-name: total atoms}` (`N × V × 1e-24` summed over zones) for
+/// differencing facility snapshots. Raises `ValueError` on invalid input.
+#[pyfunction]
+fn r2s_snapshot_inventory(
+    snapshot: &Bound<'_, pyo3::types::PyDict>,
+) -> PyResult<BTreeMap<String, f64>> {
+    let input = snapshot_input_from_dict(snapshot)?;
+    nucleide_r2s::snapshot::snapshot_inventory(&input)
+        .map(|totals| totals.into_iter().collect())
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Expand sweep axes to cartesian case bundles (WATTS-class parameter sweep).
+///
+/// `axes` is a list of `{name, values}` dicts; returns a list of
+/// `{name, params}` dicts (`params` maps axis names to values).
+/// Raises `ValueError` on empty/duplicate axes or non-finite values.
+#[pyfunction]
+fn r2s_expand_sweep(
+    axes: Vec<BTreeMap<String, Bound<'_, pyo3::types::PyAny>>>,
+) -> PyResult<Vec<BTreeMap<String, String>>> {
+    use pyo3::types::PyAnyMethods;
+    let mut parsed = Vec::with_capacity(axes.len());
+    for axis in &axes {
+        let name: String = axis
+            .get("name")
+            .and_then(|v| v.extract().ok())
+            .ok_or_else(|| PyValueError::new_err("sweep axis needs a `name` string"))?;
+        let values: Vec<f64> = axis
+            .get("values")
+            .and_then(|v| v.extract().ok())
+            .ok_or_else(|| PyValueError::new_err("sweep axis needs a `values` float list"))?;
+        parsed.push(
+            nucleide_r2s::sweep::SweepAxis::new(&name, values)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?,
+        );
+    }
+    let cases = nucleide_r2s::sweep::expand_sweep(&parsed)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(cases
+        .into_iter()
+        .map(|c| {
+            let mut d = BTreeMap::new();
+            d.insert("name".to_string(), c.name);
+            d.insert(
+                "params".to_string(),
+                c.params
+                    .iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
+            d
+        })
+        .collect())
+}
+///
 /// Build an R2S workflow bundle from a versionless ARMI DB snapshot dict.
 ///
 /// `snapshot` mirrors `nucleide_r2s::snapshot::SnapshotInput`: `zones` (list
@@ -5019,6 +5138,99 @@ fn read_csg_to_openmc(path: &str) -> PyResult<(String, Vec<BTreeMap<String, Stri
     let deck = nucleide_mcnp_io::problem::parse_deck_file(path)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     csg_to_openmc_inner(&deck)
+}
+
+/// Translate one deck's CSG to Serpent input (`surf`/`cell` cards).
+///
+/// Returns `(text, drift)` with the same drift shape as
+/// [`csg_to_openmc_inner`]. Same v2 scope (surfaces, cells, nested
+/// universes, material-name stub); reflecting and periodic boundaries
+/// raise `ValueError` (no verified Serpent mapping).
+fn csg_to_serpent_inner(
+    deck: &nucleide_mcnp_io::problem::DeckProblem,
+) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let (text, table) = nucleide_csg_xlate::deck_csg_to_serpent_input(deck)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((
+        text,
+        table
+            .entries
+            .into_iter()
+            .map(|e| {
+                let mut d = BTreeMap::new();
+                d.insert("scope".to_string(), e.scope.to_string());
+                d.insert("target".to_string(), e.target.to_string());
+                d.insert("action".to_string(), e.action);
+                d.insert("reason".to_string(), e.reason);
+                d
+            })
+            .collect(),
+    ))
+}
+
+/// Translate MCNP deck text to Serpent input plus drift report.
+/// See [`csg_to_serpent_inner`].
+#[pyfunction]
+fn parse_csg_to_serpent(text: &str) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let deck = nucleide_mcnp_io::problem::parse_deck(text)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    csg_to_serpent_inner(&deck)
+}
+
+/// Translate an MCNP deck file to Serpent input plus drift report.
+/// See [`csg_to_serpent_inner`].
+#[pyfunction]
+fn read_csg_to_serpent(path: &str) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let deck = nucleide_mcnp_io::problem::parse_deck_file(path)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    csg_to_serpent_inner(&deck)
+}
+
+/// Translate one deck's CSG to PHITS `[Surface]`/`[Cell]` sections.
+///
+/// Returns `(text, drift)` with the same drift shape as
+/// [`csg_to_openmc_inner`]. Same v2 scope with PHITS-native spellings
+/// (verbatim surface symbols, native `#` complement, `U=`/`FILL=` params,
+/// `*` reflective surfaces, outer-void `-1` heuristic); periodic pointers
+/// raise `ValueError` (no PHITS spelling).
+fn csg_to_phits_inner(
+    deck: &nucleide_mcnp_io::problem::DeckProblem,
+) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let (text, table) = nucleide_csg_xlate::deck_csg_to_phits_input(deck)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((
+        text,
+        table
+            .entries
+            .into_iter()
+            .map(|e| {
+                let mut d = BTreeMap::new();
+                d.insert("scope".to_string(), e.scope.to_string());
+                d.insert("target".to_string(), e.target.to_string());
+                d.insert("action".to_string(), e.action);
+                d.insert("reason".to_string(), e.reason);
+                d
+            })
+            .collect(),
+    ))
+}
+
+/// Translate MCNP deck text to PHITS sections plus drift report.
+/// See [`csg_to_phits_inner`].
+#[pyfunction]
+fn parse_csg_to_phits(text: &str) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let deck = nucleide_mcnp_io::problem::parse_deck(text)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    csg_to_phits_inner(&deck)
+}
+
+/// Translate an MCNP deck file to PHITS sections plus drift report.
+/// See [`csg_to_phits_inner`].
+#[pyfunction]
+fn read_csg_to_phits(path: &str) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let deck = nucleide_mcnp_io::problem::parse_deck_file(path)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    csg_to_phits_inner(&deck)
 }
 
 /// A unit-aware decay inventory over a depletion chain.
@@ -6159,6 +6371,13 @@ fn tritium_irreversible_fill(
 #[pyfunction]
 fn tritium_sieverts(solubility: f64, pressure: f64) -> PyResult<f64> {
     nucleide_tritium::sieverts_concentration(solubility, pressure)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Recombination rate `K_r = kr0 * exp(-e_r / R / temp)` [m⁴/mol/s] (G5).
+#[pyfunction]
+fn tritium_recombination_rate(kr0: f64, e_r: f64, temp: f64) -> PyResult<f64> {
+    nucleide_tritium::recombination_rate_arrhenius(kr0, e_r, temp)
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
@@ -7378,6 +7597,8 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(r2s_assemble, m)?)?;
     m.add_function(wrap_pyfunction!(r2s_tag_zone_strength, m)?)?;
     m.add_function(wrap_pyfunction!(r2s_photon_group_sums, m)?)?;
+    m.add_function(wrap_pyfunction!(r2s_snapshot_inventory, m)?)?;
+    m.add_function(wrap_pyfunction!(r2s_expand_sweep, m)?)?;
     m.add_function(wrap_pyfunction!(kinetics_solve, m)?)?;
     m.add_function(wrap_pyfunction!(kinetics_equilibrium, m)?)?;
     m.add_function(wrap_pyfunction!(kinetics_initial_rate, m)?)?;
@@ -7393,6 +7614,7 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tritium_langmuir, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_irreversible_fill, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_sieverts, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_recombination_rate, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_rect_smooth, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_five_point_smooth, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_calc_bg, m)?)?;
@@ -7425,6 +7647,10 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_deck, m)?)?;
     m.add_function(wrap_pyfunction!(parse_csg_to_openmc, m)?)?;
     m.add_function(wrap_pyfunction!(read_csg_to_openmc, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_csg_to_serpent, m)?)?;
+    m.add_function(wrap_pyfunction!(read_csg_to_serpent, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_csg_to_phits, m)?)?;
+    m.add_function(wrap_pyfunction!(read_csg_to_phits, m)?)?;
     m.add_function(wrap_pyfunction!(cumulative_decays, m)?)?;
     m.add_function(wrap_pyfunction!(progeny, m)?)?;
     m.add_function(wrap_pyfunction!(branching_fraction, m)?)?;
@@ -7473,6 +7699,7 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMagicOutput>()?;
     m.add_class::<PyAliasTable>()?;
     m.add_class::<PyMeshSourceSampler>()?;
+    m.add_class::<PyKdeSampler>()?;
     m.add_class::<PyCascade>()?;
     m.add_class::<PyMaterialsCompendium>()?;
     m.add_class::<PyDeckProblem>()?;

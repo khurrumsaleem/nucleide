@@ -33,8 +33,9 @@ pub enum Boundary {
         pressure: f64,
     },
     /// Surface recombination flux `J = K_r c_m²` with rate `K_r`
-    /// \[m⁴/mol/s\] (`> 0`): nonlinear Robin condition, named-open (G5) in
-    /// v1 — accepted as data, rejected at solve time.
+    /// \[m⁴/mol/s\] (`> 0`): nonlinear Robin condition. The steady state
+    /// (G5) closes it by Picard iteration on the face value; the transient
+    /// stays named-open.
     Recombination {
         /// Recombination rate `K_r` \[m⁴/mol/s\].
         rate: f64,
@@ -118,9 +119,26 @@ impl Boundary {
         }
     }
 
-    /// Whether this end is a recombination law (named-open at solve time).
+    /// Whether this end is a recombination law (named-open in the
+    /// transient; closed by Picard iteration in the steady state).
     pub fn is_recombination(&self) -> bool {
         matches!(self, Boundary::Recombination { .. })
+    }
+
+    /// Recombination rate `K_r` for a recombination end; `None` otherwise.
+    pub fn recombination_rate(&self) -> Option<f64> {
+        match self {
+            Boundary::Recombination { rate } => Some(*rate),
+            _ => None,
+        }
+    }
+
+    /// Validate a recombination end from an Arrhenius rate
+    /// `K_r = kr0 * exp(-e_r / R / temp)` at face temperature `temp` \[K\]
+    /// (same validation as [`crate::params::arrhenius`], then the
+    /// positivity check of [`Boundary::recombination`]).
+    pub fn recombination_arrhenius(kr0: f64, e_r: f64, temp: f64) -> Result<Self, Error> {
+        Self::recombination(crate::params::arrhenius(kr0, e_r, temp)?)
     }
 
     /// Permeability `Φ = D K_S` \[mol/m/s/Pa¹ᐟ²\] for a Sieverts end at

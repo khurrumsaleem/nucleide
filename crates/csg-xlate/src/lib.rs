@@ -37,9 +37,24 @@
 //! surface periodic pointer sets `boundary="periodic"` plus
 //! `periodic_surface_id` only when the partner exists, is not reflective,
 //! and points back or nowhere, else [`Error::PeriodicAmbiguous`].
-//! Transforms (`TRn`, surface pointers, `TRCL`), universes/lattices/`FILL`,
-//! tallies/sources, and `read` includes are [`Error::TransformOutOfScope`],
+//! Transforms (`TRn`, surface pointers, `TRCL`), lattices, matrix or
+//! transformed `FILL`s, `U=-n` no-truncate flags, tallies/sources, and
+//! `read` includes are [`Error::TransformOutOfScope`],
 //! [`Error::UniverseOutOfScope`], or [`Error::TallySourceOutOfScope`].
+//! Reflecting and periodic boundaries have no verified Serpent mapping
+//! ([`Error::SerpentBoundaryOutOfScope`]); the OpenMC direction keeps its
+//! v1 boundary handling.
+//!
+//! # GO scope (v2 adds nested universes)
+//!
+//! Simple nested universes translate: cell `U=k` assignments (including
+//! data-block `U` cards) set OpenMC `universe="k"`, and a transform-free
+//! single-universe `FILL n` (cell param or data-block `FILL` card) sets
+//! `fill="n"` with `material` omitted, per the OpenMC rule that a filled
+//! cell carries no material. Drift notes `universe-assigned` and
+//! `fill-applied` record each mapping. Everything else universe-shaped
+//! stays loud: `LAT` lattices, matrix `FILL`s, `FILL` transforms,
+//! `U=-n`, and `TRCL` on filled cells.
 //!
 //! # Example
 //!
@@ -143,9 +158,28 @@ pub enum Error {
         detail: String,
     },
     /// Universes, lattices, `FILL`, or `read` includes need translation.
+    ///
+    /// Simple nested universes (`U=k`, single-universe `FILL n`) translate;
+    /// lattices, matrix or transformed fills, and `U=-n` raise this error.
     #[error("universes/lattices/fills are out of v1 scope: {detail}")]
     UniverseOutOfScope {
         /// What carried the universe construct.
+        detail: String,
+    },
+    /// A reflecting or periodic boundary has no verified Serpent mapping.
+    #[error("surface {surf} boundary has no verified serpent mapping: {detail}")]
+    SerpentBoundaryOutOfScope {
+        /// Surface carrying the boundary marker.
+        surf: u32,
+        /// Why the Serpent direction refuses it.
+        detail: String,
+    },
+    /// A periodic pointer has no PHITS spelling (reflective maps natively).
+    #[error("surface {surf} periodic pointer has no phits spelling: {detail}")]
+    PhitsBoundaryOutOfScope {
+        /// Surface carrying the periodic pointer.
+        surf: u32,
+        /// Why the PHITS direction refuses it.
         detail: String,
     },
     /// A tally or source card needs translation.
@@ -195,6 +229,7 @@ pub struct DriftEntry {
     pub target: u32,
     /// Machine-readable action (`"macrobody-expansion"`,
     /// `"complement-expansion"`, `"reflective-applied"`, `"periodic-link"`,
+    /// `"universe-assigned"`, `"fill-applied"`, `"universe-data-card"`,
     /// `"dropped-cell-param"`, `"dropped-data-card"`).
     pub action: String,
     /// Human-readable reason.
@@ -718,7 +753,25 @@ fn resolve_expr(ctx: &mut Ctx<'_>, cell_num: u32, expr: &GeomExpr) -> Result<Res
     }
 }
 
-/// Reject cell-level universe/lattice/fill parameters and note dropped ones.
+/// One translated cell ready for XML emission.
+struct OutCell {
+    /// MCNP cell number.
+    id: u32,
+    /// MCNP material number (`0` = void).
+    mat: u32,
+    /// Containing universe (`0` when the cell carries no `U=k`).
+    universe: u32,
+    /// Filling universe for a single-universe `FILL n` (`None` otherwise).
+    fill: Option<u32>,
+    /// Rendered OpenMC region string.
+    region: String,
+}
+
+/// Reject cell-level lattice/transform parameters and note dropped ones.
+///
+/// `U=k` and single-universe `FILL n` are honored later via the semantic
+/// universe/fill views (see [`resolve_universes`]); this pass only notes
+/// them in drift and rejects what v2 cannot carry.
 fn check_cell_params(ctx: &mut Ctx<'_>, cell: &CellCard) -> Result<()> {
     for param in &cell.params {
         let Some((key, _)) = param.split_once('=') else {
@@ -738,10 +791,15 @@ fn check_cell_params(ctx: &mut Ctx<'_>, cell: &CellCard) -> Result<()> {
             .unwrap_or("")
             .to_ascii_lowercase();
         match base.as_str() {
-            "u" | "lat" | "fill" => {
+            "u" | "fill" => {
+                // Honored via resolve_universes; matrix/transform shapes are
+                // rejected there with cell-qualified details.
+                continue;
+            }
+            "lat" => {
                 return Err(Error::UniverseOutOfScope {
                     detail: format!(
-                        "cell {} parameter `{param}` needs universe translation",
+                        "cell {} parameter `{param}` needs lattice translation",
                         cell.num
                     ),
                 });
@@ -793,9 +851,19 @@ fn check_data_cards(ctx: &mut Ctx<'_>, deck: &DeckProblem) -> Result<()> {
                 detail: format!("{} card needs tally/source translation", card.name),
             });
         }
-        if matches!(prefix, "U" | "LAT" | "FILL") && named.classifier.is_empty() {
+        if matches!(prefix, "U" | "FILL") && named.classifier.is_empty() {
+            // Honored via resolve_universes; noted once per card.
+            ctx.note(
+                DriftScope::Deck,
+                0,
+                "universe-data-card",
+                format!("{} card honored as universe assignment", card.name),
+            );
+            continue;
+        }
+        if matches!(prefix, "LAT") && named.classifier.is_empty() {
             return Err(Error::UniverseOutOfScope {
-                detail: format!("{} card needs universe translation", card.name),
+                detail: format!("{} card needs lattice translation", card.name),
             });
         }
         if card.name.eq_ignore_ascii_case("READ") {
@@ -813,11 +881,88 @@ fn check_data_cards(ctx: &mut Ctx<'_>, deck: &DeckProblem) -> Result<()> {
     Ok(())
 }
 
+/// Resolve per-cell universes and single-universe fills via the semantic views.
+///
+/// Returns `(cell_universe, cell_fill)` maps; cells absent from both live in
+/// universe 0 with no fill. Lattices, matrix fills, fill transforms, and
+/// `U=-n` no-truncate flags stay loud [`Error::UniverseOutOfScope`] (or
+/// [`Error::TransformOutOfScope`] for transforms).
+fn resolve_universes(
+    ctx: &mut Ctx<'_>,
+    deck: &DeckProblem,
+) -> Result<(BTreeMap<u32, u32>, BTreeMap<u32, u32>)> {
+    use nucleide_mcnp_io::semantic::FillTarget;
+    if let Some(lattice) = deck.lattices()?.first() {
+        return Err(Error::UniverseOutOfScope {
+            detail: format!(
+                "cell {} LAT={} needs lattice translation",
+                lattice.cell, lattice.lattice
+            ),
+        });
+    }
+    let mut universes: BTreeMap<u32, u32> = BTreeMap::new();
+    for view in deck.universes()? {
+        if !view.not_truncated.is_empty() {
+            return Err(Error::UniverseOutOfScope {
+                detail: format!(
+                    "cells {:?} use U=-{} with no OpenMC equivalent",
+                    view.not_truncated, view.number
+                ),
+            });
+        }
+        for cell in &view.cells {
+            universes.insert(*cell, view.number);
+        }
+    }
+    let mut fills: BTreeMap<u32, u32> = BTreeMap::new();
+    for view in deck.fills()? {
+        if view.transform.is_some() {
+            return Err(Error::TransformOutOfScope {
+                detail: format!(
+                    "cell {} FILL transform needs transform translation",
+                    view.cell
+                ),
+            });
+        }
+        match view.target {
+            FillTarget::Single(universe) => {
+                fills.insert(view.cell, universe);
+            }
+            FillTarget::Matrix { .. } => {
+                return Err(Error::UniverseOutOfScope {
+                    detail: format!("cell {} FILL matrix needs lattice translation", view.cell),
+                });
+            }
+        }
+    }
+    for (cell, universe) in &universes {
+        if *universe != 0 {
+            ctx.note(
+                DriftScope::Cell,
+                *cell,
+                "universe-assigned",
+                format!("cell {cell} assigned to universe {universe}"),
+            );
+        }
+    }
+    for (cell, universe) in &fills {
+        ctx.note(
+            DriftScope::Cell,
+            *cell,
+            "fill-applied",
+            format!("cell {cell} filled with universe {universe}"),
+        );
+    }
+    Ok((universes, fills))
+}
+
 /// Translate a parsed MCNP deck to OpenMC `geometry.xml` plus drift.
 ///
-/// Surfaces, cells, and a material stub (`material="void"` for `mat == 0`,
-/// else the MCNP material number) translate; transforms, universes,
-/// lattices, fills, tallies, and sources are loud [`Error`]s. The deck is
+/// Surfaces, cells, simple nested universes, and a material stub
+/// (`material="void"` for `mat == 0`, else the MCNP material number)
+/// translate; a filled cell carries `fill` instead of `material`.
+/// Transforms, lattices, matrix or transformed fills, tallies, and sources
+/// are loud [`Error`]s. The deck is
 /// validated first, so duplicate numbers and dangling surface, complement,
 /// material, periodic, and transform links fail as [`Error::Mcnp`].
 pub fn deck_csg_to_openmc_xml(deck: &DeckProblem) -> Result<(String, DriftTable)> {
@@ -834,6 +979,7 @@ pub fn deck_csg_to_openmc_xml(deck: &DeckProblem) -> Result<(String, DriftTable)
         check_cell_params(&mut ctx, cell)?;
     }
     check_data_cards(&mut ctx, deck)?;
+    let (cell_universe, cell_fill) = resolve_universes(&mut ctx, deck)?;
 
     // Surface pass: reject transforms, map kinds, expand macrobodies.
     let mut periodic: BTreeMap<u32, u32> = BTreeMap::new();
@@ -872,10 +1018,16 @@ pub fn deck_csg_to_openmc_xml(deck: &DeckProblem) -> Result<(String, DriftTable)
     }
 
     // Cell pass: resolve regions (collects forced-reflective markers).
-    let mut regions: Vec<(u32, u32, String)> = Vec::with_capacity(deck.cells.len());
+    let mut regions: Vec<OutCell> = Vec::with_capacity(deck.cells.len());
     for cell in &deck.cells {
         let resolved = resolve_expr(&mut ctx, cell.num, &cell.geom)?;
-        regions.push((cell.num, cell.mat, resolved.render()));
+        regions.push(OutCell {
+            id: cell.num,
+            mat: cell.mat,
+            universe: cell_universe.get(&cell.num).copied().unwrap_or(0),
+            fill: cell_fill.get(&cell.num).copied(),
+            region: resolved.render(),
+        });
     }
 
     // Boundary pass: reflective markers, then periodic pairing.
@@ -959,7 +1111,7 @@ pub fn deck_csg_to_openmc_xml(deck: &DeckProblem) -> Result<(String, DriftTable)
 }
 
 /// Render the OpenMC `geometry.xml` document with `quick-xml`.
-fn emit_xml(surfaces: &[OutSurface], regions: &[(u32, u32, String)]) -> Result<String> {
+fn emit_xml(surfaces: &[OutSurface], regions: &[OutCell]) -> Result<String> {
     use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, Event};
     use quick_xml::writer::Writer;
 
@@ -1001,24 +1153,486 @@ fn emit_xml(surfaces: &[OutSurface], regions: &[(u32, u32, String)]) -> Result<S
         }
         writer.write_event(Event::Empty(elem)).map_err(xml_error)?;
     }
-    for (cell, mat, region) in regions {
+    for out in regions {
         let mut elem = BytesStart::new("cell");
-        let id = cell.to_string();
+        let id = out.id.to_string();
         elem.push_attribute(("id", id.as_str()));
-        elem.push_attribute(("universe", "0"));
-        let material = if *mat == 0 {
-            "void".to_string()
+        let universe = out.universe.to_string();
+        elem.push_attribute(("universe", universe.as_str()));
+        if let Some(fill) = out.fill {
+            // OpenMC: a filled cell carries no material.
+            let text = fill.to_string();
+            elem.push_attribute(("fill", text.as_str()));
         } else {
-            mat.to_string()
-        };
-        elem.push_attribute(("material", material.as_str()));
-        elem.push_attribute(("region", region.as_str()));
+            let material = if out.mat == 0 {
+                "void".to_string()
+            } else {
+                out.mat.to_string()
+            };
+            elem.push_attribute(("material", material.as_str()));
+        }
+        elem.push_attribute(("region", out.region.as_str()));
         writer.write_event(Event::Empty(elem)).map_err(xml_error)?;
     }
     writer
         .write_event(Event::End(BytesEnd::new("geometry")))
         .map_err(xml_error)?;
     String::from_utf8(writer.into_inner()).map_err(xml_error)
+}
+/// Map one deck surface to a Serpent `surf` card body.
+///
+/// Returns the Serpent surface type plus parameters in Serpent order.
+/// `RPP` maps to native `cuboid` and axis-aligned `RCC` to the truncated
+/// `cylx`/`cyly`/`cylz` forms, so unlike the OpenMC direction nothing
+/// expands. Out-of-scope kinds reuse [`Error::UnsupportedSurface`] and
+/// [`Error::MacrobodyOutOfScope`] with Serpent-flavored details.
+fn map_serpent_surface(card: &SurfCard) -> Result<(&'static str, Vec<f64>)> {
+    let c = &card.coeffs;
+    match card.kind {
+        SurfKind::Px | SurfKind::X => Ok(("px", vec![c[0]])),
+        SurfKind::Py | SurfKind::Y => Ok(("py", vec![c[0]])),
+        SurfKind::Pz | SurfKind::Z => Ok(("pz", vec![c[0]])),
+        SurfKind::So => Ok(("sph", vec![0.0, 0.0, 0.0, c[0]])),
+        SurfKind::Sx => Ok(("sph", vec![c[0], 0.0, 0.0, c[1]])),
+        SurfKind::Sy => Ok(("sph", vec![0.0, c[0], 0.0, c[1]])),
+        SurfKind::Sz => Ok(("sph", vec![0.0, 0.0, c[0], c[1]])),
+        SurfKind::S => Ok(("sph", vec![c[0], c[1], c[2], c[3]])),
+        SurfKind::Cx => Ok(("cylx", vec![0.0, 0.0, c[0]])),
+        SurfKind::Cy => Ok(("cyly", vec![0.0, 0.0, c[0]])),
+        SurfKind::Cz => Ok(("cylz", vec![0.0, 0.0, c[0]])),
+        SurfKind::Sph => Ok(("sph", vec![c[0], c[1], c[2], c[3]])),
+        SurfKind::Rpp => Ok(("cuboid", vec![c[0], c[1], c[2], c[3], c[4], c[5]])),
+        SurfKind::Rcc => {
+            let base = [c[0], c[1], c[2]];
+            let axis = [c[3], c[4], c[5]];
+            let radius = c[6];
+            let nonzero: Vec<usize> = axis
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| **v != 0.0)
+                .map(|(i, _)| i)
+                .collect();
+            if nonzero.len() != 1 {
+                return Err(Error::MacrobodyOutOfScope {
+                    surf: card.num,
+                    kind: card.kind.keyword().to_string(),
+                    detail: "only axis-aligned RCC maps to Serpent truncated cylinders".to_string(),
+                });
+            }
+            let a = nonzero[0];
+            let lo = base[a];
+            Ok(match a {
+                0 => ("cylx", vec![base[1], base[2], radius, lo, lo + axis[0]]),
+                1 => ("cyly", vec![base[0], base[2], radius, lo, lo + axis[1]]),
+                _ => ("cylz", vec![base[0], base[1], radius, lo, lo + axis[2]]),
+            })
+        }
+        SurfKind::P => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the 9-coefficient three-point plane against Serpent \
+                plane/mplane (right-hand-rule sidedness) is unverified"
+                .to_string(),
+        }),
+        SurfKind::Kx | SurfKind::Ky | SurfKind::Kz => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the 5-coefficient cone (apex, slope, sheet selector) \
+                against Serpent cone/ckx/cky/ckz is unverified"
+                .to_string(),
+        }),
+        SurfKind::Sq | SurfKind::Gq => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the MCNP quadric coefficient ordering against Serpent \
+                quadratic is unverified"
+                .to_string(),
+        }),
+        SurfKind::Tx | SurfKind::Ty | SurfKind::Tz => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the 6-coefficient torus ordering against Serpent \
+                torx/tory/torz (elliptical) is unverified"
+                .to_string(),
+        }),
+        SurfKind::McBox
+        | SurfKind::Rec
+        | SurfKind::Wed
+        | SurfKind::Rhp
+        | SurfKind::Hex
+        | SurfKind::Trc
+        | SurfKind::Ell
+        | SurfKind::Arb => Err(Error::MacrobodyOutOfScope {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "serpent maps planes, spheres, cylinders, cuboid, and \
+                axis-aligned RCC only"
+                .to_string(),
+        }),
+    }
+}
+
+/// Reject reflecting markers and periodic pointers for the Serpent
+/// direction, which has no verified per-surface boundary mapping.
+fn reject_serpent_boundaries(deck: &DeckProblem) -> Result<()> {
+    fn walk(cell: u32, expr: &GeomExpr) -> Result<()> {
+        match expr {
+            GeomExpr::HalfSpace(h) => {
+                if h.reflecting {
+                    return Err(Error::SerpentBoundaryOutOfScope {
+                        surf: h.surf.unsigned_abs(),
+                        detail: format!("cell {cell} `*` marker has no serpent spelling"),
+                    });
+                }
+                Ok(())
+            }
+            GeomExpr::Intersect(parts) => {
+                for part in parts {
+                    walk(cell, part)?;
+                }
+                Ok(())
+            }
+            GeomExpr::Union(a, b) => {
+                walk(cell, a)?;
+                walk(cell, b)
+            }
+            // `#n` passes through natively; the target cell's own markers
+            // are checked when that cell is walked.
+            GeomExpr::Complement(_) => Ok(()),
+        }
+    }
+    for card in &deck.surfs {
+        if card.reflecting {
+            return Err(Error::SerpentBoundaryOutOfScope {
+                surf: card.num,
+                detail: "reflective surface card has no serpent spelling".to_string(),
+            });
+        }
+        if card.periodic.is_some() {
+            return Err(Error::SerpentBoundaryOutOfScope {
+                surf: card.num,
+                detail: "periodic surface pointer has no serpent spelling".to_string(),
+            });
+        }
+    }
+    for cell in &deck.cells {
+        walk(cell.num, &cell.geom)?;
+    }
+    Ok(())
+}
+
+/// Translate a parsed MCNP deck to Serpent input (`surf`/`cell` cards) plus drift.
+///
+/// Same v2 scope as the OpenMC direction (surfaces, cells, simple nested
+/// universes, material-name stub), with three Serpent-native simplifications:
+/// `RPP`/`RCC` need no expansion (`cuboid`, truncated cylinders), `#n`
+/// passes through as Serpent's native cell complement, and the region text
+/// is the MCNP boolean spelling Serpent shares (juxtaposition, `:`, parens).
+/// Material `mat == 0` renders as `void`, else as `m<mat>` (caller supplies
+/// the `mat` cards); a filled cell renders `fill <n>` with no material. An
+/// empty region synthesizes an `inf` surface. Reflecting and periodic
+/// boundaries are loud [`Error::SerpentBoundaryOutOfScope`]s.
+pub fn deck_csg_to_serpent_input(deck: &DeckProblem) -> Result<(String, DriftTable)> {
+    deck.validate()?;
+    let mut ctx = Ctx {
+        cells: deck.cells.iter().map(|c| (c.num, c)).collect(),
+        surfs: deck.surfs.iter().map(|s| (s.num, s)).collect(),
+        macros: BTreeMap::new(),
+        next_id: deck.surfs.iter().map(|s| s.num).max().unwrap_or(0) + 1,
+        forced_reflective: BTreeSet::new(),
+        drift: DriftTable::default(),
+    };
+    for cell in &deck.cells {
+        check_cell_params(&mut ctx, cell)?;
+    }
+    check_data_cards(&mut ctx, deck)?;
+    let (cell_universe, cell_fill) = resolve_universes(&mut ctx, deck)?;
+    reject_serpent_boundaries(deck)?;
+    for card in &deck.surfs {
+        if let Some(tr) = card.transform {
+            return Err(Error::TransformOutOfScope {
+                detail: format!("surface {} links transform {tr}", card.num),
+            });
+        }
+    }
+
+    let mut out = String::from(
+        "% Serpent geometry translated from MCNP CSG by nucleide-csg-xlate.\n\
+         % Scoped output: surf/cell cards plus a material-name stub only.\n\
+         % Supply mat cards (m<n> for MCNP material n), run settings, and\n\
+         % an outer boundary yourself; Serpent requires all space defined.\n",
+    );
+    let mut surfs: Vec<(u32, &'static str, Vec<f64>)> = Vec::with_capacity(deck.surfs.len());
+    for card in &deck.surfs {
+        let (stype, coeffs) = map_serpent_surface(card)?;
+        surfs.push((card.num, stype, coeffs));
+    }
+    surfs.sort_by_key(|s| s.0);
+    // Empty regions (all space) synthesize an `inf` surface.
+    let mut inf_id: Option<u32> = None;
+    for surf in &surfs {
+        let params = surf
+            .2
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str(&format!("surf {} {} {}\n", surf.0, surf.1, params));
+    }
+    for cell in &deck.cells {
+        let universe = cell_universe.get(&cell.num).copied().unwrap_or(0);
+        let mut region = cell.geom.render();
+        if region.trim().is_empty() {
+            if inf_id.is_none() {
+                let id = ctx.next_id;
+                ctx.next_id += 1;
+                out.push_str(&format!("surf {id} inf\n"));
+                inf_id = Some(id);
+            }
+            region = format!("-{}", inf_id.expect("set above"));
+        }
+        let mat = match cell_fill.get(&cell.num) {
+            Some(fill) => format!("fill {fill}"),
+            None if cell.mat == 0 => "void".to_string(),
+            None => format!("m{}", cell.mat),
+        };
+        out.push_str(&format!(
+            "cell {} {} {} {}\n",
+            cell.num, universe, mat, region
+        ));
+    }
+    Ok((out, ctx.drift))
+}
+
+/// Map one deck surface to a PHITS `[Surface]` line body.
+///
+/// Returns the PHITS symbol plus parameters in PHITS order. The GO set
+/// uses symbols the PHITS manual defines identically to MCNP (`PX/Y/Z`,
+/// `SO/SX/SY/SZ/S`, `CX/CY/CZ`, `SPH`, `RPP`, `RCC` including canted
+/// axes, axis-aligned `BOX`), so coefficients pass through verbatim.
+/// Out-of-scope kinds reuse [`Error::UnsupportedSurface`] and
+/// [`Error::MacrobodyOutOfScope`] with PHITS-flavored details.
+fn map_phits_surface(card: &SurfCard) -> Result<(&'static str, Vec<f64>)> {
+    let c = &card.coeffs;
+    match card.kind {
+        SurfKind::Px | SurfKind::X => Ok(("PX", vec![c[0]])),
+        SurfKind::Py | SurfKind::Y => Ok(("PY", vec![c[0]])),
+        SurfKind::Pz | SurfKind::Z => Ok(("PZ", vec![c[0]])),
+        SurfKind::So => Ok(("SO", vec![c[0]])),
+        SurfKind::Sx => Ok(("SX", vec![c[0], c[1]])),
+        SurfKind::Sy => Ok(("SY", vec![c[0], c[1]])),
+        SurfKind::Sz => Ok(("SZ", vec![c[0], c[1]])),
+        SurfKind::S => Ok(("S", vec![c[0], c[1], c[2], c[3]])),
+        SurfKind::Cx => Ok(("CX", vec![c[0]])),
+        SurfKind::Cy => Ok(("CY", vec![c[0]])),
+        SurfKind::Cz => Ok(("CZ", vec![c[0]])),
+        SurfKind::Sph => Ok(("SPH", vec![c[0], c[1], c[2], c[3]])),
+        SurfKind::Rpp => Ok(("RPP", vec![c[0], c[1], c[2], c[3], c[4], c[5]])),
+        SurfKind::Rcc => Ok(("RCC", vec![c[0], c[1], c[2], c[3], c[4], c[5], c[6]])),
+        SurfKind::McBox => Ok((
+            "BOX",
+            vec![
+                c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11],
+            ],
+        )),
+        SurfKind::P => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the 9-coefficient three-point plane against PHITS P \
+                (origin-side rule) is unverified"
+                .to_string(),
+        }),
+        SurfKind::Kx | SurfKind::Ky | SurfKind::Kz => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the 5-coefficient cone against PHITS KX/KY/KZ \
+                (sqrt-form equation) is unverified"
+                .to_string(),
+        }),
+        SurfKind::Sq => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the MCNP 10-coefficient SQ ordering against PHITS SQ \
+                (A..G plus centre) is unverified"
+                .to_string(),
+        }),
+        SurfKind::Gq => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the 16-coefficient GQ reduction against PHITS 10-parameter \
+                GQ is unverified"
+                .to_string(),
+        }),
+        SurfKind::Tx | SurfKind::Ty | SurfKind::Tz => Err(Error::UnsupportedSurface {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "the 6-coefficient torus ordering against PHITS TX/TY/TZ \
+                (A/B/C radii) is unverified"
+                .to_string(),
+        }),
+        SurfKind::Rec
+        | SurfKind::Wed
+        | SurfKind::Rhp
+        | SurfKind::Hex
+        | SurfKind::Trc
+        | SurfKind::Ell
+        | SurfKind::Arb => Err(Error::MacrobodyOutOfScope {
+            surf: card.num,
+            kind: card.kind.keyword().to_string(),
+            detail: "phits maps planes, spheres, cylinders, SPH/RPP/RCC/BOX only".to_string(),
+        }),
+    }
+}
+
+/// Translate a parsed MCNP deck to PHITS `[Surface]`/`[Cell]` sections plus drift.
+///
+/// Same v2 scope as the other directions (surfaces, cells, simple nested
+/// universes) with PHITS-native spellings: surface symbols pass through
+/// with identical parameters (`RPP`/`RCC`/`BOX` need no expansion, and
+/// canted `RCC` maps), `#n` passes through as PHITS's native cell
+/// complement, `U=`/`FILL=` render as cell parameters, and `*` markers
+/// render as PHITS reflective surfaces. Material cells carry the verbatim
+/// MCNP density (positive atom and negative mass densities share PHITS's
+/// sign convention); void cells omit it. A void, unfilled cell whose
+/// region is a union or complement is emitted as outer void (`-1`, PHITS
+/// kills particles there) with an `outer-void-assigned` drift note —
+/// review the note when a deck has union-shaped interior voids, for which
+/// the heuristic would be wrong. Periodic pointers are loud
+/// [`Error::PhitsBoundaryOutOfScope`]s; empty regions are loud (PHITS has
+/// no `inf` surface).
+pub fn deck_csg_to_phits_input(deck: &DeckProblem) -> Result<(String, DriftTable)> {
+    deck.validate()?;
+    let mut ctx = Ctx {
+        cells: deck.cells.iter().map(|c| (c.num, c)).collect(),
+        surfs: deck.surfs.iter().map(|s| (s.num, s)).collect(),
+        macros: BTreeMap::new(),
+        next_id: deck.surfs.iter().map(|s| s.num).max().unwrap_or(0) + 1,
+        forced_reflective: BTreeSet::new(),
+        drift: DriftTable::default(),
+    };
+    for cell in &deck.cells {
+        check_cell_params(&mut ctx, cell)?;
+    }
+    check_data_cards(&mut ctx, deck)?;
+    let (cell_universe, cell_fill) = resolve_universes(&mut ctx, deck)?;
+
+    // Periodic has no PHITS spelling; `*` markers (card or cell level)
+    // force the `*id` reflective surface form.
+    let mut reflective: BTreeSet<u32> = BTreeSet::new();
+    for card in &deck.surfs {
+        if let Some(tr) = card.transform {
+            return Err(Error::TransformOutOfScope {
+                detail: format!("surface {} links transform {tr}", card.num),
+            });
+        }
+        if card.periodic.is_some() {
+            return Err(Error::PhitsBoundaryOutOfScope {
+                surf: card.num,
+                detail: "periodic surface pointer has no phits spelling".to_string(),
+            });
+        }
+        if card.reflecting {
+            reflective.insert(card.num);
+        }
+    }
+    fn collect_reflective(expr: &GeomExpr, out: &mut BTreeSet<u32>) {
+        match expr {
+            GeomExpr::HalfSpace(h) => {
+                if h.reflecting {
+                    out.insert(h.surf.unsigned_abs());
+                }
+            }
+            GeomExpr::Intersect(parts) => {
+                for part in parts {
+                    collect_reflective(part, out);
+                }
+            }
+            GeomExpr::Union(a, b) => {
+                collect_reflective(a, out);
+                collect_reflective(b, out);
+            }
+            GeomExpr::Complement(_) => {}
+        }
+    }
+    for cell in &deck.cells {
+        collect_reflective(&cell.geom, &mut reflective);
+    }
+
+    let mut out = String::from(
+        "[ Surface ]\n\
+         $ PHITS geometry translated from MCNP CSG by nucleide-csg-xlate.\n\
+         $ Scoped output: [Surface]/[Cell] sections plus a material-number\n\
+         $ stub only. Supply [Material]/[Parameters] yourself; review any\n\
+         $ outer-void-assigned drift notes before running.\n",
+    );
+    let mut surfs: Vec<(u32, &'static str, Vec<f64>)> = Vec::with_capacity(deck.surfs.len());
+    for card in &deck.surfs {
+        let (symbol, coeffs) = map_phits_surface(card)?;
+        surfs.push((card.num, symbol, coeffs));
+    }
+    surfs.sort_by_key(|s| s.0);
+    for (id, symbol, coeffs) in &surfs {
+        let params = coeffs
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(" ");
+        if reflective.contains(id) {
+            out.push_str(&format!("*{id}  {symbol}  {params}\n"));
+        } else {
+            out.push_str(&format!("{id}  {symbol}  {params}\n"));
+        }
+    }
+    out.push_str("[ Cell ]\n");
+    for cell in &deck.cells {
+        let region = cell.geom.render().replace('*', "");
+        if region.trim().is_empty() {
+            return Err(Error::UniverseOutOfScope {
+                detail: format!(
+                    "cell {} has an empty region (no phits inf spelling)",
+                    cell.num
+                ),
+            });
+        }
+        let is_fill = cell_fill.contains_key(&cell.num);
+        let mat = if is_fill {
+            // Filled cells carry a material number PHITS ignores; use void.
+            0
+        } else {
+            cell.mat
+        };
+        // Outer-void heuristic: void, unfilled, union/complement-shaped.
+        let outer = mat == 0 && (region.contains(':') || region.contains('#'));
+        let mat_field = if outer { -1 } else { mat as i32 };
+        if outer {
+            ctx.note(
+                DriftScope::Cell,
+                cell.num,
+                "outer-void-assigned",
+                format!(
+                    "cell {num} void union/complement emitted as outer void -1",
+                    num = cell.num
+                ),
+            );
+        }
+        let mut line = if mat_field == 0 || mat_field == -1 {
+            format!("{}  {mat_field}  {region}", cell.num)
+        } else {
+            let dens = cell.dens.unwrap_or(0.0);
+            format!("{}  {mat_field}  {dens}  {region}", cell.num)
+        };
+        if let Some(universe) = cell_universe.get(&cell.num) {
+            if *universe != 0 {
+                line.push_str(&format!("  U={universe}"));
+            }
+        }
+        if let Some(fill) = cell_fill.get(&cell.num) {
+            line.push_str(&format!("  FILL={fill}"));
+        }
+        line.push('\n');
+        out.push_str(&line);
+    }
+    Ok((out, ctx.drift))
 }
 
 #[cfg(test)]
@@ -1235,15 +1849,11 @@ mod tests {
     }
 
     #[test]
-    fn universes_lattices_fills_error() {
+    fn lattices_and_matrix_fills_error() {
         // Parameters chosen to pass deck validation (universe 0 exists, TR1
-        // exists) so the v1 scope errors fire instead of Mcnp link errors.
-        for (params, data) in [
-            ("u=0", ""),
-            ("lat=1 fill=0", ""),
-            ("fill=0", ""),
-            ("trcl=1", "tr1 0 0 0"),
-        ] {
+        // exists) so the scope errors fire instead of Mcnp link errors.
+        // Plain `u=0` and single `fill=0` translate under v2 (tested below).
+        for (params, data) in [("lat=1 fill=0", ""), ("u=-1", ""), ("trcl=1", "tr1 0 0 0")] {
             let err =
                 translate(&deck_text(&format!("1 0 -1 {params}"), "1 so 10", data)).unwrap_err();
             assert!(
@@ -1254,6 +1864,30 @@ mod tests {
                 "{params}: {err}"
             );
         }
+    }
+
+    #[test]
+    fn nested_universe_fill_translates() {
+        // Universe 1 holds the sphere; universe 0 fills it from the box cell.
+        let (xml, drift) = translate(&deck_text(
+            "1 1 -1.0 -1 u=1\n2 0 -2 fill=1",
+            "1 so 5\n2 so 10",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(xml.contains("universe=\"1\""));
+        assert!(xml.contains("fill=\"1\""));
+        // A filled cell carries no material attribute.
+        assert!(!xml.contains("fill=\"1\" material="));
+        assert!(xml.contains("material=\"1\""));
+        assert!(drift
+            .for_scope(DriftScope::Cell)
+            .iter()
+            .any(|e| e.action == "universe-assigned"));
+        assert!(drift
+            .for_scope(DriftScope::Cell)
+            .iter()
+            .any(|e| e.action == "fill-applied"));
     }
 
     #[test]
@@ -1290,6 +1924,89 @@ mod tests {
         assert!(table.for_scope(DriftScope::Cell).is_empty());
     }
 
+    fn translate_serpent(text: &str) -> Result<(String, DriftTable)> {
+        use nucleide_mcnp_io::problem::parse_deck;
+        deck_csg_to_serpent_input(&parse_deck(text).unwrap())
+    }
+
+    fn translate_phits(text: &str) -> Result<(String, DriftTable)> {
+        use nucleide_mcnp_io::problem::parse_deck;
+        deck_csg_to_phits_input(&parse_deck(text).unwrap())
+    }
+    #[test]
+    fn serpent_sphere_box_cards() {
+        let (text, _) = translate_serpent(&deck_text(
+            "1 1 -1.0 -1\n2 0 -2",
+            "1 so 5\n2 so 10",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(text.contains("surf 1 sph 0 0 0 5\n"));
+        assert!(text.contains("surf 2 sph 0 0 0 10\n"));
+        assert!(text.contains("cell 1 0 m1 -1\n"));
+        assert!(text.contains("cell 2 0 void -2\n"));
+    }
+
+    #[test]
+    fn serpent_rpp_is_native_cuboid() {
+        let (text, drift) = translate_serpent(&deck_text(
+            "1 1 -1.0 -1",
+            "1 rpp -1 1 -2 2 -3 3",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(text.contains("surf 1 cuboid -1 1 -2 2 -3 3\n"));
+        assert!(!drift
+            .entries
+            .iter()
+            .any(|e| e.action == "macrobody-expansion"));
+    }
+
+    #[test]
+    fn serpent_universe_fill_cards() {
+        let (text, drift) = translate_serpent(&deck_text(
+            "1 1 -1.0 -1 u=1\n2 0 -2 fill=1",
+            "1 so 5\n2 so 10",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(text.contains("cell 1 1 m1 -1\n"));
+        assert!(text.contains("cell 2 0 fill 1 -2\n"));
+        assert!(drift.entries.iter().any(|e| e.action == "fill-applied"));
+    }
+
+    #[test]
+    fn serpent_complement_passes_through() {
+        let (text, _) = translate_serpent(&deck_text(
+            "1 1 -1.0 -1\n2 0 #1 -2",
+            "1 so 5\n2 so 10",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(text.contains("cell 2 0 void #1 -2\n"));
+    }
+
+    #[test]
+    fn serpent_boundaries_are_loud() {
+        let err = translate_serpent(&deck_text("1 0 -1", "*1 so 10", "")).unwrap_err();
+        assert!(
+            matches!(err, Error::SerpentBoundaryOutOfScope { .. }),
+            "{err}"
+        );
+        let err = translate_serpent(&deck_text("1 0 *-1", "1 so 10", "")).unwrap_err();
+        assert!(
+            matches!(err, Error::SerpentBoundaryOutOfScope { .. }),
+            "{err}"
+        );
+        let err = translate_serpent(&deck_text("1 0 -1 2", "1 -2 pz 0\n2 pz 5", "")).unwrap_err();
+        assert!(
+            matches!(err, Error::SerpentBoundaryOutOfScope { .. }),
+            "{err}"
+        );
+        let err = translate_serpent(&deck_text("1 0 -1", "1 kz 0 0 0 1 1", "")).unwrap_err();
+        assert!(matches!(err, Error::UnsupportedSurface { .. }), "{err}");
+    }
+
     #[test]
     fn errors_are_non_exhaustive_and_display() {
         let err = Error::ComplementTooComplex { cell: 2, target: 1 };
@@ -1298,5 +2015,84 @@ mod tests {
             detail: "x".to_string(),
         };
         assert!(err.to_string().contains("universes/lattices/fills"));
+        let err = Error::SerpentBoundaryOutOfScope {
+            surf: 1,
+            detail: "x".to_string(),
+        };
+        assert!(err.to_string().contains("no verified serpent mapping"));
+        let err = Error::PhitsBoundaryOutOfScope {
+            surf: 1,
+            detail: "x".to_string(),
+        };
+        assert!(err.to_string().contains("no phits spelling"));
+    }
+
+    #[test]
+    fn phits_sphere_box_sections() {
+        let (text, _) = translate_phits(&deck_text(
+            "1 1 -1.0 -1\n2 0 -2",
+            "1 so 5\n2 so 10",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(text.contains("[ Surface ]\n"));
+        assert!(text.contains("[ Cell ]\n"));
+        assert!(text.contains("1  SO  5\n"));
+        assert!(text.contains("2  SO  10\n"));
+        assert!(text.contains("1  1  -1  -1\n"));
+        // Void without union/complement stays material 0 (density omitted).
+        assert!(text.contains("2  0  -2\n"));
+    }
+
+    #[test]
+    fn phits_outer_void_and_fill() {
+        let (text, drift) = translate_phits(&deck_text(
+            "1 1 -1.0 -1 u=1\n2 0 -2 fill=1",
+            "1 so 5\n2 so 10",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(text.contains("1  1  -1  -1  U=1\n"));
+        assert!(text.contains("2  0  -2  FILL=1\n"));
+        assert!(drift.entries.iter().any(|e| e.action == "fill-applied"));
+        // Complement-shaped void becomes outer void -1.
+        let (text, drift) = translate_phits(&deck_text(
+            "1 1 -1.0 -1\n2 0 #1 -2",
+            "1 so 5\n2 so 10",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(text.contains("2  -1  #1 -2\n"));
+        assert!(drift
+            .entries
+            .iter()
+            .any(|e| e.action == "outer-void-assigned"));
+    }
+
+    #[test]
+    fn phits_reflective_maps_and_periodic_is_loud() {
+        let (text, _) = translate_phits(&deck_text("1 0 -1", "*1 so 10", "")).unwrap();
+        assert!(text.contains("*1  SO  10\n"));
+        let (text, _) = translate_phits(&deck_text("1 0 *-1", "1 so 10", "")).unwrap();
+        assert!(text.contains("*1  SO  10\n"));
+        let err = translate_phits(&deck_text("1 0 -1 2", "1 -2 pz 0\n2 pz 5", "")).unwrap_err();
+        assert!(
+            matches!(err, Error::PhitsBoundaryOutOfScope { .. }),
+            "{err}"
+        );
+        let err = translate_phits(&deck_text("1 0 -1", "1 kz 0 0 0 1 1", "")).unwrap_err();
+        assert!(matches!(err, Error::UnsupportedSurface { .. }), "{err}");
+    }
+
+    #[test]
+    fn phits_canted_rcc_maps() {
+        // PHITS RCC takes an arbitrary height vector natively.
+        let (text, _) = translate_phits(&deck_text(
+            "1 1 -1.0 -1",
+            "1 rcc 0 0 0 1 1 1 2",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(text.contains("1  RCC  0 0 0 1 1 1 2\n"));
     }
 }

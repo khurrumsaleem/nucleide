@@ -272,6 +272,12 @@ Use `scripts/bump-version.sh X.Y.Z` to bump the workspace version and stamp
 
 ## Child NAD Index
 
+- `crates/csg-xlate/AGENTS.md` — MCNP→OpenMC CSG translation (surfaces,
+  cells, nested universes) + drift-report contracts.
+- `crates/r2s/AGENTS.md` — R2S orchestration (workflows, snapshot bridge,
+  sweep expansion, flow accounting).
+- `crates/vr-tools/AGENTS.md` — variance reduction (MAGIC, alias sampling,
+  KDE resampling).
 - `crates/emit/AGENTS.md` — five-emitter card emission + mass-drift contracts.
 - `crates/kinetics/AGENTS.md` — prescribed-reactivity point kinetics (PKE + inhour + prompt jump) + oracle-gate contracts.
 - `crates/tritium/AGENTS.md` — 1D tritium diffusion-trapping kernel (T1–T2,

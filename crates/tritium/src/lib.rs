@@ -40,8 +40,8 @@ pub use error::{Error, Result};
 pub use params::{arrhenius, TransportParams, TrapSpec, GAS_CONSTANT};
 pub use solve::{
     breakthrough_ratio, effective_diffusivity, equilibrium_trapped, irreversible_fill,
-    sieverts_concentration, solve, steady_state, time_lag, InitialState, Solution, SolverOptions,
-    SteadyState, Theta, TimeGrid,
+    recombination_rate_arrhenius, sieverts_concentration, solve, steady_state, time_lag,
+    InitialState, Solution, SolverOptions, SteadyState, Theta, TimeGrid,
 };
 
 #[cfg(test)]

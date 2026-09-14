@@ -10,14 +10,17 @@
 pub mod error;
 pub mod photon;
 pub mod snapshot;
+pub mod sweep;
 pub mod tags;
 pub mod workflow;
 
 pub use error::{Error, Result};
 pub use photon::ZonePhotonSource;
 pub use snapshot::{
-    deck_from_snapshot, snapshot_workflow, SnapshotFluxDef, SnapshotInput, SnapshotZone,
+    deck_from_snapshot, snapshot_inventory, snapshot_workflow, SnapshotFluxDef, SnapshotInput,
+    SnapshotZone,
 };
+pub use sweep::{assemble_results, expand_sweep, SweepAxis, SweepCase};
 pub use tags::{
     photon_groups_at, split_zone_totals, sum_group_strengths, tag_zone_totals, VoxelTags,
 };

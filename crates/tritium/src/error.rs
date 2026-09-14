@@ -29,10 +29,11 @@ pub enum Error {
     /// An initial-state entry is invalid: `{0}`.
     #[error("tritium: invalid initial state: {0}")]
     BadState(&'static str),
-    /// The recombination steady state (G5) is named-open in v1: the surface
-    /// law `J = K_r c_m^2` makes the steady problem nonlinear and no gate
-    /// pins the nonlinear-solve tolerance yet.
-    #[error("tritium: recombination steady state (G5) is named-open in v1")]
+    /// The recombination transient is named-open (G5): the surface law
+    /// `J = K_r c_m^2` makes the transient problem nonlinear and no gate
+    /// pins the transient nonlinear-solve tolerance yet. The steady state
+    /// closes the same law by Picard iteration on the face value.
+    #[error("tritium: recombination transient (G5) is named-open in v1")]
     RecombinationOpen,
     /// The per-step trap-coupling Picard iteration did not converge within
     /// its iteration cap.

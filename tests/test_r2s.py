@@ -129,6 +129,38 @@ class TestFromSnapshot:
     def test_alias(self) -> None:
         assert nucleide.r2s.from_snapshot is nucleide.r2s.r2s_from_snapshot
 
+    def test_snapshot_inventory(self) -> None:
+        totals = nucleide.r2s.r2s_snapshot_inventory(self.snapshot())
+        assert totals["U235"] == pytest.approx(1.0e-3 * 1200.0 * 1e-24)
+        assert totals["nU238"] == pytest.approx(2.0e-2 * 1200.0 * 1e-24)
+        assert totals["PU239"] == pytest.approx(5.0e-4 * 800.0 * 1e-24)
+        assert nucleide.r2s.snapshot_inventory is nucleide.r2s.r2s_snapshot_inventory
+        bad = self.snapshot()
+        bad["zones"][0]["composition"] = {"U235": -1.0}
+        with pytest.raises(ValueError):
+            nucleide.r2s.r2s_snapshot_inventory(bad)
+
+    def test_expand_sweep(self) -> None:
+        cases = nucleide.r2s.r2s_expand_sweep(
+            [
+                {"name": "flux_scale", "values": [0.5, 1.0]},
+                {"name": "cooling_s", "values": [0.0, 3600.0]},
+            ]
+        )
+        assert [c["name"] for c in cases] == [
+            "flux_scale=0.5,cooling_s=0",
+            "flux_scale=0.5,cooling_s=3600",
+            "flux_scale=1,cooling_s=0",
+            "flux_scale=1,cooling_s=3600",
+        ]
+        assert nucleide.r2s.expand_sweep is nucleide.r2s.r2s_expand_sweep
+        with pytest.raises(ValueError):
+            nucleide.r2s.r2s_expand_sweep(
+                [{"name": "x", "values": [1.0]}, {"name": "x", "values": [2.0]}]
+            )
+        with pytest.raises(ValueError):
+            nucleide.r2s.r2s_expand_sweep([{"name": "", "values": [1.0]}])
+
     def test_void_zone_skipped(self) -> None:
         snap = self.snapshot()
         snap["zones"][1]["composition"] = {}

@@ -2,6 +2,7 @@
 
 from nucleide._internal import (
     AliasTable,
+    KdeSampler,
     MagicOutput,
     MeshSourceSampler,
     magic,
@@ -14,4 +15,5 @@ __all__ = [
     "MagicOutput",
     "AliasTable",
     "MeshSourceSampler",
+    "KdeSampler",
 ]

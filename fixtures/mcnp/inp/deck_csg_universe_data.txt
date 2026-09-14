@@ -1,0 +1,12 @@
+CSG data-block universe message
+Universe and fill assignments via data-block U and FILL cards
+1 1 -10.0 -1 imp:n=1 $ fuel sphere, universe via U card
+2 0 -2 imp:n=0 $ outer cell, fill via FILL card
+
+1 so 5.0
+2 so 10.0
+
+mode n
+m1 92235 0.05 92238 0.95 $ enriched uranium
+u 1 0
+fill j 1

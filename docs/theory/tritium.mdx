@@ -220,12 +220,17 @@ $$
 Pinned in `fixtures/tritium/g4_sieverts.json` (algebraic, tolerance
 `1e-12`).
 
-### G5 — Recombination steady state (named open)
+### G5 — Recombination steady state
 
-With a recombination outlet the steady problem is nonlinear and has no
-G1-style closed form; G5 is a **named-open gate**: no fixture exists until
-the kernel landing pins the nonlinear-solve tolerance and the
-`K_r → ∞` recovery of G4.
+With a recombination outlet the steady problem is nonlinear, but the
+mobile profile stays affine in the recombination face values (the steady
+system is linear for frozen faces), so the kernel pins each face-adjacent
+response with unit-perturbation Thomas solves: one end closes in closed
+form from `K_r cf² + g(1−b) cf − g·a = 0`, two ends by Newton iteration
+with the analytic Jacobian. **G5a** (Dirichlet + recombination,
+trap-free, `S = 0`) asserts the linear `(c0, c_s)` profile, flux, and
+inventory at `1e-12`; **G5b** asserts the `K_r → ∞` recovery of the G1
+Dirichlet end. The recombination *transient* stays named-open.
 
 ### Invariants
 
@@ -269,7 +274,8 @@ flux is still `≈3e-3 J_ss` at `t = 31.6 s` and reaches `0.9999 J_ss` by
   deferred to a later design (the T2 form already covers both).
 - **Equilibrium surfaces**: Dirichlet/Sieverts ends assume fast surface
   kinetics; finite-rate surface processes enter only via recombination.
-- **G5 open**: recombination steady state has no pinned gate yet.
+- **G5 transient open**: the recombination steady state is pinned (G5a/G5b
+  gates); the recombination transient has no pinned gate yet.
 - **Thin facades only**: `nucleide.tritium` (Python) and
   `tritiumBreakthrough` (WASM) expose the landed kernel; no new physics
   past T1–T2/G1–G5.

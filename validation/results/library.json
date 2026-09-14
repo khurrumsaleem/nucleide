@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "name": "library",
+  "title": "Fission-yield library assessment (`library_vs_refs.py`)",
+  "environment": {
+    "date": "2026-09-14",
+    "python": "3.12.14",
+    "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
+    "nucleide": "0.10.0",
+    "pyne": "0.7.5",
+    "openmc": "0.16.0"
+  },
+  "sections": [
+    {
+      "kind": "prose",
+      "text": "JADE-class library assessment over the committed ENDF/B-VIII.0 fission-yield pack (no external oracle, no tapes): data hygiene, independent-block sums to 2.0, and cumulative coverage, plus reported diagnostics on evaluation-shape quirks."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Expected",
+        "Got",
+        "Status"
+      ],
+      "rows": [
+        [
+          "L1 rows finite, yields/dY >= 0",
+          "151490",
+          "0",
+          "PASS"
+        ],
+        [
+          "L2 independent sums to 2.0",
+          "61 blocks",
+          "worst dev 6.801204e-07 at Cm243/0.0253",
+          "PASS"
+        ],
+        [
+          "L3 cumulative row per independent daughter",
+          "75745",
+          "0 missing",
+          "PASS"
+        ]
+      ]
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Diagnostic",
+        "Value",
+        "Status"
+      ],
+      "rows": [
+        [
+          "independent blocks",
+          "61",
+          "\u2014"
+        ],
+        [
+          "independent daughters",
+          "75745",
+          "\u2014"
+        ],
+        [
+          "zeroed cumulative entries (untracked isomers)",
+          "409",
+          "reported"
+        ],
+        [
+          "dev Cm243 n 0.0253",
+          "6.801204e-07",
+          "reported"
+        ],
+        [
+          "dev Pa231 n 500000",
+          "6.601284e-07",
+          "reported"
+        ],
+        [
+          "dev Am241 n 0.0253",
+          "5.576288e-07",
+          "reported"
+        ],
+        [
+          "dev Pu242 n 1.4e+07",
+          "5.370449e-07",
+          "reported"
+        ],
+        [
+          "dev Pu238 n 500000",
+          "5.342778e-07",
+          "reported"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "Zeroed cumulative entries (409) are evaluation shape \u2014 short-lived isomers the cumulative evaluation does not track \u2014 recorded here so a library regeneration that changes the count fails loudly at review, not silently."
+    }
+  ]
+}

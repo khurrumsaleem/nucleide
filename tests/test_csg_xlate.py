@@ -16,6 +16,8 @@ GO_FIXTURES = [
     "deck_csg_rpp.txt",
     "deck_csg_rcc.txt",
     "deck_csg_complement.txt",
+    "deck_csg_universe_fill.txt",
+    "deck_csg_universe_data.txt",
 ]
 
 
@@ -81,6 +83,20 @@ class TestCsgFixtures:
         assert _regions(xml)["2"] == "1 -2"
         assert any(d["action"] == "complement-expansion" for d in drift)
 
+    def test_universe_fill_regions(self) -> None:
+        for name in ("deck_csg_universe_fill.txt", "deck_csg_universe_data.txt"):
+            xml, drift = _translate(name)
+            root = ET.fromstring(xml)
+            by_id = {c.get("id"): c for c in root.findall("cell")}
+            assert by_id["1"].get("universe") == "1"
+            assert by_id["1"].get("material") == "1"
+            assert by_id["2"].get("universe") == "0"
+            assert by_id["2"].get("fill") == "1"
+            assert by_id["2"].get("material") is None
+            actions = [d["action"] for d in drift]
+            assert "universe-assigned" in actions
+            assert "fill-applied" in actions
+
     def test_region_ids_reference_defined_surfaces(self) -> None:
         for name in GO_FIXTURES:
             xml, _ = _translate(name)
@@ -122,10 +138,21 @@ class TestCsgLoudErrors:
         with pytest.raises(ValueError, match="out of v1 scope"):
             nucleide.mcnp.parse_csg_to_openmc(deck)
 
-    def test_universe_rejected(self) -> None:
-        deck = "msg\ntitle\n1 0 -1 u=0\n\n1 so 10\n\n"
+    def test_lattice_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1 lat=1 fill=0\n\n1 so 10\n\n"
         with pytest.raises(ValueError, match="out of v1 scope"):
             nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_universe_notrunc_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1 u=-1\n\n1 so 10\n\n"
+        with pytest.raises(ValueError, match="out of v1 scope"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_plain_universe_translates(self) -> None:
+        xml, _ = nucleide.mcnp.parse_csg_to_openmc("msg\ntitle\n1 0 -1 u=0\n\n1 so 10\n\n")
+        found = ET.fromstring(xml).find("cell")
+        assert found is not None
+        assert found.get("universe") == "0"
 
     def test_tally_rejected(self) -> None:
         deck = "msg\ntitle\n1 0 -1\n\n1 so 10\n\nf4:n 1\n"
@@ -173,3 +200,104 @@ class TestCsgLoudErrors:
         assert by_id["2"].get("periodic_surface_id") == "3"
         assert by_id["3"].get("periodic_surface_id") == "2"
         assert any(d["action"] == "periodic-link" for d in drift)
+
+
+class TestCsgSerpent:
+    def test_go_fixtures_emit_cards(self) -> None:
+        for name in GO_FIXTURES:
+            text, drift = nucleide.mcnp.read_csg_to_serpent(str(FIXTURES / name))
+            assert text.startswith("% Serpent geometry")
+            assert "surf " in text and "cell " in text
+            assert isinstance(drift, list)
+
+    def test_sphere_box_cards(self) -> None:
+        text, _ = nucleide.mcnp.read_csg_to_serpent(str(FIXTURES / "deck_csg_sphere_box.txt"))
+        lines = [ln for ln in text.splitlines() if not ln.startswith("%")]
+        assert "surf 1 sph 0 0 0 5" in lines
+        assert "surf 2 px -10" in lines
+        assert "cell 1 0 m1 -1" in lines
+        assert "cell 2 0 void 1 2 -3 4 -5 6 -7" in lines
+        assert "cell 3 0 void -2 : 3 : -4 : 5 : -6 : 7" in lines
+
+    def test_rpp_is_native_cuboid(self) -> None:
+        text, drift = nucleide.mcnp.read_csg_to_serpent(str(FIXTURES / "deck_csg_rpp.txt"))
+        assert "cuboid" in text
+        assert not any(d["action"] == "macrobody-expansion" for d in drift)
+
+    def test_universe_fill_cards(self) -> None:
+        for name in ("deck_csg_universe_fill.txt", "deck_csg_universe_data.txt"):
+            text, drift = nucleide.mcnp.read_csg_to_serpent(str(FIXTURES / name))
+            assert "cell 1 1 m1 -1" in text.splitlines()
+            assert "cell 2 0 fill 1 -2" in text.splitlines()
+            actions = [d["action"] for d in drift]
+            assert "fill-applied" in actions
+
+    def test_complement_passes_through(self) -> None:
+        text, _ = nucleide.mcnp.read_csg_to_serpent(str(FIXTURES / "deck_csg_complement.txt"))
+        assert "cell 2 0 void #1 -2" in text.splitlines()
+
+    def test_parse_text_matches_file(self) -> None:
+        path = FIXTURES / "deck_csg_sphere_box.txt"
+        file_text, _ = nucleide.mcnp.read_csg_to_serpent(str(path))
+        text, _ = nucleide.mcnp.parse_csg_to_serpent(path.read_text())
+        assert text == file_text
+
+    def test_boundaries_rejected(self) -> None:
+        with pytest.raises(ValueError, match="no verified serpent mapping"):
+            nucleide.mcnp.parse_csg_to_serpent("msg\ntitle\n1 0 -1\n\n*1 so 10\n\n")
+        with pytest.raises(ValueError, match="no verified serpent mapping"):
+            nucleide.mcnp.parse_csg_to_serpent("msg\ntitle\n1 0 *-1\n\n1 so 10\n\n")
+        with pytest.raises(ValueError, match="no verified serpent mapping"):
+            nucleide.mcnp.parse_csg_to_serpent("msg\ntitle\n1 0 -1 2\n\n1 -2 pz 0\n2 pz 5\n\n")
+
+    def test_out_of_scope_shared(self) -> None:
+        with pytest.raises(ValueError, match="no v1 mapping"):
+            nucleide.mcnp.parse_csg_to_serpent(
+                "msg\ntitle\n1 1 -1.0 -1\n\n1 kz 0 0 0 1 1\n\nm1 1001 1.0\n"
+            )
+        with pytest.raises(ValueError, match="out of v1 scope"):
+            nucleide.mcnp.parse_csg_to_serpent("msg\ntitle\n1 0 -1 u=-1\n\n1 so 10\n\n")
+
+
+class TestCsgPhits:
+    def test_go_fixtures_emit_sections(self) -> None:
+        for name in GO_FIXTURES:
+            text, drift = nucleide.mcnp.read_csg_to_phits(str(FIXTURES / name))
+            assert "[ Surface ]" in text and "[ Cell ]" in text
+            assert isinstance(drift, list)
+
+    def test_sphere_box_sections(self) -> None:
+        text, _ = nucleide.mcnp.read_csg_to_phits(str(FIXTURES / "deck_csg_sphere_box.txt"))
+        lines = text.splitlines()
+        assert "1  SO  5" in lines
+        assert "2  PX  -10" in lines
+        assert "1  1  -10  -1" in lines
+        assert "2  0  1 2 -3 4 -5 6 -7" in lines
+
+    def test_universe_fill_params(self) -> None:
+        for name in ("deck_csg_universe_fill.txt", "deck_csg_universe_data.txt"):
+            text, drift = nucleide.mcnp.read_csg_to_phits(str(FIXTURES / name))
+            assert "1  1  -10  -1  U=1" in text.splitlines()
+            assert "2  0  -2  FILL=1" in text.splitlines()
+            assert any(d["action"] == "fill-applied" for d in drift)
+
+    def test_outer_void_and_reflective(self) -> None:
+        text, drift = nucleide.mcnp.read_csg_to_phits(str(FIXTURES / "deck_csg_complement.txt"))
+        assert "2  -1  #1 -2" in text.splitlines()
+        assert any(d["action"] == "outer-void-assigned" for d in drift)
+        text, _ = nucleide.mcnp.parse_csg_to_phits("msg\ntitle\n1 0 -1\n\n*1 so 10\n\n")
+        assert "*1  SO  10" in text.splitlines()
+
+    def test_parse_text_matches_file(self) -> None:
+        path = FIXTURES / "deck_csg_sphere_box.txt"
+        file_text, _ = nucleide.mcnp.read_csg_to_phits(str(path))
+        text, _ = nucleide.mcnp.parse_csg_to_phits(path.read_text())
+        assert text == file_text
+
+    def test_periodic_rejected(self) -> None:
+        with pytest.raises(ValueError, match="no phits spelling"):
+            nucleide.mcnp.parse_csg_to_phits("msg\ntitle\n1 0 -1 2\n\n1 -2 pz 0\n2 pz 5\n\n")
+        with pytest.raises(ValueError, match="no v1 mapping"):
+            nucleide.mcnp.parse_csg_to_phits(
+                "msg\ntitle\n1 1 -1.0 -1\n\n1 kz 0 0 0 1 1\n\nm1 1001 1.0\n"
+            )

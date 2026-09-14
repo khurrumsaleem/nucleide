@@ -525,7 +525,34 @@ SKIPPED fission_yields: OpenMC fission-yield cross-check skipped: ENDF/B-VIII.0 
 present under validation/.cache (the container cache holds only the CASL chain); the tape spot gates
 above still pin the committed table.
 
-## 9. Dose coefficients (`dose_vs_pyne.py`)
+## 9. Fission-yield library assessment (`library_vs_refs.py`)
+
+JADE-class library assessment over the committed ENDF/B-VIII.0 fission-yield pack (no external
+oracle, no tapes): data hygiene, independent-block sums to 2.0, and cumulative coverage, plus
+reported diagnostics on evaluation-shape quirks.
+
+| Gate                                       | Expected  | Got                                    | Status |
+|--------------------------------------------|-----------|----------------------------------------|--------|
+| L1 rows finite, yields/dY >= 0             | 151490    | 0                                      | PASS   |
+| L2 independent sums to 2.0                 | 61 blocks | worst dev 6.801204e-07 at Cm243/0.0253 | PASS   |
+| L3 cumulative row per independent daughter | 75745     | 0 missing                              | PASS   |
+
+| Diagnostic                                    | Value        | Status   |
+|-----------------------------------------------|--------------|----------|
+| independent blocks                            | 61           | —        |
+| independent daughters                         | 75745        | —        |
+| zeroed cumulative entries (untracked isomers) | 409          | reported |
+| dev Cm243 n 0.0253                            | 6.801204e-07 | reported |
+| dev Pa231 n 500000                            | 6.601284e-07 | reported |
+| dev Am241 n 0.0253                            | 5.576288e-07 | reported |
+| dev Pu242 n 1.4e+07                           | 5.370449e-07 | reported |
+| dev Pu238 n 500000                            | 5.342778e-07 | reported |
+
+Zeroed cumulative entries (409) are evaluation shape — short-lived isomers the cumulative evaluation
+does not track — recorded here so a library regeneration that changes the count fails loudly at
+review, not silently.
+
+## 10. Dose coefficients (`dose_vs_pyne.py`)
 
 Nucleide dose factors (HNF-SD-WM-TI-707 Rev.1 / HNF-5636 App. O via PyNE `dbgen/dosefactors*.csv`)
 vs the PyNE `Material::dose_per_g` equations (source ids 0=EPA/1=DOE/2=GENII). Screening-level only;
@@ -555,7 +582,7 @@ H3 air GENII sentinel: -1.0 (PyNE -1-for-missing-air).
 
 1 g K-40 soil EPA per-gram dose: 3.103665e-03 mrem/h per g per m^2.
 
-## 10. Parser cross-validation (`parsers_vs_refs.py`)
+## 11. Parser cross-validation (`parsers_vs_refs.py`)
 
 Nucleide's readers are cross-checked against independent oracle readers on the
 same committed fixture files. Skipped comparisons (missing or incapable oracle)
@@ -669,23 +696,40 @@ SKIPPED mcnp_meshtal_single_meshtal.txt: `pyne.mcnp.Meshtal` requires PyMOAB (no
 
 The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed
 `fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped
-v1: surfaces, cells, and a material stub only). Structural probes — surface
+v2: surfaces, cells, nested universes, and a material stub; a filled cell
+carries `fill` instead of `material`). Structural probes — surface
 and cell counts, region ids referencing defined surfaces, boundary
-attributes, material stubs — always run; the OpenMC `Region.from_expression`
+attributes, material/fill stubs — always run; the OpenMC `Region.from_expression`
 cross-check runs only when `openmc` is importable (validation container).
 Reject decks must raise `ValueError`.
 
-| Deck                           | Probe          | Values compared           | Max rel diff / status |
-|--------------------------------|----------------|---------------------------|-----------------------|
-| deck_csg_sphere_box.txt        | structure      | 7 surfs, 3 cells, 14 refs | OK                    |
-| deck_csg_rpp.txt               | structure      | 6 surfs, 2 cells, 12 refs | OK                    |
-| deck_csg_rcc.txt               | structure      | 3 surfs, 2 cells, 6 refs  | OK                    |
-| deck_csg_complement.txt        | structure      | 2 surfs, 2 cells, 3 refs  | OK                    |
-| deck_csg_complement_reject.txt | reject         | 1                         | OK (ValueError)       |
-| deck_csg_sphere_box.txt        | openmc regions | 3                         | OK                    |
-| deck_csg_rpp.txt               | openmc regions | 2                         | OK                    |
-| deck_csg_rcc.txt               | openmc regions | 2                         | OK                    |
-| deck_csg_complement.txt        | openmc regions | 2                         | OK                    |
+| Deck                           | Probe             | Values compared           | Max rel diff / status |
+|--------------------------------|-------------------|---------------------------|-----------------------|
+| deck_csg_sphere_box.txt        | structure         | 7 surfs, 3 cells, 14 refs | OK                    |
+| deck_csg_sphere_box.txt        | serpent structure | 7 surfs, 3 cells, 14 refs | OK                    |
+| deck_csg_sphere_box.txt        | phits structure   | 7 surfs, 3 cells, 14 refs | OK                    |
+| deck_csg_rpp.txt               | structure         | 6 surfs, 2 cells, 12 refs | OK                    |
+| deck_csg_rpp.txt               | serpent structure | 1 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_rpp.txt               | phits structure   | 1 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_rcc.txt               | structure         | 3 surfs, 2 cells, 6 refs  | OK                    |
+| deck_csg_rcc.txt               | serpent structure | 1 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_rcc.txt               | phits structure   | 1 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_complement.txt        | structure         | 2 surfs, 2 cells, 3 refs  | OK                    |
+| deck_csg_complement.txt        | serpent structure | 2 surfs, 2 cells, 3 refs  | OK                    |
+| deck_csg_complement.txt        | phits structure   | 2 surfs, 2 cells, 3 refs  | OK                    |
+| deck_csg_universe_fill.txt     | structure         | 2 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_universe_fill.txt     | serpent structure | 2 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_universe_fill.txt     | phits structure   | 2 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_universe_data.txt     | structure         | 2 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_universe_data.txt     | serpent structure | 2 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_universe_data.txt     | phits structure   | 2 surfs, 2 cells, 2 refs  | OK                    |
+| deck_csg_complement_reject.txt | reject            | 1                         | OK (ValueError)       |
+| deck_csg_sphere_box.txt        | openmc regions    | 3                         | OK                    |
+| deck_csg_rpp.txt               | openmc regions    | 2                         | OK                    |
+| deck_csg_rcc.txt               | openmc regions    | 2                         | OK                    |
+| deck_csg_complement.txt        | openmc regions    | 2                         | OK                    |
+| deck_csg_universe_fill.txt     | openmc regions    | 2                         | OK                    |
+| deck_csg_universe_data.txt     | openmc regions    | 2                         | OK                    |
 
 ### ENDL vs PyNE
 
@@ -707,7 +751,7 @@ SKIPPED: no working FLUKA oracle exists in this environment. `pyne.fluka.Usrbin`
 fixtures are ASCII `.lis` files (fluka_usrbin_degenerate.lis, fluka_usrbin_multiple.lis,
 fluka_usrbin_single.lis).
 
-## 11. MCPL interchange vs upstream tooling
+## 12. MCPL interchange vs upstream tooling
 
 | Gate                    | Expected           | Got                                                                                                | Status |
 |-------------------------|--------------------|----------------------------------------------------------------------------------------------------|--------|
@@ -749,7 +793,7 @@ baseline, S5-S8 fidelity tail: cs compat, niss, polarisation/universal, extended
 
 SSW oracle runs the upstream converter scripts over the synthetic pair.
 
-## 12. Activation I/O (`activation_vs_refs.py`)
+## 13. Activation I/O (`activation_vs_refs.py`)
 
 Nucleide's activation-code readers (alara-io, cccc-io, fispact-io, origen-io)
 and the r2s workflow builder are checked against committed fixtures.
@@ -933,7 +977,7 @@ reader, so the corresponding fixtures remain synthetic self-consistency checks.
 
 `pyne.cccc` is unexpectedly importable; no comparison is defined for it yet.
 
-## 13. Emission drift (`emit_vs_self.py`)
+## 14. Emission drift (`emit_vs_self.py`)
 
 Self-consistency oracle for `nucleide.emit` (no external code offers this comparison). Uranium metal
 must emit losslessly on all five dialects; the FLUKA O16 gap is asserted as reported drift.
@@ -952,7 +996,7 @@ Water-like mix: FLUKA accounts 1.000000e+00 of 3.0 g with 1 dropped nuclide(s).
 
 ARMI database keys (`nU235`) emit the same five cards as GNDS names.
 
-## 14. Decay (`decay_vs_radioactivedecay.py`)
+## 15. Decay (`decay_vs_radioactivedecay.py`)
 
 Nucleide depletion decay analytics (CRAM-48 parent atoms + Inventory parent activity) vs the
 radioactivedecay oracle (version 0.6.1, default ICRP-107 dataset, pip-pinned in `Containerfile`) on
@@ -1017,7 +1061,7 @@ Worst table-corrected residual over all cases, times, and both channels: 2.88653
 to that residual — both solvers agree with their own analytics to ~1e-12, and the remaining gap is
 the tables.
 
-## 15. UQ-lite sampling vs SANDY
+## 16. UQ-lite sampling vs SANDY
 
 | Gate                          | Expected                               | Got            | Status |
 |-------------------------------|----------------------------------------|----------------|--------|
@@ -1056,16 +1100,16 @@ ENDF input, no NJOY).
 
 Tape-driven sandy.sampling/ERRORR comparisons stay NJOY-gated skips (no tapes vendored, by design).
 
-## 16. Timings (`timings.py`)
+## 17. Timings (`timings.py`)
 
 Mean wall time over 20 repeats. The CRAM comparison now times **only the solve
 step** on pre-built systems/matrices.
 
 | Operation                                             | Nucleide       | Reference code                              |
 |-------------------------------------------------------|----------------|---------------------------------------------|
-| CRAM-48 solve (`chain_ni.xml`)                        | 1.386631e-04 s | OpenMC CRAM48: 3.055948e-03 s               |
-| Default uranium enrichment solve                      | 1.103872e-04 s | PyNE multicomponent: 5.891790e-03 s         |
-| MAGIC total-mode solve (synthetic tally)              | 5.733000e-07 s | PyNE-equivalent pure Python: 3.825050e-06 s |
+| CRAM-48 solve (`chain_ni.xml`)                        | 1.332167e-04 s | OpenMC CRAM48: 3.018470e-03 s               |
+| Default uranium enrichment solve                      | 1.101543e-04 s | PyNE multicomponent: 5.660682e-03 s         |
+| MAGIC total-mode solve (synthetic tally)              | 7.162501e-07 s | PyNE-equivalent pure Python: 3.859100e-06 s |
 | Native Rust CRAM-48 solve (Criterion, no Python)      | 8.465243e-05 s | —                                           |
 | Native Rust deplete end-to-end (Criterion, no Python) | 8.640163e-05 s | —                                           |
 

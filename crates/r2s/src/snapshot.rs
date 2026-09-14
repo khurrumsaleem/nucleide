@@ -383,6 +383,35 @@ pub fn snapshot_workflow(
     Ok((workflow, deck, decks))
 }
 
+/// Total facility inventory over snapshot zones (flow accounting).
+///
+/// Sums `N × V × 1e-24` atoms per ARMI bare name (`N` in atoms/barn-cm,
+/// `V` in cm³) across every zone, so callers can difference two facility
+/// snapshots (inflow vs outflow) without touching HDF5. Non-finite or
+/// negative densities and non-positive volumes are [`Error`]s, never
+/// silent drops; void zones (empty composition) contribute nothing.
+pub fn snapshot_inventory(input: &SnapshotInput) -> Result<BTreeMap<String, f64>> {
+    let mut totals = BTreeMap::new();
+    for zone in &input.zones {
+        if zone.volume_cm3 <= 0.0 || !zone.volume_cm3.is_finite() {
+            return Err(Error::Invalid(format!(
+                "snapshot zone `{}` has non-positive volume {}",
+                zone.zone, zone.volume_cm3
+            )));
+        }
+        for (nuclide, density) in &zone.composition {
+            if !density.is_finite() || *density < 0.0 {
+                return Err(Error::Invalid(format!(
+                    "snapshot zone `{zone}` nuclide `{nuclide}` has invalid density {density}",
+                    zone = zone.zone
+                )));
+            }
+            *totals.entry(nuclide.clone()).or_insert(0.0) += density * zone.volume_cm3 * 1e-24;
+        }
+    }
+    Ok(totals)
+}
+
 /// Mixture name for a zone (`mix_<zone>`; the prefix keeps zones named
 /// `void` distinct from the `void` mixture).
 fn mixture_name(zone: &str) -> String {
@@ -707,6 +736,29 @@ mod tests {
         let reparsed = AlaraDeck::parse(&deck.to_string()).unwrap();
         reparsed.validate().unwrap();
         assert_eq!(reparsed.to_string(), deck.to_string());
+    }
+
+    #[test]
+    fn inventory_sums_zone_densities_by_volume() {
+        let totals = snapshot_inventory(&input()).unwrap();
+        assert_eq!(totals.len(), 3);
+        assert!((totals["U235"] - 1.0e-3 * 1200.0 * 1e-24).abs() < 1e-40);
+        assert!((totals["nU238"] - 2.0e-2 * 1200.0 * 1e-24).abs() < 1e-40);
+        assert!((totals["PU239"] - 5.0e-4 * 800.0 * 1e-24).abs() < 1e-40);
+        // Void zones contribute nothing; differencing two snapshots is exact.
+        let mut out = input();
+        out.zones[1].composition.clear();
+        let before = snapshot_inventory(&input()).unwrap();
+        let after = snapshot_inventory(&out).unwrap();
+        assert!(!after.contains_key("PU239"));
+        assert_eq!(after["U235"], before["U235"]);
+        // Invalid inputs are loud.
+        let mut bad = input();
+        bad.zones[0].composition[0].1 = -1.0;
+        assert!(snapshot_inventory(&bad).is_err());
+        let mut bad = input();
+        bad.zones[0].volume_cm3 = 0.0;
+        assert!(snapshot_inventory(&bad).is_err());
     }
 
     #[test]

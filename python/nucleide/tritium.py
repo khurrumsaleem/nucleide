@@ -7,6 +7,7 @@ from nucleide._internal import (
     tritium_irreversible_fill,
     tritium_langmuir,
     tritium_oriani,
+    tritium_recombination_rate,
     tritium_sieverts,
     tritium_steady,
     tritium_time_lag,
@@ -22,6 +23,7 @@ __all__ = [
     "langmuir",
     "irreversible_fill",
     "sieverts",
+    "recombination_rate",
 ]
 
 
@@ -41,7 +43,8 @@ def steady(
     ``left``/``right`` are boundary-spec dicts with ``kind`` selecting
     ``"dirichlet"`` (``value`` [mol/m³]), ``"sieverts"``/``"henry"``
     (``solubility``, ``pressure`` [Pa]), ``"recombination"`` (``rate`` —
-    accepted, rejected at solve time as named-open G5), or ``"zero_flux"``.
+    closed in steady state by the G5 face construction, still named-open
+    in :func:`transient`), or ``"zero_flux"``.
     ``traps`` holds one spec dict per species (``k0``, ``p0``,
     ``site_density`` required; ``e_k``/``e_p`` default to 0). ``temperature``
     is one value (uniform, default 500 K) or one per cell; ``source`` is
@@ -141,3 +144,8 @@ def irreversible_fill(k: float, c: float, N: float, times: list[float]) -> list[
 def sieverts(K_S: float, p: float) -> float:
     """Sieverts surface concentration ``c = K_S sqrt(p)`` [mol/m³] (G4)."""
     return tritium_sieverts(K_S, p)
+
+
+def recombination_rate(kr0: float, e_r: float, temp: float) -> float:
+    """Recombination rate ``K_r = kr0 * exp(-e_r / R / temp)`` [m⁴/mol/s] (G5)."""
+    return tritium_recombination_rate(kr0, e_r, temp)

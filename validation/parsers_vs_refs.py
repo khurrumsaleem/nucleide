@@ -35,6 +35,8 @@ CSG_GO_FIXTURES = [
     "deck_csg_rpp.txt",
     "deck_csg_rcc.txt",
     "deck_csg_complement.txt",
+    "deck_csg_universe_fill.txt",
+    "deck_csg_universe_data.txt",
 ]
 CSG_REJECT_FIXTURES = ["deck_csg_complement_reject.txt"]
 
@@ -466,14 +468,15 @@ def fluka_section(report: Report) -> None:
 
 
 def csg_section(report: Report) -> None:
-    """MCNP CSG translation fixtures vs OpenMC (scoped v1)."""
+    """MCNP CSG translation fixtures vs OpenMC (scoped v2: + nested universes)."""
     report.heading("CSG translation vs OpenMC")
     report.prose(
         "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed"
         "\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped"
-        "\nv1: surfaces, cells, and a material stub only). Structural probes — surface"
+        "\nv2: surfaces, cells, nested universes, and a material stub; a filled cell"
+        "\ncarries `fill` instead of `material`). Structural probes — surface"
         "\nand cell counts, region ids referencing defined surfaces, boundary"
-        "\nattributes, material stubs — always run; the OpenMC `Region.from_expression`"
+        "\nattributes, material/fill stubs — always run; the OpenMC `Region.from_expression`"
         "\ncross-check runs only when `openmc` is importable (validation container)."
         "\nReject decks must raise `ValueError`."
     )
@@ -482,6 +485,112 @@ def csg_section(report: Report) -> None:
         report.table(["Deck", "Probe", "Values compared", "Max rel diff / status"], rows)
     for note in skips:
         report.prose(note)
+
+
+def _serpent_probe(text: str) -> tuple[str, str]:
+    """Structural probe over translated Serpent `surf`/`cell` cards.
+
+    Returns (values compared, status). Checks card counts, that region
+    surface refs name defined surfaces, `#n` refs name defined cells, and
+    filled cells carry no material entry.
+    """
+    import re
+
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("%")]
+    surfs = [ln.split() for ln in lines if ln.startswith("surf ")]
+    cells = [ln.split() for ln in lines if ln.startswith("cell ")]
+    known_surfs = {t[1] for t in surfs}
+    known_cells = {t[1] for t in cells}
+    bad = 0
+    n_refs = 0
+    for toks in cells:
+        if len(toks) > 4 and toks[3] == "fill":
+            bad += not toks[4].isdigit()
+            rest = toks[5:]
+        else:
+            bad += not (
+                len(toks) > 3 and (toks[3] == "void" or re.fullmatch(r"m\d+", toks[3]) is not None)
+            )
+            rest = toks[4:]
+        for tok in rest:
+            for num in re.findall(r"-?\d+", tok):
+                n_refs += 1
+                num = num.lstrip("-")
+                if tok.startswith("#"):
+                    bad += num not in known_cells
+                else:
+                    bad += num not in known_surfs
+    if bad:
+        _track(1.0)
+    return (
+        f"{len(surfs)} surfs, {len(cells)} cells, {n_refs} refs",
+        "OK" if not bad else f"{bad} MISMATCHES",
+    )
+
+
+def _phits_probe(text: str) -> tuple[str, str]:
+    """Structural probe over translated PHITS `[Surface]`/`[Cell]` sections.
+
+    Returns (values compared, status). Checks section presence, that region
+    surface refs name defined surfaces, `#n` refs name defined cells, and
+    void/outer-void cells omit the density field.
+    """
+    import re
+
+    section = ""
+    surfs: list[list[str]] = []
+    cells: list[list[str]] = []
+    ok_sections = "[ Surface ]" in text and "[ Cell ]" in text
+    for ln in text.splitlines():
+        stripped = ln.strip()
+        if not stripped or stripped.startswith("$"):
+            continue
+        if stripped.startswith("["):
+            section = stripped
+            continue
+        if section == "[ Surface ]":
+            surfs.append(stripped.split())
+        elif section == "[ Cell ]":
+            cells.append(stripped.split())
+    known_surfs = {t[0].lstrip("*") for t in surfs}
+    known_cells = {t[0] for t in cells}
+    bad = 0 if ok_sections else 1
+    n_refs = 0
+    for toks in cells:
+        params = [t for t in toks if "=" in t]
+        body = toks[: len(toks) - len(params)] if params else toks
+        if len(body) < 3:
+            bad += 1
+            continue
+        try:
+            mat = int(body[1])
+        except ValueError:
+            bad += 1
+            continue
+        if mat in (0, -1):
+            region = body[2:]
+            bad += any("=" in t for t in region)
+        else:
+            try:
+                float(body[2])
+            except ValueError:
+                bad += 1
+                continue
+            region = body[3:]
+        for tok in region:
+            for num in re.findall(r"-?\d+", tok):
+                n_refs += 1
+                num = num.lstrip("-")
+                if tok.startswith("#"):
+                    bad += num not in known_cells
+                else:
+                    bad += num not in known_surfs
+    if bad:
+        _track(1.0)
+    return (
+        f"{len(surfs)} surfs, {len(cells)} cells, {n_refs} refs",
+        "OK" if not bad else f"{bad} MISMATCHES",
+    )
 
 
 def compare_csg() -> tuple[list[list[str]], list[str]]:
@@ -518,7 +627,10 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
                 n_refs += 1
                 bad += tok.lstrip("-") not in known
             mat = cell.get("material", "")
-            bad += not (mat == "void" or mat.isdigit())
+            if cell.get("fill") is not None:
+                bad += mat != "" or not cell.get("fill", "").isdigit()
+            else:
+                bad += not (mat == "void" or mat.isdigit())
         for surf in surfs:
             boundary = surf.get("boundary", "transmission")
             if boundary not in ("transmission", "reflective", "periodic"):
@@ -535,6 +647,20 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
                 "OK" if not bad else f"{bad} MISMATCHES",
             ]
         )
+        try:
+            serpent_text, _ = nucleide.mcnp.read_csg_to_serpent(str(path))
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "serpent structure", "—", f"ERROR: {exc}"])
+            continue
+        rows.append([name, "serpent structure", *_serpent_probe(serpent_text)])
+        try:
+            phits_text, _ = nucleide.mcnp.read_csg_to_phits(str(path))
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "phits structure", "—", f"ERROR: {exc}"])
+            continue
+        rows.append([name, "phits structure", *_phits_probe(phits_text)])
     for name in CSG_REJECT_FIXTURES:
         try:
             nucleide.mcnp.read_csg_to_openmc(str(CSG_DIR / name))

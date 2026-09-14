@@ -390,7 +390,7 @@
     },
     {
       "kind": "prose",
-      "text": "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped\nv1: surfaces, cells, and a material stub only). Structural probes \u2014 surface\nand cell counts, region ids referencing defined surfaces, boundary\nattributes, material stubs \u2014 always run; the OpenMC `Region.from_expression`\ncross-check runs only when `openmc` is importable (validation container).\nReject decks must raise `ValueError`."
+      "text": "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped\nv2: surfaces, cells, nested universes, and a material stub; a filled cell\ncarries `fill` instead of `material`). Structural probes \u2014 surface\nand cell counts, region ids referencing defined surfaces, boundary\nattributes, material/fill stubs \u2014 always run; the OpenMC `Region.from_expression`\ncross-check runs only when `openmc` is importable (validation container).\nReject decks must raise `ValueError`."
     },
     {
       "kind": "table",
@@ -408,9 +408,33 @@
           "OK"
         ],
         [
+          "deck_csg_sphere_box.txt",
+          "serpent structure",
+          "7 surfs, 3 cells, 14 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_sphere_box.txt",
+          "phits structure",
+          "7 surfs, 3 cells, 14 refs",
+          "OK"
+        ],
+        [
           "deck_csg_rpp.txt",
           "structure",
           "6 surfs, 2 cells, 12 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_rpp.txt",
+          "serpent structure",
+          "1 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_rpp.txt",
+          "phits structure",
+          "1 surfs, 2 cells, 2 refs",
           "OK"
         ],
         [
@@ -420,9 +444,69 @@
           "OK"
         ],
         [
+          "deck_csg_rcc.txt",
+          "serpent structure",
+          "1 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_rcc.txt",
+          "phits structure",
+          "1 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
           "deck_csg_complement.txt",
           "structure",
           "2 surfs, 2 cells, 3 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_complement.txt",
+          "serpent structure",
+          "2 surfs, 2 cells, 3 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_complement.txt",
+          "phits structure",
+          "2 surfs, 2 cells, 3 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_fill.txt",
+          "structure",
+          "2 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_fill.txt",
+          "serpent structure",
+          "2 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_fill.txt",
+          "phits structure",
+          "2 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_data.txt",
+          "structure",
+          "2 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_data.txt",
+          "serpent structure",
+          "2 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_data.txt",
+          "phits structure",
+          "2 surfs, 2 cells, 2 refs",
           "OK"
         ],
         [
@@ -451,6 +535,18 @@
         ],
         [
           "deck_csg_complement.txt",
+          "openmc regions",
+          "2",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_fill.txt",
+          "openmc regions",
+          "2",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_data.txt",
           "openmc regions",
           "2",
           "OK"

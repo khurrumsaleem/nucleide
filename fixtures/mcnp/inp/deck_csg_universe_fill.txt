@@ -1,0 +1,10 @@
+CSG nested universe message
+Sphere in universe 1, filled from the universe-0 box cell
+1 1 -10.0 -1 u=1 imp:n=1 $ fuel sphere in universe 1
+2 0 -2 fill=1 imp:n=0 $ universe-0 cell filled with universe 1
+
+1 so 5.0
+2 so 10.0
+
+mode n
+m1 92235 0.05 92238 0.95 $ enriched uranium

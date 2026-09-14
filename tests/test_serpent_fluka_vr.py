@@ -91,6 +91,30 @@ class TestMagicAndSampling:
         assert 0 <= s["index"] < nve
 
 
+class TestKdeSampler:
+    def test_fit_draw_pdf(self) -> None:
+        kde = nucleide.vr.KdeSampler([[1.0, 2.0], [3.0, 4.0]], [0.5, 2.0])
+        assert kde.n_samples() == 2
+        assert kde.bandwidths() == [0.5, 2.0]
+        assert kde.draw(0.75, [1.0, -0.5]) == [3.5, 3.0]
+        assert kde.pdf([3.0, 4.0]) > kde.pdf([5.0, 6.0]) > 0.0
+
+    def test_silverman_and_errors(self) -> None:
+        kde = nucleide.vr.KdeSampler([[0.0], [1.0], [2.0], [3.0]])
+        assert kde.bandwidths()[0] > 0.0
+        with pytest.raises(ValueError, match="zero variance"):
+            nucleide.vr.KdeSampler([[3.0]] * 8)
+        with pytest.raises(ValueError):
+            nucleide.vr.KdeSampler([[1.0, 2.0], [3.0]])
+        with pytest.raises(ValueError):
+            nucleide.vr.KdeSampler([[1.0]], "scott")
+        kde = nucleide.vr.KdeSampler([[0.0], [2.0]])
+        with pytest.raises(ValueError):
+            kde.draw(1.0, [0.0])
+        with pytest.raises(ValueError):
+            kde.pdf([0.0, 0.0])
+
+
 class TestWriters:
     def test_ssw_round_trip_bytes(self, tmp_path: Path) -> None:
         src = FIX / "mcnp" / "ssw" / "mcnp_surfsrc_onetrack.w"
