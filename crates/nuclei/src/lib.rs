@@ -19,6 +19,7 @@ use std::fmt;
 pub mod armi;
 pub mod data;
 pub mod dialects;
+pub mod fgr15;
 pub mod particles;
 pub mod rxname;
 

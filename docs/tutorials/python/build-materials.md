@@ -114,6 +114,12 @@ Nuclides lacking mass data are errors, as are radioactive nuclides
 lacking dose data (including the `-1` sentinels). Stable nuclides — known
 mass but no decay constant — contribute exactly 0.
 
+For external-exposure screening, `nucleide.nuclei.fgr15_dose_rate` serves
+the EPA FGR 15 tables (ground surface, soil depths, air submersion, water
+immersion; downloaded hash-pinned at runtime). It is external exposure only
+and complements — never silently overrides — `dose_per_g`; compare units
+before combining.
+
 ## See also
 
 - Crate docs in [`crates/material/src/lib.rs`](https://github.com/nukehub-dev/nucleide/blob/main/crates/material/src/lib.rs).

@@ -109,6 +109,18 @@ re-downloaded only if absent. `.cache/` is git-ignored — never commit the
 chain file. Everything else runs on committed inputs from `fixtures/` or this
 directory.
 
+`nuclear_data_vs_refs.py` additionally downloads the EPA Federal Guidance
+Report No. 15 external-dosimetry coefficient zip (EPA 402-R-25-001, July
+2025; data file dated 2025-05-28) from
+`https://www.epa.gov/system/files/other-files/2025-07/fgr15_data_2025_05_28.zip`,
+cached at `validation/.cache/fgr15_data_2025_05_28.zip` on first use and
+re-downloaded only if absent. The download is pinned to SHA-256
+`71314b3f1d73c197da8b589e74c450f61befce48c66ace6ac1f6e0597560bd91`
+(retrieved 2026-09-14); a hash mismatch fails loudly because EPA may have
+revised the file. As a U.S. federal government work the FGR 15 tables carry
+no copyright, but they are still not vendored — users and the harness fetch
+from EPA directly.
+
 The 0.3.0 oracle additions need no new downloads: `nuclear_data_vs_refs.py`
 reads PyNE's bundled `nuc_data.h5` (`/neutron/simple_xs` via
 `pyne.xs.data_source.SimpleDataSource`) in place, checks scattering lengths

@@ -4464,6 +4464,58 @@ fn dose_factor(name: &str, pathway: &str, source: &str) -> PyResult<Option<f64>>
     Ok(nucleide_nuclei::data::dose_factor_by_name(name, p, s))
 }
 
+fn wrap_fgr15_err(e: nucleide_nuclei::fgr15::Error) -> PyErr {
+    PyValueError::new_err(e.to_string())
+}
+
+/// Parse one EPA FGR 15 `Table_4_*.DAT` member (table text) into a dict.
+///
+/// Thin wrapper over `nucleide_nuclei::fgr15::parse_table`. Returns
+/// `{"scenario": str, "units": str, "coefficients": {name: [6 floats]}}`
+/// with coefficient lists in canonical age order (newborn, 1-yr, 5-yr,
+/// 10-yr, 15-yr, adult) and nuclide names in FGR 15 spelling (`H-3`,
+/// `Ba-137m`, `Sb-124n`). `expected_rows` is the exact nuclide-row count the
+/// table must hold (1,252 for the published EPA tables); structural
+/// problems, malformed rows, duplicates, and row-count mismatches are loud
+/// errors. Screening-level only — not for safety decisions.
+#[pyfunction]
+#[pyo3(signature = (text, expected_rows))]
+fn parse_fgr15_table<'py>(
+    py: Python<'py>,
+    text: &str,
+    expected_rows: usize,
+) -> PyResult<pyo3::Bound<'py, pyo3::types::PyDict>> {
+    let table = nucleide_nuclei::fgr15::parse_table(text, expected_rows).map_err(wrap_fgr15_err)?;
+    let out = pyo3::types::PyDict::new(py);
+    out.set_item("scenario", table.scenario().as_str())?;
+    out.set_item("units", table.units())?;
+    let coefficients = pyo3::types::PyDict::new(py);
+    for (nucid, row) in table.iter() {
+        coefficients.set_item(
+            nucleide_nuclei::fgr15::name_of(NuclideId::from_nucid(nucid)),
+            row.to_vec(),
+        )?;
+    }
+    out.set_item("coefficients", coefficients)?;
+    Ok(out)
+}
+
+/// Column index (0-5) of an EPA FGR 15 age group.
+///
+/// Accepts `newborn`/`adult`, bare years (`1`, `5`, `10`, `15`), and
+/// spelled variants (`1yr`, `1-yr`, `1-yr-old`, ...). Raises `ValueError`
+/// for anything else.
+#[pyfunction]
+fn fgr15_age_index(age: &str) -> PyResult<usize> {
+    nucleide_nuclei::fgr15::Fgr15Age::parse(age)
+        .map(|a| a.index())
+        .ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "unknown FGR 15 age group `{age}` (supported: newborn, 1, 5, 10, 15, adult)"
+            ))
+        })
+}
+
 /// Total dose per gram of a composition dict ({nuclide name: grams}).
 ///
 /// Thin wrapper over `Material::total_dose_per_g` (Ame2020 masses,
@@ -7628,6 +7680,8 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(decay_heat, m)?)?;
     m.add_function(wrap_pyfunction!(dose_factor, m)?)?;
     m.add_function(wrap_pyfunction!(dose_per_g, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_fgr15_table, m)?)?;
+    m.add_function(wrap_pyfunction!(fgr15_age_index, m)?)?;
     m.add_function(wrap_pyfunction!(mix_by_mass, m)?)?;
     m.add_function(wrap_pyfunction!(mix_by_volume, m)?)?;
     m.add_function(wrap_pyfunction!(specific_activity, m)?)?;

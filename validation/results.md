@@ -535,6 +535,38 @@ SKIPPED fission_yields: OpenMC fission-yield cross-check skipped: ENDF/B-VIII.0 
 present under validation/.cache (the container cache holds only the CASL chain); the tape spot gates
 above still pin the committed table.
 
+### EPA FGR 15 external-dosimetry coefficients (runtime download)
+
+Nucleide `load_fgr15_table` / `fgr15_dose_rate` parse the seven EPA
+FGR 15 (EPA 402-R-25-001, July 2025) `Table_4_*.DAT` scenario tables
+from the official zip, downloaded once into `validation/.cache/` and
+hash-pinned (`71314b3f1d73c197da8b589e74c450f61befce48c66ace6ac1f6e0597560bd91`). Gates: per-table
+row
+count 1,252, six age columns per row, and ten hand spots transcribed
+from the published tables at exact equality (both sides read the same
+ASCII decimals, so the gate verifies the cell mapping, not float
+round-trip). Screening-level only — not for safety decisions.
+
+| Table / spot                 | Nucleide                 | Expected  | Gate |
+|------------------------------|--------------------------|-----------|------|
+| ground_surface (Table 4.1)   | 1252                     | 6         | ok   |
+| soil_1cm (Table 4.2)         | 1252                     | 6         | ok   |
+| soil_5cm (Table 4.3)         | 1252                     | 6         | ok   |
+| soil_15cm (Table 4.4)        | 1252                     | 6         | ok   |
+| soil_infinite (Table 4.5)    | 1252                     | 6         | ok   |
+| air_submersion (Table 4.6)   | 1252                     | 6         | ok   |
+| water_immersion (Table 4.7)  | 1252                     | 6         | ok   |
+| ground_surface H-3 newborn   | 3.840e-27 Sv m2/Bq s     | 3.840e-27 | ok   |
+| ground_surface H-3 adult     | 8.970e-28 Sv m2/Bq s     | 8.970e-28 | ok   |
+| ground_surface Be-7 adult    | 3.170e-17 Sv m2/Bq s     | 3.170e-17 | ok   |
+| ground_surface Ba-137m adult | 3.870e-16 Sv m2/Bq s     | 3.870e-16 | ok   |
+| soil_1cm K-40 adult          | 9.320e-19 Sv m3 per Bq s | 9.320e-19 | ok   |
+| soil_5cm Sr-90 adult         | 2.540e-21 Sv m3 per Bq s | 2.540e-21 | ok   |
+| soil_15cm I-131 adult        | 9.550e-18 Sv m3 per Bq s | 9.550e-18 | ok   |
+| soil_infinite H-3 adult      | 2.490e-28 Sv m3 per Bq s | 2.490e-28 | ok   |
+| air_submersion Rn-222 adult  | 1.720e-17 Sv m3 per Bq s | 1.720e-17 | ok   |
+| water_immersion U-238 adult  | 6.510e-21 Sv m3 per Bq s | 6.510e-21 | ok   |
+
 ## 9. Fission-yield library assessment (`library_vs_refs.py`)
 
 JADE-class library assessment over the committed ENDF/B-VIII.0 fission-yield pack (no external
@@ -1139,9 +1171,9 @@ step** on pre-built systems/matrices.
 
 | Operation                                             | Nucleide       | Reference code                              |
 |-------------------------------------------------------|----------------|---------------------------------------------|
-| CRAM-48 solve (`chain_ni.xml`)                        | 1.335317e-04 s | OpenMC CRAM48: 2.940431e-03 s               |
-| Default uranium enrichment solve                      | 1.097956e-04 s | PyNE multicomponent: 5.723599e-03 s         |
-| MAGIC total-mode solve (synthetic tally)              | 5.923501e-07 s | PyNE-equivalent pure Python: 4.016550e-06 s |
+| CRAM-48 solve (`chain_ni.xml`)                        | 1.360878e-04 s | OpenMC CRAM48: 2.913897e-03 s               |
+| Default uranium enrichment solve                      | 1.092315e-04 s | PyNE multicomponent: 5.690305e-03 s         |
+| MAGIC total-mode solve (synthetic tally)              | 7.151501e-07 s | PyNE-equivalent pure Python: 3.790100e-06 s |
 | Native Rust CRAM-48 solve (Criterion, no Python)      | 8.465243e-05 s | —                                           |
 | Native Rust deplete end-to-end (Criterion, no Python) | 8.640163e-05 s | —                                           |
 

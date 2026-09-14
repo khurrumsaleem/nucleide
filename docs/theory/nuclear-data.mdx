@@ -101,6 +101,13 @@ references:
     source: HNF-5636
     date: "2001"
     type: misc
+  - id: epa-fgr15
+    title: "Federal Guidance Report No. 15: External Exposure to Radionuclides in Air, Water and Soil"
+    url: https://www.epa.gov/radiation/federal-guidance-report-no-15-external-exposure-radionuclides-air-water-and-soil
+    authors: ["U.S. Environmental Protection Agency"]
+    source: EPA 402-R-25-001
+    date: "2025"
+    type: misc
 ---
 
 Nucleide carries a small, self-contained set of nuclear reference data and a
@@ -386,6 +393,34 @@ External-air/soil, ingestion, and inhalation factors (`dose_factor`, table
 See `dose_factor` in the [Python API](../reference/python-api.mdx#nucleidenuclei);
 composition-level dose lives under `dose_per_g` in `nucleide.material`
 (see `dose_per_g` in the [Python API](../reference/python-api.mdx#nucleidematerial)).
+
+### FGR 15 external-dosimetry coefficients
+
+EPA Federal Guidance Report No. 15 (July 2025)<Citation id="epa-fgr15" />
+effective dose (rate) coefficients for *external* exposure — ground surface
+(3 mm), soil to 1/5/15 cm and infinite depth, air submersion, and water
+immersion — per reference-person age group (newborn through adult):
+
+- **Source**: the official EPA coefficient zip (data file dated 2025-05-28),
+  downloaded at runtime by `nucleide.data.fetch_fgr15` and pinned to a
+  SHA-256 hash; nothing from the EPA file is vendored, and a hash mismatch
+  fails loudly (EPA may have revised the file).
+- **Coverage**: the seven `Table_4_*.DAT` scenario tables, 1,252 nuclides
+  each × 6 age columns. The 28-tissue `Nuclide_Coefficients/` and
+  monoenergetic-photon `Mono_Coefficients/` members are out of scope (v1).
+- **Units**: recorded verbatim from each table header — `Sv m2/Bq s` for
+  the ground-surface table, `Sv m3 per Bq s` for the soil-volume and
+  immersion tables.
+- **File**: parsed at runtime by the `fgr15` module of
+  `crates/nuclei/src/fgr15.rs` from the cached zip (no vendored bytes).
+- **Scope**: external exposure only, screening-level — not for safety
+  decisions. FGR 15 complements `dose_factor`/`dose_per_g`: the HNF-5636
+  factors stay the screening default for composition-level material dose,
+  and neither source silently takes precedence — compare units before
+  combining.
+
+See `fgr15_dose_rate` and `load_fgr15_table` in the
+[Python API](../reference/python-api.mdx#nucleidenuclei).
 
 ## Derived quantities
 

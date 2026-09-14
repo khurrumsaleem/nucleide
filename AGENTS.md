@@ -284,6 +284,8 @@ Use `scripts/bump-version.sh X.Y.Z` to bump the workspace version and stamp
   surface taxonomy, G1–G4 gates; G5 steady + G6 transient recombination
   closed via the face-response construction) + facade/demo contracts.
 - `crates/spectroscopy/AGENTS.md` — spectroscopy toolkit (smoothing, counting, calibration, X-ray, SPE readers).
+- `crates/nuclei/AGENTS.md` — EPA FGR 15 external-dosimetry tables
+  (runtime hash-pinned download, strict parser gates, synthetic-only tests).
 - `website/AGENTS.md` — website build, preview, sync, and E2E test workflow.
 - `validation/AGENTS.md` — cross-code validation harness workflow and the
   generated-results contract.

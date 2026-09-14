@@ -576,6 +576,128 @@
     {
       "kind": "prose",
       "text": "SKIPPED fission_yields: OpenMC fission-yield cross-check skipped: ENDF/B-VIII.0 nfy tapes are not present under validation/.cache (the container cache holds only the CASL chain); the tape spot gates above still pin the committed table."
+    },
+    {
+      "kind": "heading",
+      "level": 3,
+      "text": "EPA FGR 15 external-dosimetry coefficients (runtime download)"
+    },
+    {
+      "kind": "prose",
+      "text": "Nucleide `load_fgr15_table` / `fgr15_dose_rate` parse the seven EPA\nFGR 15 (EPA 402-R-25-001, July 2025) `Table_4_*.DAT` scenario tables\nfrom the official zip, downloaded once into `validation/.cache/` and\nhash-pinned (`71314b3f1d73c197da8b589e74c450f61befce48c66ace6ac1f6e0597560bd91`). Gates: per-table row\ncount 1,252, six age columns per row, and ten hand spots transcribed\nfrom the published tables at exact equality (both sides read the same\nASCII decimals, so the gate verifies the cell mapping, not float\nround-trip). Screening-level only \u2014 not for safety decisions."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Table / spot",
+        "Nucleide",
+        "Expected",
+        "Gate"
+      ],
+      "rows": [
+        [
+          "ground_surface (Table 4.1)",
+          "1252",
+          "6",
+          "ok"
+        ],
+        [
+          "soil_1cm (Table 4.2)",
+          "1252",
+          "6",
+          "ok"
+        ],
+        [
+          "soil_5cm (Table 4.3)",
+          "1252",
+          "6",
+          "ok"
+        ],
+        [
+          "soil_15cm (Table 4.4)",
+          "1252",
+          "6",
+          "ok"
+        ],
+        [
+          "soil_infinite (Table 4.5)",
+          "1252",
+          "6",
+          "ok"
+        ],
+        [
+          "air_submersion (Table 4.6)",
+          "1252",
+          "6",
+          "ok"
+        ],
+        [
+          "water_immersion (Table 4.7)",
+          "1252",
+          "6",
+          "ok"
+        ],
+        [
+          "ground_surface H-3 newborn",
+          "3.840e-27 Sv m2/Bq s",
+          "3.840e-27",
+          "ok"
+        ],
+        [
+          "ground_surface H-3 adult",
+          "8.970e-28 Sv m2/Bq s",
+          "8.970e-28",
+          "ok"
+        ],
+        [
+          "ground_surface Be-7 adult",
+          "3.170e-17 Sv m2/Bq s",
+          "3.170e-17",
+          "ok"
+        ],
+        [
+          "ground_surface Ba-137m adult",
+          "3.870e-16 Sv m2/Bq s",
+          "3.870e-16",
+          "ok"
+        ],
+        [
+          "soil_1cm K-40 adult",
+          "9.320e-19 Sv m3 per Bq s",
+          "9.320e-19",
+          "ok"
+        ],
+        [
+          "soil_5cm Sr-90 adult",
+          "2.540e-21 Sv m3 per Bq s",
+          "2.540e-21",
+          "ok"
+        ],
+        [
+          "soil_15cm I-131 adult",
+          "9.550e-18 Sv m3 per Bq s",
+          "9.550e-18",
+          "ok"
+        ],
+        [
+          "soil_infinite H-3 adult",
+          "2.490e-28 Sv m3 per Bq s",
+          "2.490e-28",
+          "ok"
+        ],
+        [
+          "air_submersion Rn-222 adult",
+          "1.720e-17 Sv m3 per Bq s",
+          "1.720e-17",
+          "ok"
+        ],
+        [
+          "water_immersion U-238 adult",
+          "6.510e-21 Sv m3 per Bq s",
+          "6.510e-21",
+          "ok"
+        ]
+      ]
     }
   ]
 }

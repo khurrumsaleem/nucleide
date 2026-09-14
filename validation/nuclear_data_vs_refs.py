@@ -289,6 +289,27 @@ FISSION_YIELD_SUM_SPOTS = [
     ("Cf252", "sf", 0.0),
 ]
 
+#: EPA FGR 15 (EPA 402-R-25-001, July 2025) external-dosimetry spots,
+#: transcribed by hand from the published ``FGR15_Tables/Table_4_*.DAT``
+#: members of the official EPA zip (``(scenario, nuclide, age, expected)``;
+#: isomer names keep the FGR 15 spelling ``Ba-137m``).  One spot per scenario
+#: (4.1-4.7), with the 4.1 trio pinning a non-adult column and an isomer
+#: letter.  Spots are read from the same ASCII decimals the parser consumes
+#: and both parses are correctly rounded, so the gate is exact equality: it
+#: verifies the (table, nuclide, age) -> cell mapping, not float round-trip.
+FGR15_SPOTS = [
+    ("ground_surface", "H-3", "newborn", 3.84e-27),  # Table 4.1
+    ("ground_surface", "H-3", "adult", 8.97e-28),  # Table 4.1
+    ("ground_surface", "Be-7", "adult", 3.17e-17),  # Table 4.1
+    ("ground_surface", "Ba-137m", "adult", 3.87e-16),  # Table 4.1
+    ("soil_1cm", "K-40", "adult", 9.32e-19),  # Table 4.2
+    ("soil_5cm", "Sr-90", "adult", 2.54e-21),  # Table 4.3
+    ("soil_15cm", "I-131", "adult", 9.55e-18),  # Table 4.4
+    ("soil_infinite", "H-3", "adult", 2.49e-28),  # Table 4.5
+    ("air_submersion", "Rn-222", "adult", 1.72e-17),  # Table 4.6
+    ("water_immersion", "U-238", "adult", 6.51e-21),  # Table 4.7
+]
+
 
 def _pyne_simple_xs_source():
     """Return PyNE's KAERI simple-xs source, or raise SkipCheck with a reason."""
@@ -537,6 +558,59 @@ def compare_fission_yields_openmc() -> dict:
     return {"rows": rows, "diffs": diffs, "skipped": skipped, "available": bool(diffs)}
 
 
+def compare_fgr15() -> dict:
+    """Gate the runtime-downloaded EPA FGR 15 tables against published spots.
+
+    Downloads the official coefficient zip once into ``validation/.cache/``
+    (git-ignored; re-downloaded only if absent — the CASL-chain pattern) and
+    enforces the pinned SHA-256.  Parses all seven scenario tables through
+    ``nucleide.nuclei.load_fgr15_table`` and gates the per-table row count
+    (1,252), the six age columns, and the hand-transcribed ``FGR15_SPOTS``
+    at exact equality.
+    """
+    from pathlib import Path
+
+    cache_dir = Path(__file__).resolve().parent / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = Path(nucleide.data.fetch_fgr15(dest=cache_dir))
+    scenarios = [
+        "ground_surface",
+        "soil_1cm",
+        "soil_5cm",
+        "soil_15cm",
+        "soil_infinite",
+        "air_submersion",
+        "water_immersion",
+    ]
+    rows: list[list[str]] = []
+    problems: list[str] = []
+    for i, scenario in enumerate(scenarios, start=1):
+        table = nucleide.nuclei.load_fgr15_table(scenario, dest=cache_dir)
+        coefficients = table["coefficients"]
+        n_rows = len(coefficients)
+        bad_cols = sum(1 for row in coefficients.values() if len(row) != 6)
+        label = f"{scenario} (Table 4.{i})"
+        if n_rows != 1252:
+            problems.append(f"{label}: {n_rows} rows, expected 1252")
+        if bad_cols:
+            problems.append(f"{label}: {bad_cols} rows without 6 age columns")
+        ok = "ok" if (n_rows == 1252 and not bad_cols) else "FAIL"
+        rows.append([label, str(n_rows), "6" if not bad_cols else f"{bad_cols} bad", ok])
+    for scenario, nuc, age, expected in FGR15_SPOTS:
+        got, units = nucleide.nuclei.fgr15_dose_rate(nuc, scenario, age, dest=cache_dir)
+        if got != expected:
+            problems.append(f"{scenario} {nuc} {age}: got {got!r}, expected {expected!r}")
+        rows.append(
+            [
+                f"{scenario} {nuc} {age}",
+                f"{got:.3e} {units}",
+                f"{expected:.3e}",
+                "ok" if got == expected else "FAIL",
+            ]
+        )
+    return {"rows": rows, "problems": problems, "zip": str(zip_path)}
+
+
 def main() -> int:
     report = Report("nuclear_data", "Nuclear data (`nuclear_data_vs_refs.py`)")
 
@@ -778,6 +852,20 @@ def main() -> int:
     if fy_om["rows"]:
         report.table(["Cross-check", "n", "Metric", "Value"], fy_om["rows"])
 
+    fgr15_stats = compare_fgr15()
+    report.heading("EPA FGR 15 external-dosimetry coefficients (runtime download)")
+    report.prose(
+        "Nucleide `load_fgr15_table` / `fgr15_dose_rate` parse the seven EPA\n"
+        "FGR 15 (EPA 402-R-25-001, July 2025) `Table_4_*.DAT` scenario tables\n"
+        "from the official zip, downloaded once into `validation/.cache/` and\n"
+        f"hash-pinned (`{nucleide.data.FGR15_SHA256}`). Gates: per-table row\n"
+        "count 1,252, six age columns per row, and ten hand spots transcribed\n"
+        "from the published tables at exact equality (both sides read the same\n"
+        "ASCII decimals, so the gate verifies the cell mapping, not float\n"
+        "round-trip). Screening-level only — not for safety decisions."
+    )
+    report.table(["Table / spot", "Nucleide", "Expected", "Gate"], fgr15_stats["rows"])
+
     if xs_stats["available"]:
         print(f"simple_xs vs PyNE: max rel diff {fmt(max(xs_stats['diffs']))}")  # type: ignore[arg-type]
     print(f"scattering vs NIST: max abs diff {fmt(scat_stats['max_abs'])} fm")
@@ -786,6 +874,7 @@ def main() -> int:
     print(f"fission_yields vs spots: max rel diff {fmt(fy_stats['max_rel'])}")
     if fy_om["available"]:
         print(f"fission_yields vs OpenMC: max rel diff {fmt(max(fy_om['diffs']))}")  # type: ignore[arg-type]
+    print(f"fgr15 spots: {len(FGR15_SPOTS)} checked, {len(fgr15_stats['problems'])} problems")
 
     emit_report(report)
 
@@ -809,6 +898,10 @@ def main() -> int:
         return 1
     if fy_stats["missing"] or fy_stats["max_rel"] > 1.0e-6:
         print("FAIL: fission-yield spot check vs ENDF/B-VIII.0 tapes failed", file=sys.stderr)
+        return 1
+    if fgr15_stats["problems"]:
+        for problem in fgr15_stats["problems"]:
+            print(f"FAIL: fgr15: {problem}", file=sys.stderr)
         return 1
     return 0
 

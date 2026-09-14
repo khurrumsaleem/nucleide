@@ -15,6 +15,21 @@ workspace crates from tags.
 
 ### Added
 
+- EPA FGR 15 external-dosimetry coefficients (EPA 402-R-25-001, July 2025)
+  as a runtime-download feature — nothing from the EPA file is vendored.
+  `nucleide.data.fetch_fgr15` downloads the official coefficient zip into the
+  per-user cache (`~/.cache/nucleide/`), hash-pinned to SHA-256
+  `71314b3f1d73c197da8b589e74c450f61befce48c66ace6ac1f6e0597560bd91`
+  (mismatch fails loudly — EPA may have revised the file). The new
+  `nucleide-nuclei` `fgr15` module parses the seven `Table_4_*.DAT` scenario
+  tables (1,252 nuclides × 6 age columns; units string recorded from the
+  header), and `nucleide.nuclei` gains `fgr15_dose_rate` /
+  `load_fgr15_table` / `parse_fgr15_table` / `fgr15_age_index` (FGR 15 name
+  spellings `H-3`, `Ba-137m`, `Sb-124n`). FGR 15 is external exposure only
+  and complements — never silently overrides — `dose_per_g`
+  (HNF-5636/PyNE). `validation/nuclear_data_vs_refs.py` gains an FGR 15
+  section (row-count/column gates plus ten hand-transcribed spots at exact
+  equality). Screening-level only — not for safety decisions.
 - Fission-yield perturbation consumer: `nucleide-linalg`
   `perturb_fission_yields` now perturbs caller-supplied yield blocks
   (`raw = base * (1 + rel)`, negatives clamped to zero, rescaled to the

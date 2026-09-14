@@ -277,14 +277,14 @@ fn fluka_by_name() -> &'static HashMap<&'static str, u32> {
 }
 
 /// Lowercase isomer designator letter for state `s` (`1 → 'm'`), or `None`.
-fn isomer_letter(state: u32) -> Option<char> {
+pub(crate) fn isomer_letter(state: u32) -> Option<char> {
     let idx = state.checked_sub(1)? as usize;
     ISOMER_LETTERS.get(idx).map(|&b| b as char)
 }
 
 /// State index for an isomer designator letter (`'m' → 1`), or `None`.
 /// Accepts lowercase `m-z` and uppercase `M-Z` (case-normalized).
-fn isomer_state(letter: char) -> Option<u32> {
+pub(crate) fn isomer_state(letter: char) -> Option<u32> {
     let needle = letter.to_ascii_lowercase() as u8;
     ISOMER_LETTERS
         .iter()

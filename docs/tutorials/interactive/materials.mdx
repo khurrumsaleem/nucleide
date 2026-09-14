@@ -65,7 +65,10 @@ browser in the dose section at the end of the demo above: pick a pathway
 the current formula. Compositions with nuclides outside the tables —
 including the `-1` GENII/DOE air sentinels — report an inline error instead
 of a value; fully stable compositions such as H2O return 0 (no activity to
-convert). The five-dialect card emitter (`emit_cards` /
+convert). For external-exposure coefficients, EPA FGR 15
+(`nucleide.nuclei.fgr15_dose_rate`) is the Python-side complement —
+runtime-downloaded, not vendored, and browser demos do not expose it; it
+never silently overrides `dose_per_g`. The five-dialect card emitter (`emit_cards` /
 `emit_drift_table`, plus the `emit_armi_cards` ARMI blueprint bridge) runs in
 the browser in the [Code-card emission](emitter.mdx) demo. For batch use see
 the [Build materials](../python/build-materials.md) and
