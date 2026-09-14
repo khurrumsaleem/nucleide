@@ -31,7 +31,7 @@ references:
 Nucleide solves prescribed-reactivity **point-kinetics transients**: the
 neutron population `n(t)` and `G` delayed-neutron precursor groups `C_i(t)`
 driven by a caller-supplied reactivity schedule `ρ(t)` in Δk. The equation
-set reproduces the PyRK neutronics block (Huff, SciPy 2015)<Citation id="huff-2015" />
+set reproduces the PyRK neutronics block (Huff, SciPy 2015)<Citation id="huff-2015" /><Citation id="pyrk-repo" />
 with a stiff-aware integrator instead of the explicit driver loop.
 
 ## Overview
@@ -188,11 +188,6 @@ Adjacent capabilities Nucleide does not implement:
   exponential integrators for the PKE linear system are future options;
   the current θ-method needs no factorization reuse machinery.
 
-## References
-
-- Huff (2015) PyRK proceedings paper<Citation id="huff-2015" /> and the
-  upstream BSD-3 sources<Citation id="pyrk-repo" /> (neutronics block,
-  reactivity insertions, driver initial conditions).
-- The Nucleide implementation<Citation id="nucleide-kinetics" /> and the
-   `validation/kinetics_vs_pyrk.py` two-part harness (analytic gates plus
-  container PyRK cross-check).
+The `validation/kinetics_vs_pyrk.py` harness checks the solver two ways:
+analytic checks in-repo and a live cross-check against PyRK in the
+validation container.

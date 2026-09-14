@@ -44,7 +44,7 @@ references:
 Nucleide covers activation (ALARA/FISPACT/R2S) but has nothing on tritium
 inventory and permeation in fusion materials. This page pins the **spec-phase
 equation set** for a scoped 1D kernel: Fickian diffusion of a mobile
-population `c_m` coupled to `N` McNabb–Foster trap species, with
+population `c_m` coupled to `N` McNabb–Foster trap species<Citation id="mcnabb-1963" />, with
 caller-supplied temperature and surface laws. The `nucleide-tritium` kernel
 implements this equation set; the T1–T2/G1–G6 labels below are the
 analytic-gate contract its tests replay, mirroring the E1–E4/O-gate pattern
@@ -126,7 +126,7 @@ trap evolution).
 
 ### Boundary-condition taxonomy
 
-At each surface (`n` the outward normal, `J = −D∂c_m/∂n` the outward flux):
+At each surface (`n` the outward normal, `J = −D∂c_m/∂n` the outward flux)<Citation id="shewmon-2016" />:
 
 - **Dirichlet**: `c_m = c̄` (prescribed surface concentration).
 - **Sieverts**: `c_m = K_S(T)√p` (diatomic-gas equilibrium at gas pressure
@@ -154,7 +154,7 @@ $$
 
 With `c(0,t) = c0`, `c(L,t) = 0`, `c(x,0) = 0`, splitting off the G1 steady
 profile leaves a homogeneous heat equation solved by separation of variables
-(eigenfunctions `sin(nπx/L)`, eigenvalues `Dn²π²/L²`). The outlet flux is
+(eigenfunctions `sin(nπx/L)`, eigenvalues `Dn²π²/L²`)<Citation id="crank-1975" />. The outlet flux is
 
 $$
 \frac{J(L,t)}{J_{ss}}
@@ -176,7 +176,7 @@ the breakthrough-curve intercept. Pinned in
 
 ### G3a — Low-occupancy (Oriani) limit
 
-For `K_j c_m ≪ 1`, (T2-eq) linearizes to `c_{t,j} ≈ N_jK_jc_m`; under local
+For `K_j c_m ≪ 1`, (T2-eq) linearizes to `c_{t,j} ≈ N_jK_jc_m`<Citation id="oriani-1970" />; under local
 equilibrium T1+T2 collapse to `(1 + ΣN_jK_j)∂c_m/∂t = D∇²c_m`, i.e.
 
 $$
@@ -367,14 +367,3 @@ tritium transport with heat coupling (the FESTIM capability envelope);
 plasma-facing implantation-profile and breeding-blanket (TBR) coupling
 models; gas-driven permeation experiment analysis beyond the Sieverts /
 recombination surface laws pinned here.
-
-## References
-
-- Crank (1975) The Mathematics of Diffusion, 2nd ed.<Citation id="crank-1975" />
-  (Fickian slab solutions; the G1/G2 derivations).
-- McNabb–Foster (1963), Trans. Met. Soc. AIME 227<Citation id="mcnabb-1963" />
-  (the T2 trap-kinetics formulation).
-- Oriani (1970), Acta Metall. 18<Citation id="oriani-1970" /> (local
-  equilibrium; the G3a effective diffusivity).
-- Shewmon, Diffusion in Solids, 2nd ed.<Citation id="shewmon-2016" />
-  (diffusion/BC treatment behind the taxonomy and G4).

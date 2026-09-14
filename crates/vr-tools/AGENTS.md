@@ -10,8 +10,8 @@ sampling (alias tables), and Gaussian KDE source resampling
 
 Owns `crates/vr-tools/src/` (`magic.rs`, `sampling.rs`, `kde.rs`), the
 Python surface (`nucleide.vr`, `magic`/`AliasTable`/`MeshSourceSampler`/
-`KdeSampler` in `_internal`), and `tests/test_serpent_fluka_vr.py` (MAGIC
-+ sampling + KDE sections).
+`KdeSampler` in `_internal`), and the MAGIC, sampling, and KDE sections of
+`tests/test_serpent_fluka_vr.py`.
 
 ## Local Contracts
 

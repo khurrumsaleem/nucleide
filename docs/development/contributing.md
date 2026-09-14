@@ -172,6 +172,12 @@ generated API docs, or fixture READMEs. Link instead.
    markdown parser only recognizes a raw-HTML block when the opening tag is
    complete on its line — a wrapped tag splits the SVG out of its element and
    dumps the inner text into the page and the generated `.md` siblings.
+9. **Citations live in frontmatter.** Pages with sources declare a
+   `references:` array in frontmatter and cite inline with
+   `<Citation id="…"/>`; the site kit renders the bibliography at the end of
+   the page automatically. Cite each source at the claim it backs — the body
+   carries no reference sections: never write a body `## References` heading
+   (it duplicates the rendered one) nor per-source annotation lists.
 
 ## Testing
 

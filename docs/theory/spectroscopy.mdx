@@ -203,13 +203,7 @@ plotting stays user-side (the upstream plot helpers are an isolated GUI
 module). The E7-fit efficiency-coefficient fit is not peak fitting — it fits
 the detector-response curve to caller calibration points. Decay-spectrum
 *line data* also stays out: no evaluated line library is vendored, so E9
-sources are built purely from caller-supplied lines.
-
-## References
-
-- The five-point weights carry the upstream citation string (G.W. Phillips,
-  Nucl. Instrum. Methods 153 (1978), 449 — citation text only, with no
-  journal-verification claim).
-- The Nucleide implementation<Citation id="nucleide-spectroscopy" /> and the
-   `validation/spectroscopy_vs_pyne.py` two-part harness (synthetic gates plus
-  container PyNE cross-check).
+sources are built purely from caller-supplied lines. The
+`validation/spectroscopy_vs_pyne.py` harness checks the toolkit two ways:
+synthetic closed-form checks in-repo and a live PyNE cross-check in the
+validation container.

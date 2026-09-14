@@ -61,7 +61,7 @@ Nucleide UQ-lite draws seeded multivariate-normal samples over
 that reproduce caller covariance information) with no vendored covariance
 stores, no transport coupling, and no ERRORR/NJOY machinery. The moment
 estimators agree exactly with SANDY's `Samples.get_mean` / `get_cov`
-(oracle-check gate at 1e-9 against SANDY 1.1.0)<Citation id="fiorito-2017" />.
+(oracle-check gate at 1e-9 against SANDY 1.1.0)<Citation id="fiorito-2017" /><Citation id="sandy-repo" />.
 
 ## Overview
 
@@ -281,18 +281,9 @@ gate (moment worst 1.534 SE at the pinned seed).
   tests) is the closest analogue of `check_convergence`; ours is the
   $k$-standard-error formulation (U3) instead.
 
-## References
-
-- Fiorito et al. (2017)<Citation id="fiorito-2017" /> (stochastic-sampling
-  role, perturbed-file workflow) and the upstream sources<Citation id="sandy-repo" />
-  (`Samples` orientation and `get_mean`/`get_cov` semantics, SVD engine,
-  `truncate_normal` modes — verified against the 1.1.0 wheel).
-- Box and Muller (1958)<Citation id="box-muller-1958" /> (normal-deviate
-  generation) and Anderson (2003)<Citation id="anderson-2003" /> (MVN
-  estimation, sample-covariance distribution).
-- The Nucleide implementation<Citation id="nucleide-linalg" /> and the
-   `validation/uq_lite_vs_sandy.py` two-part harness (statistical gates
-  plus live SANDY moment cross-check).
+The `validation/uq_lite_vs_sandy.py` harness checks the kernel two ways:
+seeded synthetic statistical checks in-repo and a live SANDY moment
+comparison against the 1.1.0 wheel in the validation container.
 
 ## See also
 
