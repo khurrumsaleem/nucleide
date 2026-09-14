@@ -12,8 +12,8 @@
 //! cholesky") behind `numpy.random.default_rng`; this module factorises
 //! with Cholesky plus an eigen-clipping fallback behind a ChaCha8
 //! `StdRng`. Same target distribution, different streams — draws are not
-//! interchangeable across implementations. What agrees exactly (Tier-2
-//! oracle gate at 1e-9) are the moment estimators: [`sample_mean`](crate::sample::sample_mean) is the
+//! interchangeable across implementations. What agrees exactly (oracle-check
+//! gate at 1e-9) are the moment estimators: [`sample_mean`](crate::sample::sample_mean) is the
 //! row mean like `Samples.get_mean`, and [`sample_cov`](crate::sample::sample_cov) is the unbiased
 //! `1/(n-1)` covariance like `Samples.get_cov` (`pandas.DataFrame.cov`
 //! default `ddof=1`).
@@ -54,7 +54,7 @@
 //! Convergence diagnostics ([`check_convergence`](crate::sample::check_convergence)) compare the sample mean
 //! and unbiased sample covariance against the inputs that generated them —
 //! the same moment estimators SANDY's `Samples.get_mean` / `get_cov`
-//! compute (Tier-2 gate), but with our own gate formulation: caller-supplied
+//! compute (oracle-check gate), but with our own gate formulation: caller-supplied
 //! tolerances, with the validation oracle (`validation/uq_lite_vs_sandy.py`)
 //! pinning statistical ones derived from the MVN sampling variances.
 //!

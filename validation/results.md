@@ -189,10 +189,10 @@ agree to better than **1e-3** and product compositions to a few × 1e-3.
 
 ## 4. Enrichment SWU (`enrichment_swu_vs_cyclus.py`)
 
-Two-tier oracle for the `nucleide-enrichment` separative-work helpers: closed-form gates G1-G3 on
-the cyclus assay ladder (tier 1, always run), and a live cross-check against
-`cyclus.toolkit.enrichment` (`ValueFunc`/`SwuRequired`) when the cyclus package is importable (tier
-2).
+Two-part oracle for the `nucleide-enrichment` separative-work helpers: closed-form gates G1-G3 on
+the cyclus assay ladder (synthetic gates, always run), and a live cross-check against
+`cyclus.toolkit.enrichment` (`ValueFunc`/`SwuRequired`) when the cyclus package is importable
+(oracle check).
 
 G1 V(feed=0.0072): nucleide 4.855507e+00, closed form 4.855507e+00.
 
@@ -218,7 +218,7 @@ G3 three-stream spread: 9.948e-14 SWU across feed/product/tails views.
 | G2 SWU total (via tails)   | 9.733555e-16 | < 1e-12 | PASS   |
 | G3 stream agreement        | 1.135581e-15 | < 1e-12 | PASS   |
 
-Tier 2 (cyclus toolkit cross-check) SKIPPED: No module named 'cyclus'
+Oracle check (cyclus toolkit) SKIPPED: No module named 'cyclus'
 
 | Gate                         | Status                    |
 |------------------------------|---------------------------|
@@ -240,9 +240,9 @@ test tally.
 
 ## 6. Point kinetics (`kinetics_vs_pyrk.py`)
 
-Two-tier oracle for `nucleide.kinetics`: analytic gates O1-O4 plus invariants on synthetic fixtures
-(tier 1, always run), and a ramp cross-check against the upstream PyRK neutronics block on runtime-
-read precursor data (tier 2 / O5).
+Two-part oracle for `nucleide.kinetics`: analytic gates O1-O4 plus invariants on synthetic fixtures
+(synthetic gates, always run), and a ramp cross-check against the upstream PyRK neutronics block on
+runtime-read precursor data (oracle check / O5).
 
 O1 initial rate: got 2.000000e+01, want 2.000000e+01.
 
@@ -299,9 +299,9 @@ O5 ramp vs PyRK: worst rel err 1.556e-04 at 3 probes.
 
 ## 7. Spectroscopy (`spectroscopy_vs_pyne.py`)
 
-Two-tier oracle for `nucleide.spectroscopy`: synthetic E1-E9 gates on hand-built fixtures (tier 1,
-always run), and a cross-check against the upstream `pyne.spectanalysis` / `pyne.gammaspec` routines
-and `pyne.source.PointSource.mcnp` on identical runtime inputs (tier 2).
+Two-part oracle for `nucleide.spectroscopy`: synthetic E1-E9 gates on hand-built fixtures (synthetic
+gates, always run), and a cross-check against the upstream `pyne.spectanalysis` / `pyne.gammaspec`
+routines and `pyne.source.PointSource.mcnp` on identical runtime inputs (oracle check).
 
 E1 rect m=5: worst rel err 0.000e+00 (hand values).
 
@@ -357,14 +357,15 @@ SPE fixtures: cross-format counts equality over 8 channels.
 | Background level (E3, channels 2..5) | 12.666666666666666 |
 
 E7-fit has no container check: the upstream module ships no efficiency-coefficient fitting routine,
-so the fit is pinned by the synthetic closed-form recovery + round-trip gates in tier 1.
+so the fit is pinned by the synthetic closed-form recovery + round-trip gates in the synthetic
+stage.
 
 X-ray algebra has no container check: the upstream routine reads its HDF5 atomic table at run time
 and no atomic values are vendored here, so E8 is pinned by the synthetic hand values above.
 
 E9 SDEF: single-line cards diffed byte-for-byte against pyne.source.PointSource.mcnp (beam,
 isotropic, and the MCNP6 proton designator); the multi-line ERG=D1 distribution form has no upstream
-counterpart and is pinned by the synthetic card goldens in tier 1.
+counterpart and is pinned by the synthetic card goldens in the synthetic stage.
 
 | Gate                                     | Rel err      | Tol     | Status                                              |
 |------------------------------------------|--------------|---------|-----------------------------------------------------|
@@ -714,14 +715,14 @@ fluka_usrbin_single.lis).
 | G2 energy+PDG conserved | 2.5/2112, 0.662/22 | 2.500000e+00/2112, 6.620000e-01/22                                                                 | PASS   |
 | G3 directions conserved | +z, +x             | ['0.000000e+00', '0.000000e+00', '1.000000e+00'], ['1.000000e+00', '0.000000e+00', '0.000000e+00'] | PASS   |
 
-Tier 1 uses hand-built synthetic records only; no upstream files are read.
+Synthetic gates use hand-built synthetic records only; no upstream files are read.
 
 | Check                      | Expected           | Got                                | Status |
 |----------------------------|--------------------|------------------------------------|--------|
-| T1 upstream particle count | 2                  | 2                                  | PASS   |
-| T2 upstream energy+PDG     | 2.5/2112, 0.662/22 | 2.500000e+00/2112, 6.620000e-01/22 | PASS   |
+| C1 upstream particle count | 2                  | 2                                  | PASS   |
+| C2 upstream energy+PDG     | 2.5/2112, 0.662/22 | 2.500000e+00/2112, 6.620000e-01/22 | PASS   |
 
-Tier 2 opens the nucleide-written synthetic file with upstream tooling.
+Oracle check opens the nucleide-written synthetic file with upstream tooling.
 
 | Gate                       | Expected                         | Got                                                                  | Status |
 |----------------------------|----------------------------------|----------------------------------------------------------------------|--------|
@@ -736,17 +737,17 @@ Tier 2 opens the nucleide-written synthetic file with upstream tooling.
 | S7b universal PDG carry    | universal 2112                   | universal 2112                                                       | PASS   |
 | S8 extended PDG table      | 11/-11, energies verbatim        | [11, -11], ['2.500000e+00', '6.620000e-01']                          | PASS   |
 
-Tier 3 converts the committed synthetic SSW reference (hand-framed, no MCNP run) with the documented
-surface/kind pairing; the `mcpl2ssw` leg clones the same reference header (S1-S4 baseline, S5-S8
-fidelity tail: cs compat, niss, polarisation/universal, extended PDG).
+SSW leg converts the committed synthetic SSW reference (hand-framed, no MCNP run) with the
+documented surface/kind pairing; the `mcpl2ssw` leg clones the same reference header (S1-S4
+baseline, S5-S8 fidelity tail: cs compat, niss, polarisation/universal, extended PDG).
 
 | Check                    | Expected                 | Got                                      | Status |
 |--------------------------|--------------------------|------------------------------------------|--------|
-| T3 ssw2mcpl count        | 2                        | 2                                        | PASS   |
-| T4 converter energies    | 0.662, 2.5               | 6.620000e-01, 2.500000e+00               | PASS   |
-| T5 mcpl2ssw count+energy | 2 tracks: 0.662, 2.5 erg | 2 tracks: 6.620000e-01, 2.500000e+00 erg | PASS   |
+| C3 ssw2mcpl count        | 2                        | 2                                        | PASS   |
+| C4 converter energies    | 0.662, 2.5               | 6.620000e-01, 2.500000e+00               | PASS   |
+| C5 mcpl2ssw count+energy | 2 tracks: 0.662, 2.5 erg | 2 tracks: 6.620000e-01, 2.500000e+00 erg | PASS   |
 
-Tier 4 runs the upstream converter scripts over the synthetic pair.
+SSW oracle runs the upstream converter scripts over the synthetic pair.
 
 ## 12. Activation I/O (`activation_vs_refs.py`)
 
@@ -1050,8 +1051,8 @@ draws (True), draw moments worst 1.534 SE (k = 5).
 | SANDY mean | < 1e-9   | 0.000000e+00 | PASS   |
 | SANDY cov  | < 1e-9   | 3.746081e-15 | PASS   |
 
-Tier 2 runs SANDY 1.1.0 Samples.get_mean/get_cov over the nucleide U1 draws (tape-free: no ENDF
-input, no NJOY).
+Oracle check runs SANDY 1.1.0 Samples.get_mean/get_cov over the nucleide U1 draws (tape-free: no
+ENDF input, no NJOY).
 
 Tape-driven sandy.sampling/ERRORR comparisons stay NJOY-gated skips (no tapes vendored, by design).
 
@@ -1062,9 +1063,9 @@ step** on pre-built systems/matrices.
 
 | Operation                                             | Nucleide       | Reference code                              |
 |-------------------------------------------------------|----------------|---------------------------------------------|
-| CRAM-48 solve (`chain_ni.xml`)                        | 1.478627e-04 s | OpenMC CRAM48: 3.038439e-03 s               |
-| Default uranium enrichment solve                      | 1.063248e-04 s | PyNE multicomponent: 5.776597e-03 s         |
-| MAGIC total-mode solve (synthetic tally)              | 5.851502e-07 s | PyNE-equivalent pure Python: 3.849500e-06 s |
+| CRAM-48 solve (`chain_ni.xml`)                        | 1.386631e-04 s | OpenMC CRAM48: 3.055948e-03 s               |
+| Default uranium enrichment solve                      | 1.103872e-04 s | PyNE multicomponent: 5.891790e-03 s         |
+| MAGIC total-mode solve (synthetic tally)              | 5.733000e-07 s | PyNE-equivalent pure Python: 3.825050e-06 s |
 | Native Rust CRAM-48 solve (Criterion, no Python)      | 8.465243e-05 s | —                                           |
 | Native Rust deplete end-to-end (Criterion, no Python) | 8.640163e-05 s | —                                           |
 

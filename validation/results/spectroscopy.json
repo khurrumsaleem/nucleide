@@ -13,7 +13,7 @@
   "sections": [
     {
       "kind": "prose",
-      "text": "Two-tier oracle for `nucleide.spectroscopy`: synthetic E1-E9 gates on hand-built fixtures (tier 1, always run), and a cross-check against the upstream `pyne.spectanalysis` / `pyne.gammaspec` routines and `pyne.source.PointSource.mcnp` on identical runtime inputs (tier 2)."
+      "text": "Two-part oracle for `nucleide.spectroscopy`: synthetic E1-E9 gates on hand-built fixtures (synthetic gates, always run), and a cross-check against the upstream `pyne.spectanalysis` / `pyne.gammaspec` routines and `pyne.source.PointSource.mcnp` on identical runtime inputs (oracle check)."
     },
     {
       "kind": "prose",
@@ -231,7 +231,7 @@
     },
     {
       "kind": "prose",
-      "text": "E7-fit has no container check: the upstream module ships no efficiency-coefficient fitting routine, so the fit is pinned by the synthetic closed-form recovery + round-trip gates in tier 1."
+      "text": "E7-fit has no container check: the upstream module ships no efficiency-coefficient fitting routine, so the fit is pinned by the synthetic closed-form recovery + round-trip gates in the synthetic stage."
     },
     {
       "kind": "prose",
@@ -239,7 +239,7 @@
     },
     {
       "kind": "prose",
-      "text": "E9 SDEF: single-line cards diffed byte-for-byte against pyne.source.PointSource.mcnp (beam, isotropic, and the MCNP6 proton designator); the multi-line ERG=D1 distribution form has no upstream counterpart and is pinned by the synthetic card goldens in tier 1."
+      "text": "E9 SDEF: single-line cards diffed byte-for-byte against pyne.source.PointSource.mcnp (beam, isotropic, and the MCNP6 proton designator); the multi-line ERG=D1 distribution form has no upstream counterpart and is pinned by the synthetic card goldens in the synthetic stage."
     },
     {
       "kind": "table",

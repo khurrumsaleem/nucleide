@@ -53,7 +53,7 @@ RUN pip install --no-cache-dir serpenttools==0.11.0 \
  && python -c "import serpentTools; print('serpentTools', serpentTools.__version__)"
 
 # PyRK: independent point-kinetics oracle for
-# validation/kinetics_vs_pyrk.py (tier 2 / O5 ramp cross-check). The PyPI
+# validation/kinetics_vs_pyrk.py (oracle check / O5 ramp cross-check). The PyPI
 # `pyrk` name is an unrelated package, so install from the upstream Git
 # history instead (BSD-3, github.com/pyrk/pyrk), pinned to a commit hash for
 # reproducibility. Only `pint` (units) is needed on top of the numpy/scipy
@@ -70,20 +70,20 @@ RUN pip install --no-cache-dir radioactivedecay==0.6.1 \
  && python -c "import radioactivedecay as rd; print('radioactivedecay', rd.__version__)"
 
 # mcpl: upstream particle-list tooling for validation/mcpl_vs_refs.py
-# (tier-2/4 presence probes; record-level cross-checks run where these
+# (oracle-check presence probes; record-level cross-checks run where these
 # packages are installed). `mcpl` carries the Python reader, `mcpl-core`
 # the `mcpltool` CLI, `mcpl-extra` the `ssw2mcpl`/`mcpl2ssw` converter
-# scripts. Pinned for reproducibility; tiers 2/4 SKIP loudly when the
+# scripts. Pinned for reproducibility; the oracle legs SKIP loudly when the
 # import/scripts are missing (e.g. local runs without this layer).
 RUN pip install --no-cache-dir "mcpl==2.2.8" "mcpl-extra==2.2.8" \
  && python -c "import mcpl; print('mcpl oracle available')"
 
 # sandy: independent sampling oracle for validation/uq_lite_vs_sandy.py
-# (tier-2 `Samples.get_mean`/`get_cov` moment cross-check over nucleide
+# (oracle-check `Samples.get_mean`/`get_cov` moment cross-check over nucleide
 # draws — tape-free, no NJOY needed for that path; tape-driven
 # sandy.sampling/ERRORR comparisons stay NJOY-gated skips). Pure wheel;
 # runtime deps beyond the numpy/scipy/pandas/matplotlib above are pyyaml +
-# openpyxl. Pinned for reproducibility; tier 2 SKIPs loudly when the import
+# openpyxl. Pinned for reproducibility; the oracle check SKIPs loudly when the import
 # is missing (e.g. local runs without this layer).
 RUN pip install --no-cache-dir "sandy==1.1.0" \
  && python -c "import sandy.samples, pandas; print('sandy oracle available')"

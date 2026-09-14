@@ -1,6 +1,6 @@
 """MCPL interchange oracle (`nucleide-mcpl-io` vs upstream `mcpl` tooling).
 
-Three tiers:
+Three parts:
 
 1. Synthetic gates (always run): hand-built axis-vector records are written
    with :func:`nucleide.mcpl.write_mcpl`, read back, and checked for
@@ -11,8 +11,8 @@ Three tiers:
    ``mcpl`` Python package (``pip install mcpl`` / ``conda -c conda-forge
    mcpl``) when importable, comparing particle count, kinetic energies, and
    PDG codes at record level. The upstream package is an optional oracle
-   dependency: if it cannot be imported (or its API mismatches), tier 2 is
-   reported as SKIP with its reason (never silently).
+    dependency: if it cannot be imported (or its API mismatches), the oracle
+    check is reported as SKIP with its reason (never silently).
 3. SSW round-trip (always run, synthetic pairs only): the committed
    hand-built `fixtures/mcpl/ssw_conversion/reference.w` converts to MCPL
    with the documented surface/kind pairing and back against the same
@@ -87,7 +87,7 @@ def _check(ok: bool, label: str) -> str:
     return "PASS" if ok else "FAIL"
 
 
-def tier1(path: str) -> tuple[list[list[str]], list[str]]:
+def synthetic_gates(path: str) -> tuple[list[list[str]], list[str]]:
     """Synthetic round-trip gates G1-G3. Returns (gate rows, prose notes)."""
     rows: list[list[str]] = []
     notes: list[str] = []
@@ -124,11 +124,13 @@ def tier1(path: str) -> tuple[list[list[str]], list[str]]:
             _check(ok, "G3 directions"),
         ]
     )
-    notes.append("Tier 1 uses hand-built synthetic records only; no upstream files are read.")
+    notes.append(
+        "Synthetic gates use hand-built synthetic records only; no upstream files are read."
+    )
     return rows, notes
 
 
-def tier2(path: str) -> tuple[list[list[str]], list[str], bool]:
+def oracle_check(path: str) -> tuple[list[list[str]], list[str], bool]:
     """Upstream `mcpl` record-level cross-check. Returns (rows, notes, skipped).
 
     Opens the nucleide-written synthetic file with the upstream ``mcpl``
@@ -144,7 +146,7 @@ def tier2(path: str) -> tuple[list[list[str]], list[str], bool]:
     except Exception as exc:
         return (
             [["Upstream mcpl cross-check", "SKIP (mcpl unavailable)"]],
-            [f"Tier 2 skipped: cannot import mcpl ({exc})."],
+            [f"Oracle check skipped: cannot import mcpl ({exc})."],
             True,
         )
     try:
@@ -159,14 +161,14 @@ def tier2(path: str) -> tuple[list[list[str]], list[str], bool]:
     except Exception as exc:
         return (
             [["Upstream mcpl cross-check", "SKIP (upstream API mismatch)"]],
-            [f"Tier 2 skipped: upstream read failed ({exc})."],
+            [f"Oracle check skipped: upstream read failed ({exc})."],
             True,
         )
     rows: list[list[str]] = []
     notes: list[str] = []
     ok = n_total == len(PARTICLES)
     rows.append(
-        ["T1 upstream particle count", str(len(PARTICLES)), str(n_total), _check(ok, "T1 count")]
+        ["C1 upstream particle count", str(len(PARTICLES)), str(n_total), _check(ok, "C1 count")]
     )
     ok = (
         len(ekins) == len(PARTICLES)
@@ -178,12 +180,12 @@ def tier2(path: str) -> tuple[list[list[str]], list[str], bool]:
         if len(ekins) == 2 and len(pdgs) == 2
         else f"{ekins}/{pdgs}"
     )
-    rows.append(["T2 upstream energy+PDG", "2.5/2112, 0.662/22", got_t2, _check(ok, "T2 fields")])
-    notes.append("Tier 2 opens the nucleide-written synthetic file with upstream tooling.")
+    rows.append(["C2 upstream energy+PDG", "2.5/2112, 0.662/22", got_t2, _check(ok, "C2 fields")])
+    notes.append("Oracle check opens the nucleide-written synthetic file with upstream tooling.")
     return rows, notes, False
 
 
-def tier_ssw(tmp: str) -> tuple[list[list[str]], list[str]]:
+def ssw_gates(tmp: str) -> tuple[list[list[str]], list[str]]:
     """SSW round-trip gates S1-S8 on the synthetic reference pair.
 
     Converts the committed hand-built `reference.w` (two tracks, explicit
@@ -340,7 +342,7 @@ def tier_ssw(tmp: str) -> tuple[list[list[str]], list[str]]:
         ]
     )
     notes.append(
-        "Tier 3 converts the committed synthetic SSW reference (hand-framed, "
+        "SSW leg converts the committed synthetic SSW reference (hand-framed, "
         "no MCNP run) with the documented surface/kind pairing; the "
         "`mcpl2ssw` leg clones the same reference header (S1-S4 baseline, "
         "S5-S8 fidelity tail: cs compat, niss, polarisation/universal, "
@@ -349,7 +351,7 @@ def tier_ssw(tmp: str) -> tuple[list[list[str]], list[str]]:
     return rows, notes
 
 
-def tier_extra(tmp: str) -> tuple[list[list[str]], list[str], bool]:
+def ssw_oracle(tmp: str) -> tuple[list[list[str]], list[str], bool]:
     """Upstream converter CLI cross-check (`ssw2mcpl`/`mcpl2ssw` scripts).
 
     Runs the upstream converter console scripts (shipped by the `mcpl-extra`
@@ -357,8 +359,8 @@ def tier_extra(tmp: str) -> tuple[list[list[str]], list[str], bool]:
     `mcpl2ssw [options] <input.mcpl> <reference.ssw> [output.ssw]`) over the
     synthetic reference pair and compares particle/track counts plus energies
     against the nucleide leg. The scripts are an optional oracle dependency:
-    when absent (or when any probe step errors), tier 4 SKIP-reports with its
-    reason and never fails.
+    when absent (or when any probe step errors), the oracle leg SKIP-reports
+    with its reason and never fails.
     """
     to_mcpl = shutil.which("ssw2mcpl")
     to_ssw = shutil.which("mcpl2ssw")
@@ -366,7 +368,7 @@ def tier_extra(tmp: str) -> tuple[list[list[str]], list[str], bool]:
         missing = "ssw2mcpl" if to_mcpl is None else "mcpl2ssw"
         return (
             [["Upstream converter cross-check", f"SKIP ({missing} unavailable)"]],
-            [f"Tier 4 skipped: no `{missing}` script on PATH (mcpl-extra not installed)."],
+            [f"SSW oracle skipped: no `{missing}` script on PATH (mcpl-extra not installed)."],
             True,
         )
     try:
@@ -393,21 +395,21 @@ def tier_extra(tmp: str) -> tuple[list[list[str]], list[str], bool]:
     except Exception as exc:
         return (
             [["Upstream converter cross-check", "SKIP (oracle probe failed)"]],
-            [f"Tier 4 skipped: converter probe failed ({exc})."],
+            [f"SSW oracle skipped: converter probe failed ({exc})."],
             True,
         )
     rows: list[list[str]] = []
     notes: list[str] = []
     ok = len(up_ps) == 2
-    rows.append(["T3 ssw2mcpl count", "2", str(len(up_ps)), _check(ok, "T3 count")])
+    rows.append(["C3 ssw2mcpl count", "2", str(len(up_ps)), _check(ok, "C3 count")])
     eks = sorted(p["ekin"] for p in up_ps)
     ok = len(eks) == 2 and rel_diff(eks[0], 0.662) < 1e-6 and rel_diff(eks[1], 2.5) < 1e-6
     rows.append(
         [
-            "T4 converter energies",
+            "C4 converter energies",
             "0.662, 2.5",
             ", ".join(fmt(v) for v in eks),
-            _check(ok, "T4 energies"),
+            _check(ok, "C4 energies"),
         ]
     )
     # The return leg rewrites the header (`nrss`/`np1` patched) and forces
@@ -422,13 +424,13 @@ def tier_extra(tmp: str) -> tuple[list[list[str]], list[str], bool]:
     )
     rows.append(
         [
-            "T5 mcpl2ssw count+energy",
+            "C5 mcpl2ssw count+energy",
             "2 tracks: 0.662, 2.5 erg",
             f"{len(up_tracks)} tracks: " + ", ".join(fmt(v) for v in back_eks) + " erg",
-            _check(ok, "T5 return"),
+            _check(ok, "C5 return"),
         ]
     )
-    notes.append("Tier 4 runs the upstream converter scripts over the synthetic pair.")
+    notes.append("SSW oracle runs the upstream converter scripts over the synthetic pair.")
     return rows, notes, False
 
 
@@ -436,22 +438,22 @@ def main() -> int:
     report = Report("mcpl", "MCPL interchange vs upstream tooling")
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "probe.mcpl")
-        rows1, notes1 = tier1(path)
+        rows1, notes1 = synthetic_gates(path)
         report.table(["Gate", "Expected", "Got", "Status"], rows1)
         for note in notes1:
             report.prose(note)
-        rows2, notes2, skipped = tier2(path)
+        rows2, notes2, skipped = oracle_check(path)
         if skipped:
             report.table(["Check", "Status"], rows2)
         else:
             report.table(["Check", "Expected", "Got", "Status"], rows2)
         for note in notes2:
             report.prose(note)
-        rows3, notes3 = tier_ssw(tmp)
+        rows3, notes3 = ssw_gates(tmp)
         report.table(["Gate", "Expected", "Got", "Status"], rows3)
         for note in notes3:
             report.prose(note)
-        rows4, notes4, extra_skipped = tier_extra(tmp)
+        rows4, notes4, extra_skipped = ssw_oracle(tmp)
         if extra_skipped:
             report.table(["Check", "Status"], rows4)
         else:

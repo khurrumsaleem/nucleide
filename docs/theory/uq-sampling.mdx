@@ -61,7 +61,7 @@ Nucleide UQ-lite draws seeded multivariate-normal samples over
 that reproduce caller covariance information) with no vendored covariance
 stores, no transport coupling, and no ERRORR/NJOY machinery. The moment
 estimators agree exactly with SANDY's `Samples.get_mean` / `get_cov`
-(Tier-2 oracle gate at 1e-9 against SANDY 1.1.0)<Citation id="fiorito-2017" />.
+(oracle-check gate at 1e-9 against SANDY 1.1.0)<Citation id="fiorito-2017" />.
 
 ## Overview
 
@@ -99,7 +99,7 @@ $$
 
 The $1/(n-1)$ denominator matches `pandas.DataFrame.cov` (`ddof=1`), which
 is what SANDY's `Samples.get_cov` calls — that shared convention is what
-the Tier-2 gate checks.
+the oracle-check gate checks.
 
 Convergence gates use the MVN sampling variances (Anderson, Ch. 7)<Citation id="anderson-2003" />:
 
@@ -194,7 +194,7 @@ LHS variance is smaller than IID by construction — so the separate gate
 is: **G1 stratification-exact** (each dimension hits each of the $n$
 strata exactly once at the pinned seed) plus **G2 LHS-valid moment bound**
 (sample mean/covariance within $k$ IID standard errors from (U3) as an
-*upper* bound, never an equality null). Tier-2 SANDY `get_mean`/`get_cov`
+*upper* bound, never an equality null). Oracle-check SANDY `get_mean`/`get_cov`
 1e-9 agreement is estimator identities, draw-independent<Citation id="fiorito-2017" />.
 
 ## Algorithm
@@ -291,7 +291,7 @@ gate (moment worst 1.534 SE at the pinned seed).
   generation) and Anderson (2003)<Citation id="anderson-2003" /> (MVN
   estimation, sample-covariance distribution).
 - The Nucleide implementation<Citation id="nucleide-linalg" /> and the
-  `validation/uq_lite_vs_sandy.py` two-tier harness (statistical gates
+   `validation/uq_lite_vs_sandy.py` two-part harness (statistical gates
   plus live SANDY moment cross-check).
 
 ## See also

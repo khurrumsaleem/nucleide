@@ -1,6 +1,6 @@
 """Point-kinetics cross-check (`nucleide-kinetics` vs analytic gates + PyRK).
 
-Two tiers:
+Two parts:
 
 1. Analytic gates (always run): O1 initial-rate identity, O2 prompt-jump
    plateau, O3 1-group closed form, O4 6-group stable-period tail, plus
@@ -10,7 +10,7 @@ Two tiers:
    PyRK neutronics block (`dpdt`/`dzetadt`, BSD-3) driven by its own
    `dopri5` loop, against `nucleide.kinetics` on identical runtime-read
    precursor data. PyRK is an optional oracle dependency: if it cannot be
-   imported, tier 2 is reported as SKIP with its reason (never silently).
+    imported, the oracle check is reported as SKIP with its reason (never silently).
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ def _ramp_table() -> tuple[list[float], list[float]]:
     return times, values
 
 
-def tier1() -> tuple[list[list[str]], list[str], list[list[str]], str]:
+def synthetic_gates() -> tuple[list[list[str]], list[str], list[list[str]], str]:
     """Analytic gates O1-O4 + invariants.
 
     Returns (gate rows, prose notes, figure-series rows, prompt-jump level).
@@ -190,7 +190,7 @@ def tier1() -> tuple[list[list[str]], list[str], list[list[str]], str]:
     return rows, notes, series_rows, pj_level
 
 
-def tier2_pyrk() -> tuple[list[list[str]], list[str], bool]:
+def oracle_check_pyrk() -> tuple[list[list[str]], list[str], bool]:
     """PyRK cross-check (O5). Returns (rows, notes, skipped)."""
     try:
         import numpy as np
@@ -200,7 +200,7 @@ def tier2_pyrk() -> tuple[list[list[str]], list[str], bool]:
         from pyrk.utilities.ur import units
         from scipy.integrate import ode
     except Exception as exc:  # noqa: BLE001 — oracle is optional; reason recorded
-        note = f"Tier 2 (PyRK cross-check) SKIPPED: {exc}"
+        note = f"Oracle check (PyRK) SKIPPED: {exc}"
         print(note)
         return [], [note], True
 
@@ -290,19 +290,19 @@ def tier2_pyrk() -> tuple[list[list[str]], list[str], bool]:
 def main() -> int:
     report = Report("kinetics", "Point kinetics (`kinetics_vs_pyrk.py`)")
     report.prose(
-        "Two-tier oracle for `nucleide.kinetics`: analytic gates O1-O4 plus "
-        "invariants on synthetic fixtures (tier 1, always run), and a ramp "
+        "Two-part oracle for `nucleide.kinetics`: analytic gates O1-O4 plus "
+        "invariants on synthetic fixtures (synthetic gates, always run), and a ramp "
         "cross-check against the upstream PyRK neutronics block on "
-        "runtime-read precursor data (tier 2 / O5)."
+        "runtime-read precursor data (oracle check / O5)."
     )
-    rows1, notes1, series_rows, pj_level = tier1()
+    rows1, notes1, series_rows, pj_level = synthetic_gates()
     for note in notes1:
         report.prose(note)
     report.table(["Gate", "Rel err", "Tol", "Status"], rows1)
     report.heading("Step-transient series (figure source)", level=3)
     report.table(["t since step (s)", "Nucleide n", "Analytic n"], series_rows)
     report.table(["Quantity", "Value"], [["Prompt-jump level (n0 = 1)", pj_level]])
-    rows2, notes2, skipped = tier2_pyrk()
+    rows2, notes2, skipped = oracle_check_pyrk()
     for note in notes2:
         report.prose(note)
     if skipped:

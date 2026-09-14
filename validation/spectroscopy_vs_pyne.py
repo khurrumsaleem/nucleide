@@ -15,12 +15,12 @@ Two tiers:
    runtime-read inputs, plus the E9 single-line SDEF fields diffed against
    ``pyne.source.PointSource.mcnp`` (upstream is monoenergetic; the multi-line
    distribution form has no upstream counterpart). PyNE is an optional oracle
-   dependency: if it cannot be imported, tier 2 is reported as SKIP with its
+       dependency: if it cannot be imported, the oracle check is reported as SKIP with its
    reason (never silently). The X-ray algebra has no container check — the
    upstream routine needs its HDF5 atomic table and no atomic values are
    vendored here — recorded below. The E7-fit coefficient fit has no upstream
-   counterpart either (the upstream module ships no fitting routine), so its
-   tier-2 row is always a loud SKIP.
+    counterpart either (the upstream module ships no fitting routine), so its
+    oracle row is always a loud SKIP.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def _worst_rel(got: list[float], want: list[float]) -> float:
     return max(rel_diff(g, w) for g, w in zip(got, want, strict=True))
 
 
-def tier1() -> tuple[list[list[str]], list[str], list[list[str]], str]:
+def synthetic_gates() -> tuple[list[list[str]], list[str], list[list[str]], str]:
     """Synthetic gates E1-E9 plus the E7-fit coefficient fit.
 
     Returns (gate rows, prose notes, overlay rows, background level). The
@@ -169,14 +169,14 @@ def tier1() -> tuple[list[list[str]], list[str], list[list[str]], str]:
     return rows, notes, overlay_rows, bg_level
 
 
-def tier2_pyne() -> tuple[list[list[str]], list[str], bool]:
+def oracle_check_pyne() -> tuple[list[list[str]], list[str], bool]:
     """PyNE cross-check. Returns (rows, notes, skipped)."""
     try:
         from pyne import gammaspec
         from pyne import source as pyne_source
         from pyne import spectanalysis as sa
     except Exception as exc:  # noqa: BLE001 — oracle is optional; reason recorded
-        note = f"Tier 2 (PyNE cross-check) SKIPPED: {exc}"
+        note = f"Oracle check (PyNE) SKIPPED: {exc}"
         print(note)
         return [], [note], True
 
@@ -237,9 +237,9 @@ def tier2_pyne() -> tuple[list[list[str]], list[str], bool]:
     notes.append(
         "E7-fit has no container check: the upstream module ships no "
         "efficiency-coefficient fitting routine, so the fit is pinned by the "
-        "synthetic closed-form recovery + round-trip gates in tier 1."
+        "synthetic closed-form recovery + round-trip gates in the synthetic stage."
     )
-    print("Tier 2 (efficiency fit) SKIPPED: upstream ships no fitting routine")
+    print("Oracle check (efficiency fit) SKIPPED: upstream ships no fitting routine")
 
     for label, path, reader, ours_fn in [
         ("dollar", "dollar_min.spe", gammaspec.read_dollar_spe_file, sp.read_dollar_spe),
@@ -298,13 +298,13 @@ def tier2_pyne() -> tuple[list[list[str]], list[str], bool]:
         "E9 SDEF: single-line cards diffed byte-for-byte against "
         "pyne.source.PointSource.mcnp (beam, isotropic, and the MCNP6 proton "
         "designator); the multi-line ERG=D1 distribution form has no upstream "
-        "counterpart and is pinned by the synthetic card goldens in tier 1."
+        "counterpart and is pinned by the synthetic card goldens in the synthetic stage."
     )
-    rows.extend(tier2_lines_tsv())
+    rows.extend(oracle_lines_tsv())
     return rows, notes, False
 
 
-def tier2_lines_tsv() -> list[list[str]]:
+def oracle_lines_tsv() -> list[list[str]]:
     """Runtime TSV interchange oracle against PyNE ENSDF line data.
 
     Reads Cs-137 gamma energies (keV) and photon intensities through
@@ -324,7 +324,7 @@ def tier2_lines_tsv() -> list[list[str]]:
         if not energies or not intensities:
             raise ValueError("empty Cs-137 line lists")
     except Exception as exc:  # noqa: BLE001 — oracle is optional; reason recorded
-        note = f"Tier 2 (TSV interchange) SKIPPED: {exc}"
+        note = f"Oracle check (TSV interchange) SKIPPED: {exc}"
         print(note)
         return [["tsv interchange vs PyNE ENSDF", "—", "—", "SKIP (see prose)"]]
     rows: list[list[str]] = []
@@ -346,7 +346,7 @@ def tier2_lines_tsv() -> list[list[str]]:
         # Energy/intensity pairing across the two PyNE lists is an open
         # format question — record it instead of guessing.
         print(
-            "Tier 2 (TSV normalization) SKIPPED: "
+            "Oracle check (TSV normalization) SKIPPED: "
             f"{len(energies)} energies vs {len(intensities)} intensities"
         )
         rows.append(
@@ -379,13 +379,13 @@ def tier2_lines_tsv() -> list[list[str]]:
 def main() -> int:
     report = Report("spectroscopy", "Spectroscopy (`spectroscopy_vs_pyne.py`)")
     report.prose(
-        "Two-tier oracle for `nucleide.spectroscopy`: synthetic E1-E9 gates "
-        "on hand-built fixtures (tier 1, always run), and a cross-check "
+        "Two-part oracle for `nucleide.spectroscopy`: synthetic E1-E9 gates "
+        "on hand-built fixtures (synthetic gates, always run), and a cross-check "
         "against the upstream `pyne.spectanalysis` / `pyne.gammaspec` "
         "routines and `pyne.source.PointSource.mcnp` on identical runtime "
-        "inputs (tier 2)."
+        "inputs (oracle check)."
     )
-    rows1, notes1, overlay_rows, bg_level = tier1()
+    rows1, notes1, overlay_rows, bg_level = synthetic_gates()
     for note in notes1:
         report.prose(note)
     report.table(["Gate", "Rel err", "Tol", "Status"], rows1)
@@ -395,7 +395,7 @@ def main() -> int:
         overlay_rows,
     )
     report.table(["Quantity", "Value"], [["Background level (E3, channels 2..5)", bg_level]])
-    rows2, notes2, skipped = tier2_pyne()
+    rows2, notes2, skipped = oracle_check_pyne()
     for note in notes2:
         report.prose(note)
     if skipped:

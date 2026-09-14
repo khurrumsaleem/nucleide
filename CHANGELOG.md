@@ -223,7 +223,7 @@ workspace crates from tags.
 - Python API: `nucleide.spectroscopy.fit_efficiency` thin wrapper over the
   new fit.
 - `validation/spectroscopy_vs_pyne.py`: E7-fit synthetic recovery +
-  round-trip gates (always run) plus a loud tier-2 SKIP — the upstream
+   round-trip gates (always run) plus a loud oracle-check SKIP — the upstream
   module ships no efficiency-fitting routine, so there is no container
    cross-check.
 - Python facade bundle over existing Rust (thin wrappers

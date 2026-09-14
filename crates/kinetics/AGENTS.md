@@ -55,7 +55,7 @@ validation oracle.
 
 - `cargo test -p nucleide-kinetics` (includes fixture replay).
 - `pytest tests/test_kinetics.py` after `maturin develop`.
-- `validation/kinetics_vs_pyrk.py` runs inside `run_all.sh` (two-tier:
+- `validation/kinetics_vs_pyrk.py` runs inside `run_all.sh` (two-part:
   analytic gates always, PyRK cross-check when importable).
 
 ## Child NAD Index

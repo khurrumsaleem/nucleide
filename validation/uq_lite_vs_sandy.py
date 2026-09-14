@@ -1,6 +1,6 @@
 """UQ-lite sampling cross-check (`nucleide.uq` vs synthetic gates + SANDY).
 
-Two tiers:
+Two parts:
 
 1. Synthetic gates (always run): U1/U2 covariance recovery on the
    hand-built `fixtures/uq/cov_2x2.json` / `cov_3x3.json` blocks (sample
@@ -25,7 +25,7 @@ Two tiers:
    ``get_mean``/``get_cov`` compared against ``nucleide.uq`` ``sample_mean``/
    ``sample_cov`` at 1e-9. SANDY is an optional oracle dependency (PyPI
    ``sandy`` 1.1.0, pure wheel, no NJOY needed for this path): if it — or
-   pandas — cannot be imported, tier 2 is reported as SKIP with its reason
+   pandas — cannot be imported, the oracle check is reported as SKIP with its reason
    (never silently). Tape-driven comparisons (``sandy.sampling`` CLI over
    ENDF files, ERRORR covariances) stay NJOY-gated skips: no tapes are
    vendored here by design.
@@ -246,7 +246,7 @@ def _fy_gate(label: str) -> tuple[list[str], str]:
     )
 
 
-def tier1() -> tuple[list[list[str]], list[str]]:
+def synthetic_gates() -> tuple[list[list[str]], list[str]]:
     """Synthetic gates U1-U7 (always run)."""
     rows: list[list[str]] = []
     notes: list[str] = []
@@ -294,7 +294,7 @@ def tier1() -> tuple[list[list[str]], list[str]]:
     return rows, notes
 
 
-def tier2() -> tuple[list[list[str]], list[str], bool]:
+def oracle_check() -> tuple[list[list[str]], list[str], bool]:
     """Live SANDY moment cross-check; SKIP loudly when absent.
 
     Returns (rows, notes, skipped). When SANDY + pandas import, the rows are
@@ -305,7 +305,7 @@ def tier2() -> tuple[list[list[str]], list[str], bool]:
         import sandy
         from sandy.samples import Samples
     except Exception as exc:
-        note = f"Tier 2 (SANDY cross-check) SKIPPED: {exc}"
+        note = f"Oracle check (SANDY) SKIPPED: {exc}"
         return [["SANDY Samples moments", "SKIP (see prose)"]], [note], True
 
     try:
@@ -332,7 +332,7 @@ def tier2() -> tuple[list[list[str]], list[str], bool]:
     ok_mean = worst_mean < 1e-9
     ok_cov = worst_cov < 1e-9
     notes = [
-        f"Tier 2 runs SANDY {sandy_version} Samples.get_mean/get_cov over the "
+        f"Oracle check runs SANDY {sandy_version} Samples.get_mean/get_cov over the "
         "nucleide U1 draws (tape-free: no ENDF input, no NJOY).",
         "Tape-driven sandy.sampling/ERRORR comparisons stay NJOY-gated skips "
         "(no tapes vendored, by design).",
@@ -347,11 +347,11 @@ def tier2() -> tuple[list[list[str]], list[str], bool]:
 
 def main() -> int:
     report = Report("uq_lite", "UQ-lite sampling vs SANDY")
-    rows1, notes1 = tier1()
+    rows1, notes1 = synthetic_gates()
     report.table(["Gate", "Expected", "Got", "Status"], rows1)
     for note in notes1:
         report.prose(note)
-    rows2, notes2, skipped = tier2()
+    rows2, notes2, skipped = oracle_check()
     if skipped:
         report.table(["Check", "Status"], rows2)
     else:

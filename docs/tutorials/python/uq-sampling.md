@@ -11,7 +11,7 @@ itself factorises with SVD behind NumPy's PCG64 stream, while this kernel
 uses Cholesky-with-eigen-clip behind ChaCha8 — same target distribution,
 so draws are not interchangeable, but the moment estimators agree exactly
 (`sample_mean`/`sample_cov` match `Samples.get_mean`/`get_cov` at 1e-9 in
-the Tier-2 oracle gate). This tutorial covers the Python API; the
+the oracle-check gate). This tutorial covers the Python API; the
 kernel lives in the `linalg` crate (`sample` + `decay` modules).
 
 ## Sample a covariance block

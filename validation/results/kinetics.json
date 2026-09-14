@@ -13,7 +13,7 @@
   "sections": [
     {
       "kind": "prose",
-      "text": "Two-tier oracle for `nucleide.kinetics`: analytic gates O1-O4 plus invariants on synthetic fixtures (tier 1, always run), and a ramp cross-check against the upstream PyRK neutronics block on runtime-read precursor data (tier 2 / O5)."
+      "text": "Two-part oracle for `nucleide.kinetics`: analytic gates O1-O4 plus invariants on synthetic fixtures (synthetic gates, always run), and a ramp cross-check against the upstream PyRK neutronics block on runtime-read precursor data (oracle check / O5)."
     },
     {
       "kind": "prose",

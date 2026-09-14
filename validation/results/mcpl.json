@@ -42,7 +42,7 @@
     },
     {
       "kind": "prose",
-      "text": "Tier 1 uses hand-built synthetic records only; no upstream files are read."
+      "text": "Synthetic gates use hand-built synthetic records only; no upstream files are read."
     },
     {
       "kind": "table",
@@ -54,13 +54,13 @@
       ],
       "rows": [
         [
-          "T1 upstream particle count",
+          "C1 upstream particle count",
           "2",
           "2",
           "PASS"
         ],
         [
-          "T2 upstream energy+PDG",
+          "C2 upstream energy+PDG",
           "2.5/2112, 0.662/22",
           "2.500000e+00/2112, 6.620000e-01/22",
           "PASS"
@@ -69,7 +69,7 @@
     },
     {
       "kind": "prose",
-      "text": "Tier 2 opens the nucleide-written synthetic file with upstream tooling."
+      "text": "Oracle check opens the nucleide-written synthetic file with upstream tooling."
     },
     {
       "kind": "table",
@@ -144,7 +144,7 @@
     },
     {
       "kind": "prose",
-      "text": "Tier 3 converts the committed synthetic SSW reference (hand-framed, no MCNP run) with the documented surface/kind pairing; the `mcpl2ssw` leg clones the same reference header (S1-S4 baseline, S5-S8 fidelity tail: cs compat, niss, polarisation/universal, extended PDG)."
+      "text": "SSW leg converts the committed synthetic SSW reference (hand-framed, no MCNP run) with the documented surface/kind pairing; the `mcpl2ssw` leg clones the same reference header (S1-S4 baseline, S5-S8 fidelity tail: cs compat, niss, polarisation/universal, extended PDG)."
     },
     {
       "kind": "table",
@@ -156,19 +156,19 @@
       ],
       "rows": [
         [
-          "T3 ssw2mcpl count",
+          "C3 ssw2mcpl count",
           "2",
           "2",
           "PASS"
         ],
         [
-          "T4 converter energies",
+          "C4 converter energies",
           "0.662, 2.5",
           "6.620000e-01, 2.500000e+00",
           "PASS"
         ],
         [
-          "T5 mcpl2ssw count+energy",
+          "C5 mcpl2ssw count+energy",
           "2 tracks: 0.662, 2.5 erg",
           "2 tracks: 6.620000e-01, 2.500000e+00 erg",
           "PASS"
@@ -177,7 +177,7 @@
     },
     {
       "kind": "prose",
-      "text": "Tier 4 runs the upstream converter scripts over the synthetic pair."
+      "text": "SSW oracle runs the upstream converter scripts over the synthetic pair."
     }
   ]
 }

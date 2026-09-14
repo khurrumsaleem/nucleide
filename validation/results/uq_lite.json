@@ -117,7 +117,7 @@
     },
     {
       "kind": "prose",
-      "text": "Tier 2 runs SANDY 1.1.0 Samples.get_mean/get_cov over the nucleide U1 draws (tape-free: no ENDF input, no NJOY)."
+      "text": "Oracle check runs SANDY 1.1.0 Samples.get_mean/get_cov over the nucleide U1 draws (tape-free: no ENDF input, no NJOY)."
     },
     {
       "kind": "prose",

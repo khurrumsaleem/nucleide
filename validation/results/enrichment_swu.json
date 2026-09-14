@@ -13,7 +13,7 @@
   "sections": [
     {
       "kind": "prose",
-      "text": "Two-tier oracle for the `nucleide-enrichment` separative-work helpers: closed-form gates G1-G3 on the cyclus assay ladder (tier 1, always run), and a live cross-check against `cyclus.toolkit.enrichment` (`ValueFunc`/`SwuRequired`) when the cyclus package is importable (tier 2)."
+      "text": "Two-part oracle for the `nucleide-enrichment` separative-work helpers: closed-form gates G1-G3 on the cyclus assay ladder (synthetic gates, always run), and a live cross-check against `cyclus.toolkit.enrichment` (`ValueFunc`/`SwuRequired`) when the cyclus package is importable (oracle check)."
     },
     {
       "kind": "prose",
@@ -98,7 +98,7 @@
     },
     {
       "kind": "prose",
-      "text": "Tier 2 (cyclus toolkit cross-check) SKIPPED: No module named 'cyclus'"
+      "text": "Oracle check (cyclus toolkit) SKIPPED: No module named 'cyclus'"
     },
     {
       "kind": "table",

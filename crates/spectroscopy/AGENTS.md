@@ -73,7 +73,7 @@ synthetic oracles (including `efficiency_fit.json`), and the
 - Validation oracle needs the upstream package at run time
   (container PyNE layer); a missing oracle is a recorded SKIP, never a
   silent pass. The E7 fit has no upstream counterpart (no fitting routine
-  upstream), so its tier-2 row is always a loud SKIP pinned by synthetic
+  upstream), so its oracle row is always a loud SKIP pinned by synthetic
   recovery + round-trip gates.
 
 ## Verification
@@ -81,8 +81,8 @@ synthetic oracles (including `efficiency_fit.json`), and the
 - `cargo test -p nucleide-spectroscopy` (includes fixture replay, among
   them `efficiency_fit.json` recovery + round-trip at 1e-9).
 - `pytest tests/test_spectroscopy.py` after `maturin develop`.
-- `validation/spectroscopy_vs_pyne.py` runs inside `run_all.sh` (two-tier:
-  synthetic gates always, PyNE cross-check when importable; E7-fit tier-2
+- `validation/spectroscopy_vs_pyne.py` runs inside `run_all.sh` (two-part:
+  synthetic gates always, PyNE cross-check when importable; E7-fit oracle
   always SKIP).
 
 ## Child NAD Index

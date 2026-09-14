@@ -1,6 +1,6 @@
 """SWU cross-check (`nucleide-enrichment` vs closed form + cyclus toolkit).
 
-Two tiers:
+Two parts:
 
 1. Closed-form gates (always run): the Dirac separation potential
    ``V(x) = (2x - 1) ln(x / (1 - x))`` and the SWU balance
@@ -10,7 +10,7 @@ Two tiers:
 2. cyclus toolkit cross-check: the same quantities via
    ``cyclus.toolkit.enrichment`` (``ValueFunc``/``SwuRequired``) when the
    cyclus Python package is importable. cyclus is an optional oracle
-   dependency: if it cannot be imported, tier 2 is reported as SKIP with
+       dependency: if it cannot be imported, the oracle check is reported as SKIP with
    its reason (never silently).
 """
 
@@ -51,7 +51,7 @@ def _value(x: float) -> float:
     return (2.0 * x - 1.0) * math.log(x / (1.0 - x))
 
 
-def tier1() -> tuple[list[list[str]], list[str]]:
+def synthetic_gates() -> tuple[list[list[str]], list[str]]:
     """Closed-form gates G1-G3. Returns (gate rows, prose notes)."""
     rows: list[list[str]] = []
     notes: list[str] = []
@@ -79,12 +79,12 @@ def tier1() -> tuple[list[list[str]], list[str]]:
     return rows, notes
 
 
-def tier2_cyclus() -> tuple[list[list[str]], list[str], bool]:
+def oracle_check_cyclus() -> tuple[list[list[str]], list[str], bool]:
     """cyclus toolkit cross-check. Returns (rows, notes, skipped)."""
     try:
         import cyclus.toolkit.enrichment as cy_enr
     except Exception as exc:  # noqa: BLE001 — oracle is optional; reason recorded
-        note = f"Tier 2 (cyclus toolkit cross-check) SKIPPED: {exc}"
+        note = f"Oracle check (cyclus toolkit) SKIPPED: {exc}"
         print(note)
         return [], [note], True
 
@@ -122,17 +122,17 @@ def tier2_cyclus() -> tuple[list[list[str]], list[str], bool]:
 def main() -> int:
     report = Report("enrichment_swu", "Enrichment SWU (`enrichment_swu_vs_cyclus.py`)")
     report.prose(
-        "Two-tier oracle for the `nucleide-enrichment` separative-work helpers: "
-        "closed-form gates G1-G3 on the cyclus assay ladder (tier 1, always run), "
+        "Two-part oracle for the `nucleide-enrichment` separative-work helpers: "
+        "closed-form gates G1-G3 on the cyclus assay ladder (synthetic gates, always run), "
         "and a live cross-check against `cyclus.toolkit.enrichment` "
         "(`ValueFunc`/`SwuRequired`) when the cyclus package is importable "
-        "(tier 2)."
+        "(oracle check)."
     )
-    rows1, notes1 = tier1()
+    rows1, notes1 = synthetic_gates()
     for note in notes1:
         report.prose(note)
     report.table(["Gate", "Rel err", "Tol", "Status"], rows1)
-    rows2, notes2, skipped = tier2_cyclus()
+    rows2, notes2, skipped = oracle_check_cyclus()
     for note in notes2:
         report.prose(note)
     if skipped:
