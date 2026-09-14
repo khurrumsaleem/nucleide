@@ -112,6 +112,42 @@ deck.set_cell_density(1, -10.0)
 open("path/to/model_edited.i", "w").write(deck.dumps())
 ```
 
+## SDEF source cards
+
+`parse_sdef` reads one legacy `SDEF` source definition plus its `SIn`/`SPn`/
+`SBn` distribution cards into typed dicts. The accepted keyword set is
+`POS`/`CELL`/`SURF`/`VEC`/`DIR`/`ERG`/`NRM`/`PAR`/`WGT`/`TME`, and only the
+discrete distribution forms (`SIn L`, `SPn D`, `SBn D`) parse — non-discrete
+options, dangling distribution references, and length mismatches all raise a
+`ValueError`:
+
+```python
+from nucleide.mcnp import parse_sdef
+
+parsed = parse_sdef("SDEF POS=0 0 0\n     ERG=D1\nSI1 L 0.662 1.17\nSP1 D 0.5 0.5")
+print(parsed["pos"], parsed["erg"])  # 0 0 0, D1
+print(parsed["distributions"][0]["si"])  # 0.662 1.17
+print(parsed["card"])  # canonical re-render of the full card
+```
+
+Unknown keywords are not dropped silently: they land in the `ignored` list as
+loud drift notes. A deck read through `read_deck`/`parse_deck` exposes the
+same view as the `sdef` property (`None` when the deck has no source card),
+and cards emitted by the spectroscopy SDEF source round-trip byte-identical:
+
+```python
+from nucleide import mcnp, spectroscopy
+
+bins, card = spectroscopy.sdef_decay_source([(0.662, 2.0), (1.33, 1.0)])
+assert mcnp.parse_sdef(card)["card"] == card
+
+deck = mcnp.parse_deck("msg\ntitle\n1 0 -1\n\n1 so 1.0\n\n" + card + "\n")
+print(deck.sdef["erg"])  # D1
+```
+
+See [Emit an SDEF decay source](run-spectroscopy.md#emit-an-sdef-decay-source)
+for the emitter side.
+
 ## L3 semantics: universes, lattices, tallies, and validation
 
 `DeckProblem` also exposes typed semantic views over the raw cards —

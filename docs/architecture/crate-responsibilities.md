@@ -18,12 +18,15 @@ leak into other crates. Besides the complex sparse LU core it owns the
 UQ-lite sampling kernel: the `sample` module (seeded multivariate-normal
 sampling over caller-supplied covariance blocks — Cholesky primary,
 eigen-clipping fallback, relative/absolute conventions, SANDY-style
-convergence diagnostics) and the decay-only `decay` consumer (branch/energy
- perturbers preserving the `1 − BR(SF)` deficit; fission yields named-open).
- The 0.9.0 `sample` extension adds `sample_lognormal` plus the closed-form
- `lognormal_mean`/`lognormal_cov` helpers. The 0.9.0 `lstsq` module owns the
- shared dense-real weighted least-squares kernel. The 0.10.0 `sample`
- extension adds `sample_lhs` stratified sampling (theory U7, separate G1/G2 gate).
+convergence diagnostics) and the `decay` consumer (branch/energy perturbers
+preserving the `1 − BR(SF)` deficit, plus `perturb_fission_yields` over
+caller-supplied yield blocks — `raw = base * (1 + rel)`, negatives clamped to
+zero, rescaled to the incoming block sum; U7 gate in
+`validation/uq_lite_vs_sandy.py`). The 0.9.0 `sample` extension adds
+`sample_lognormal` plus the closed-form `lognormal_mean`/`lognormal_cov`
+helpers. The 0.9.0 `lstsq` module owns the shared dense-real weighted
+least-squares kernel. The 0.10.0 `sample` extension adds `sample_lhs`
+stratified sampling (theory U7, separate G1/G2 gate).
 Other workspace crates depend on `nucleide-linalg`, not on the backend directly.
 
 ### `nucleide-nuclei`
@@ -38,6 +41,9 @@ Canonical nuclide identification. Owns:
 - Physical data access: AME2020 masses, natural abundances, half-lives, plus
   screening-level `simple_xs`, `scattering_length`, and `decay_energy_mev`
   TSV tables.
+- EPA FGR 15 external-dosimetry coefficients: the runtime-download `fgr15`
+  module parses the seven `Table_4_*.DAT` scenario tables (fetched and
+  hash-pinned by `nucleide.data.fetch_fgr15`; nothing vendored).
 
 ## Capability crates
 
@@ -105,10 +111,32 @@ CRAM matrix exponential (orders 16 and 48), depletion-chain XML parsing, and
 multi-step `Integrator::{Predictor, Cecm, Cf4}` time series with
 activity/decay-heat output. Depends on `nucleide-linalg` and `nucleide-nuclei`.
 
+### `nucleide-kinetics`
+
+Prescribed-reactivity point-kinetics transients: one PKE solve over
+caller-supplied delayed-neutron data (1+ groups, constant/step/impulse/ramp/
+polyline insertions in Δk, equilibrium initials) through an implicit
+θ-method integrator with exact schedule-knot stepping, plus the inhour
+relation with stable-period solve and the prompt-jump approximation. No
+transport, no thermal feedback, no flux coupling, no tabulated data. No
+internal crate dependencies.
+
+### `nucleide-spectroscopy`
+
+Gamma-ray spectroscopy and measurement: rectangular/five-point smoothing,
+gross/background/net peak counting, quadratic energy bins, log-polynomial
+energy/efficiency calibration (including a weighted least-squares
+coefficient fit through the shared `linalg::lstsq` kernel), X-ray line
+algebra over caller-supplied constants, caller-line SDEF decay-source cards,
+and the dollar/plain `.spe` text readers with upstream quirks pinned. Peak
+search/fit, activities, and plotting stay out. Depends on
+`nucleide-linalg` and `nucleide-nuclei`.
+
 ### `nucleide-vr-tools`
 
-MAGIC weight-window generation and mesh source sampling with alias tables.
-Depends on `nucleide-mcnp-io` (`nucleide-nuclei` comes in transitively).
+MAGIC weight-window generation, mesh source sampling with alias tables, and
+Gaussian KDE source sampling (`KdeSampler`). Depends on `nucleide-mcnp-io`
+(`nucleide-nuclei` comes in transitively).
 
 ### `nucleide-cccc-io`
 
@@ -132,8 +160,10 @@ workspace crates; burnup driving stays inside ORIGEN.
 ### `nucleide-r2s`
 
 Scoped rigorous two-step (R2S) workflow builder: zone-to-flux linking from
-ALARA decks, schedule expansion, and uniform-split photon-source assembly.
-Also owns the versionless ARMI DB-snapshot → deck adapter (`snapshot.rs`):
+ALARA decks, schedule expansion, uniform-split photon-source assembly,
+WATTS-class sweep expansion (`expand_sweep`), and facility-flow accounting
+(`snapshot_inventory`) for differencing facility snapshots. Also owns the
+versionless ARMI DB-snapshot → deck adapter (`snapshot.rs`):
 dict-in only, no HDF5, no ARMI layout versioning, opaque zone ids,
 volumes-method decks with per-zone mixtures carrying atoms/barn-cm number
 densities. Depends on `nucleide-alara-io`, `nucleide-mcnp-io`,

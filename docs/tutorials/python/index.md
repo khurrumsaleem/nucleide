@@ -37,3 +37,7 @@ and assumes you have already installed the project (see
     MAGIC and sample birth voxels through alias tables.
 15. [Reaction names](rxname.md) — resolve reaction names/ids/MT numbers and
     walk the parent/daughter reaction graph.
+16. [Translate CSG](translate-csg.md) — translate scoped MCNP CSG decks to
+    OpenMC, Serpent, or PHITS geometry with a drift report.
+17. [Run tritium](run-tritium.md) — steady-state and transient 1D tritium
+    permeation solves with traps and recombination boundaries.

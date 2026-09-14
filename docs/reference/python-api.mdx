@@ -238,7 +238,6 @@ Backing crate: [`nucleide-nuclei`](../architecture/crate-responsibilities.md#nuc
   load_fgr15_table(scenario: str, &#42;, expected_rows: int = 1252, dest: str | Path | None = None, url: str | None = None) -> dict[str, Any]
   ```
 
-
 - [`fgr15_dose_rate`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/nuclei.py#L120):
 
   ```python
@@ -426,7 +425,6 @@ Backing crate: [`nucleide-mcnp-io`](../architecture/crate-responsibilities.md#nu
     get_rx(nuc: int | str, p_in: int, rdesc: int, rprop: int, x1: int | None = None, p_out: int | None = None) -> list[list[float]]
     ```
 
-
 - [`DeckProblem`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/_internal.pyi#L590)
   — Parsed MCNP input deck with format-preserving write-back.
   - `loads(text: str) -> DeckProblem`
@@ -525,7 +523,6 @@ Backing crate: [`nucleide-mcpl-io`](../architecture/crate-responsibilities.md#nu
   ```python
   ssw2mcpl(ssw_path: str, mcpl_path: str, surfs: list[int], kinds: list[str], options: dict[str, Any] | None = None) -> int
   ```
-
 
 - [`mcpl2ssw`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/_internal.pyi#L463):
 
@@ -725,13 +722,11 @@ Backing crate: [`nucleide-depletion`](../architecture/crate-responsibilities.md#
   deplete(chain: Chain, n0: dict[str, float], dt: float, rates: dict[str, float] | None = None, order: int = 48, method: str = 'cram48') -> dict[str, float]
   ```
 
-
 - [`deplete_series`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/_internal.pyi#L548):
 
   ```python
   deplete_series(chain: Chain, n0: dict[str, float], dts: list[float], rates: dict[str, float] | None = None, rates_list: list[dict[str, float] | None] | None = None, integrator: str = 'predictor', order: int = 48, method: str = 'cram48') -> dict[str, Any]
   ```
-
 
 - [`cumulative_decays`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/_internal.pyi#L671):
 
@@ -751,7 +746,6 @@ Backing crate: [`nucleide-depletion`](../architecture/crate-responsibilities.md#
 {/*GEN:module-kinetics:START*/}
 
 Backing crate: [`nucleide-kinetics`](../architecture/crate-responsibilities.md#nucleide-kinetics) · [source dir](https://github.com/nukehub-dev/nucleide/tree/main/crates/kinetics)
-
 
 - [`solve`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/kinetics.py#L38):
 
@@ -780,13 +774,11 @@ Backing crate: [`nucleide-kinetics`](../architecture/crate-responsibilities.md#n
 
 Backing crate: [`nucleide-tritium`](../architecture/crate-responsibilities.md#nucleide-tritium) · [source dir](https://github.com/nukehub-dev/nucleide/tree/main/crates/tritium)
 
-
 - [`steady`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/tritium.py#L30):
 
   ```python
   steady(length: float, cells: int, D: float, left: dict[str, Any], right: dict[str, Any], traps: list[dict[str, Any]] | None = None, temperature: list[float] | None = None, source: list[float] | None = None, E_D: float = 0.0) -> dict[str, Any]
   ```
-
 
 - [`transient`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/tritium.py#L68):
 
@@ -824,13 +816,11 @@ Backing crate: [`nucleide-spectroscopy`](../architecture/crate-responsibilities.
   fit_efficiency(energies: list[float], effs: list[float], weights: list[float], order: int, eff_fit: int = 1) -> list[float]
   ```
 
-
 - [`xray_lines`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/spectroscopy.py#L96):
 
   ```python
   xray_lines(atomic: dict[str, float], k_conv: float | None = None, l_conv: float | None = None) -> list[tuple[float, float]]
   ```
-
 
 - [`sdef_decay_source`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/spectroscopy.py#L114):
 
@@ -959,14 +949,15 @@ Backing crate: [`nucleide-r2s`](../architecture/crate-responsibilities.md#nuclei
   ```python
   tag_zone_strength(totals: list[float], zone_of_voxel: list[int], split: bool = False) -> dict[str, Any]
   ```
-  (alias of `r2s_tag_zone_strength`)
 
+  (alias of `r2s_tag_zone_strength`)
 
 - [`photon_group_sums`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/r2s.py#L35):
 
   ```python
   photon_group_sums(photon_text: str, nuclides: list[str], time_s: float) -> dict[str, Any]
   ```
+
   (alias of `r2s_photon_group_sums`)
 
 - [`snapshot_inventory(snapshot: dict[str, Any]) -> dict[str, float]`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/r2s.py#L36)
@@ -982,13 +973,11 @@ Backing crate: [`nucleide-r2s`](../architecture/crate-responsibilities.md#nuclei
 
 Backing crate: [`nucleide-emit`](../architecture/crate-responsibilities.md#nucleide-emit) · [source dir](https://github.com/nukehub-dev/nucleide/tree/main/crates/emit)
 
-
 - [`emit_armi_cards`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/_internal.pyi#L892):
 
   ```python
   emit_armi_cards(comp: dict[str, float], name: str, density: float | None = None, mcnp_number: int = 1, xs_suffix: str = '80c', serpent_lib: str = '03c', fluka_fid: int = 1, partisn_zone: int = 1) -> dict[str, str]
   ```
-
 
 - [`emit_armi_drift_table`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/_internal.pyi#L902):
 
@@ -996,13 +985,11 @@ Backing crate: [`nucleide-emit`](../architecture/crate-responsibilities.md#nucle
   emit_armi_drift_table(comp: dict[str, float], name: str, density: float | None = None, mcnp_number: int = 1, xs_suffix: str = '80c', serpent_lib: str = '03c', fluka_fid: int = 1, partisn_zone: int = 1) -> list[dict[str, Any]]
   ```
 
-
 - [`emit_cards`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/_internal.pyi#L872):
 
   ```python
   emit_cards(comp: dict[str, float], name: str, density: float | None = None, mcnp_number: int = 1, xs_suffix: str = '80c', serpent_lib: str = '03c', fluka_fid: int = 1, partisn_zone: int = 1) -> dict[str, str]
   ```
-
 
 - [`emit_drift_table`](https://github.com/nukehub-dev/nucleide/blob/main/python/nucleide/_internal.pyi#L882):
 

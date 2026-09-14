@@ -8,7 +8,7 @@ Nucleide is pre-alpha. APIs may change without notice.
 
 ## Current status
 
-The workspace is bootstrapped with eighteen crates, PyO3 and WASM bindings, a
+The workspace is bootstrapped with twenty crates, PyO3 and WASM bindings, a
 typed Python facade, and golden-byte fixtures. The canonical CI checks (format,
 clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
 
@@ -59,8 +59,30 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
   cell-`FILL` cap, Bateman `n0` validation, snapshot-mixture error.
 - Rust API stability pass (all crates): every public error enum is
   `#[non_exhaustive]` (new variants are no longer breaking), crate-root
-  error re-exports and `Result` aliases complete the surface, and all 18
+  error re-exports and `Result` aliases complete the surface, and all 20
   crates carry `#![warn(missing_docs)]`.
+- Point-kinetics solver (`kinetics`): prescribed-reactivity PKE with inhour
+  and prompt-jump analyses (no transport, no feedback).
+- Spectroscopy toolkit (`spectroscopy`): smoothing, counting, calibration,
+  X-ray, and SPE line-list readers.
+- UQ-lite sampling kernel (`linalg`): seeded MVN/lognormal/LHS draws over
+  caller-supplied blocks, plus `decay` branch/energy/fission-yield perturbers
+  (`perturb_fission_yields` closes the last named-open hook).
+- License-free ENDF/B-VIII.0 fission-yield pack (`nuclei`): independent and
+  cumulative yields verbatim, 36 parents, chain-XML depletion fallback.
+- Tritium 1D diffusion-trapping kernel (`tritium`): T1–T2 mobile/trap
+  transport with the full surface taxonomy; recombination ends closed in
+  steady state and transient (G5/G6).
+- Scoped MCNP→OpenMC/Serpent/PHITS CSG translation (`csg-xlate`): surfaces,
+  cells, nested universes, and rectangular `LAT=1` lattices with per-item
+  drift reports.
+- Gaussian KDE source resampling (`vr-tools`): `KdeSampler` fits over caller
+  particle vectors with deterministic draw/pdf.
+- Typed legacy SDEF fixed-source reader (`mcnp-io`): keyword and discrete
+  `SI`/`SP`/`SB` subset with canonical re-emission.
+- EPA FGR 15 runtime-download dosimetry pack (`nuclei` + `nucleide.data`):
+  hash-pinned fetch of the official EPA zip; the `fgr15` module parses the
+  seven scenario tables (nothing vendored).
 
 ## Upcoming priorities
 

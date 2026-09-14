@@ -476,7 +476,10 @@ def _long_bullet(
     body = f"{indent}  {code}"
     close = f"{indent}  ```"
     lines = ["", head, "", fence, body, close]
-    lines.extend(trailing or [])
+    if trailing:
+        # MD031: the fence needs a blank line before the alias note too.
+        lines.append("")
+        lines.extend(trailing)
     lines.append("")
     return lines
 
@@ -622,6 +625,18 @@ def render_module(
             missing.append(name)
     if missing:
         raise RuntimeError(f"nucleide.{mod}: exports missing from sources: " + ", ".join(missing))
+    # Adjacent blocks each contribute a blank separator; collapse runs so
+    # consecutive long bullets do not emit double blank lines (MD012).
+    collapsed: list[str] = []
+    for line in lines:
+        if line == "" and collapsed and collapsed[-1] == "":
+            continue
+        collapsed.append(line)
+    lines = collapsed
+    # Drop the leading blank the first bullet may leave behind: the template
+    # already separates the region from the preceding prose.
+    while lines and lines[0] == "":
+        lines.pop(0)
     # Drop the trailing blank line the class branch may leave behind.
     while lines and lines[-1] == "":
         lines.pop()

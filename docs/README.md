@@ -3,7 +3,8 @@
 Welcome! Nucleide is a Rust toolkit for nuclear-engineering workflow glue,
 exposed through a typed Python API: parse legacy code output (MCNP, Serpent,
 FLUKA, ALARA, and friends), build materials, and run solvers for depletion,
-point kinetics, enrichment cascades, spectroscopy, and variance reduction.
+point kinetics, enrichment cascades, spectroscopy, tritium transport, and
+variance reduction, plus uncertainty-quantification sampling.
 These docs are organized by audience, so you can jump straight to what you
 need.
 
@@ -32,13 +33,14 @@ need.
   <text x="190" y="148" text-anchor="middle" class="cm-i">MCNP &#xb7; Serpent &#xb7; FLUKA</text>
   <text x="190" y="168" text-anchor="middle" class="cm-i">ALARA &#xb7; CCCC</text>
   <text x="190" y="188" text-anchor="middle" class="cm-i">FISPACT-II &#xb7; ORIGEN</text>
-  <text x="190" y="210" text-anchor="middle" class="cm-s">readers, writers, card emitters</text>
+  <text x="190" y="210" text-anchor="middle" class="cm-s">readers, writers, emitters, translation</text>
   <rect x="400" y="96" width="260" height="130" rx="10" class="cm-box"/>
   <text x="530" y="124" text-anchor="middle" class="cm-t">Solvers and analysis</text>
   <text x="530" y="148" text-anchor="middle" class="cm-i">Depletion (CRAM) &#xb7; Point kinetics</text>
-  <text x="530" y="168" text-anchor="middle" class="cm-i">Enrichment cascades &#xb7; Spectroscopy</text>
-  <text x="530" y="188" text-anchor="middle" class="cm-i">Variance reduction</text>
-  <text x="530" y="210" text-anchor="middle" class="cm-s">plus the R2S workflow glue</text>
+  <text x="530" y="166" text-anchor="middle" class="cm-i">Enrichment cascades &#xb7; Spectroscopy</text>
+  <text x="530" y="184" text-anchor="middle" class="cm-i">Variance reduction &#xb7; UQ sampling</text>
+  <text x="530" y="202" text-anchor="middle" class="cm-i">Tritium transport</text>
+  <text x="530" y="216" text-anchor="middle" class="cm-s">plus the R2S workflow glue</text>
   <line x1="185" y1="252" x2="185" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
   <line x1="475" y1="252" x2="475" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
   <rect x="110" y="256" width="500" height="40" rx="10" class="cm-bar"/>
@@ -87,6 +89,8 @@ status, and license.
 | [UQ sampling](tutorials/python/uq-sampling.md) | Draw seeded MVN, log-normal, and LHS samples over caller-supplied covariance blocks and perturb decay data |
 | [VR and MAGIC](tutorials/python/vr-magic.md) | Derive weight-window lower bounds with MAGIC and sample birth voxels through alias tables |
 | [Reaction names](tutorials/python/rxname.md) | Resolve reaction names/ids/MT numbers and walk the parent/daughter reaction graph |
+| [Translate CSG](tutorials/python/translate-csg.md) | Translate scoped MCNP CSG decks to OpenMC, Serpent, or PHITS geometry with a drift report |
+| [Run tritium](tutorials/python/run-tritium.md) | Solve steady-state and transient 1D tritium permeation with traps and recombination boundaries |
 | [Interactive tutorials](tutorials/interactive/index.mdx) | Run Nucleide in the browser through the WASM build |
 | [Interactive — nuclides](tutorials/interactive/nuclides.mdx) | Nuclide identifiers and nuclear data |
 | [Interactive — materials](tutorials/interactive/materials.mdx) | Formulas, fractions, mixing, and XML export |

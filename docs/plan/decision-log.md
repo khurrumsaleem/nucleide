@@ -183,6 +183,28 @@ APIs plus capped summaries, so the browser slice stays cheap and the E2E
 matrix (2 MCPL rows + scalar tabs + SPE ×2 + RTFLUX ×1 + ORIGEN per-step)
 guards each landed path.
 
+## AD-14: Runtime-download data policy
+
+**Decision:** Datasets whose redistribution terms are unclear, or whose
+upstream is authoritative and stable, are fetched at run time from the
+official source and never vendored (recorded 2026-09-14, owner-directed).
+The fetch is hash-pinned (SHA-256 in code, e.g. `FGR15_SHA256` in
+`python/nucleide/data.py`), cached per user at platform-conventional paths
+(`nucleide.data._default_cache_dir`), and a hash mismatch fails loudly. The
+validation harness downloads such datasets into the git-ignored
+`validation/.cache/` with provenance recorded in `validation/README.md`.
+First application: EPA FGR 15 (`crates/nuclei/src/fgr15.rs`, fetched by
+`nucleide.data.fetch_fgr15`) — a U.S. government work where the dynamic
+stance is chosen so the redistribution-comfort question never arises.
+
+**Rationale:** Complements the standing vendored-data policy (AD-7): vendored
+data must be unambiguously BSD-compatible-redistributable — U.S. government
+works, permissive licenses, or published facts with documented transcription
+(ICRP declined). Runtime fetch keeps the repository license-clean for
+datasets that fail or complicate that test, while the pinned hash plus loud
+mismatch failure keeps each fetch a checkable artifact against silent
+upstream revisions.
+
 ## Open questions
 
 - Whether to enable `abi3-py311` or stay on `abi3-py310` as the minimum Python
