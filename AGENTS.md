@@ -220,6 +220,36 @@ The `docs/` tree owns durable user and contributor documentation.
 - Docs changes trigger `.github/workflows/docs.yml` for markdown lint and link
   checking.
 
+### Docs change contract (every docs add/edit/remove)
+
+- **Page lifecycle**: a new page registers in `docs/README.md` (full index),
+  its section index, and `sidebar.order` frontmatter matching the reading
+  order. A removed page is deleted from all of them; a renamed page or
+  heading sweeps for inbound anchor links.
+- **Capability surfaces stay in sync**: a feature change updates every place
+  that enumerates capabilities in the same change — root `README.md` (intro
+  list, feature table, layout tree), `docs/README.md` (capability-map SVG +
+  index tables), `docs/plan/roadmap.md`, and
+  `docs/architecture/crate-responsibilities.md`. Never keep partial
+  duplicate lists: point to the owning index instead.
+- **Reader vocabulary**: reader-facing pages (`docs/README.md`,
+  `docs/tutorials/`, section indexes) use plain language. Contract terms
+  (`loud`, `named-open`, `oracle`, `gate`, `golden-byte`, unexplained
+  `drift`) belong to contributor docs (`architecture/`, `development/`,
+  `plan/`, `AGENTS.md`). On reader pages: "raises a clear error", "not yet
+  supported", "correctness check", "sample files". Public API names keep
+  their spelling but are glossed at first use per page.
+- **Generated content**: run `python3 scripts/gen-reference.py --write`
+  after facade, crate-manifest, or fixture changes (CI enforces `--check`);
+  never hand-edit GEN regions.
+- **Website mirror**: re-run `npm run sync-docs` from `website/` after any
+  docs edit; `website/src/content/docs` is generated — never hand-edit it.
+  Run `npm run format && npm run check && npm run build && npm run
+  test:e2e:ci` when page structure or interactive content changed.
+- **Lint**: `npx markdownlint-cli2` clean on every touched file, including
+  regenerated reference pages (generator bugs get fixed in
+  `scripts/gen-reference.py`, never patched over in the output).
+
 The `website/` directory is the Astro-based documentation website. It consumes
 `@nukehub/docs-kit`, pulls content from `../docs/`, and deploys to GitHub Pages via
 `.github/workflows/docs-deploy.yml`. Keep site branding and routing in
