@@ -36,6 +36,7 @@ nucleide-serpent-io.workspace = true
 nucleide-fluka-io.workspace = true
 nucleide-origen-io.workspace = true
 nucleide-vr-tools.workspace = true
+nucleide-tritium.workspace = true
 nucleide-linalg = { workspace = true, default-features = false }
 
 [features]

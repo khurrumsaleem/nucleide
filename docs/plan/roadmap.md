@@ -59,13 +59,11 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
   cell-`FILL` cap, Bateman `n0` validation, snapshot-mixture error.
 - Rust API stability pass (all crates): every public error enum is
   `#[non_exhaustive]` (new variants are no longer breaking), crate-root
-  error re-exports and `Result` aliases complete the surface, and 17 of
-  18 crates carry `#![warn(missing_docs)]` (`nucleide-mcnp-io` deferred).
+  error re-exports and `Result` aliases complete the surface, and all 18
+  crates carry `#![warn(missing_docs)]`.
 
 ## Upcoming priorities
 
-- Close the `nucleide-mcnp-io` `missing_docs` deferral (~132 missing docs)
-  so the crate joins the 17 others carrying the lint.
 - Cut releases: `vX.Y.Z` tags publish Python wheels to PyPI and workspace
   crates to crates.io.
 

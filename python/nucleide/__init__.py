@@ -5,7 +5,7 @@ Functionality is grouped into domain submodules mirroring the Rust crates:
 `nucleide.nuclei`, `nucleide.material`, `nucleide.mcnp`, `nucleide.serpent`,
 `nucleide.fluka`, `nucleide.vr`, `nucleide.enrichment`,
 `nucleide.depletion`, `nucleide.kinetics`, `nucleide.spectroscopy`,
-`nucleide.alara`, `nucleide.cccc`,
+`nucleide.tritium`, `nucleide.alara`, `nucleide.cccc`,
 `nucleide.fispact`, `nucleide.origen`, and `nucleide.r2s`.
 `nucleide.mcpl` reads/writes MCPL particle lists.
 `nucleide.uq` is the seeded UQ-lite sampling kernel (caller-supplied blocks).
@@ -31,6 +31,7 @@ from nucleide import (
     r2s,
     serpent,
     spectroscopy,
+    tritium,
     uq,
     vr,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "depletion",
     "kinetics",
     "spectroscopy",
+    "tritium",
     "cccc",
     "emit",
     "fispact",

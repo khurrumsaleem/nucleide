@@ -98,6 +98,7 @@ status, and license.
 | [Interactive — deterministic I/O](tutorials/interactive/deterministic.mdx) | ISOTXS fluxes and PARTISN decks |
 | [Interactive — code-card emission](tutorials/interactive/emitter.mdx) | Five-dialect card emission and mass drift |
 | [Interactive — point kinetics](tutorials/interactive/kinetics.mdx) | Step-reactivity transients and the prompt jump |
+| [Interactive — tritium permeation](tutorials/interactive/tritium.mdx) | 1D breakthrough curve and time lag |
 | [Interactive — spectroscopy](tutorials/interactive/spectroscopy.mdx) | Spectrum smoothing and peak counting |
 | [Interactive — UQ sampling](tutorials/interactive/uq.mdx) | Seeded MVN sampling over caller-supplied covariance blocks (Python API and theory add log-normal + LHS) |
 
@@ -111,6 +112,7 @@ status, and license.
 | [Variance reduction](theory/variance-reduction.mdx) | MAGIC weight windows and alias-table source sampling |
 | [Nuclear data](theory/nuclear-data.mdx) | Nuclide IDs, name dialects, masses, half-lives, and screening data |
 | [Point kinetics](theory/kinetics.mdx) | Prescribed-reactivity PKE system, inhour relation, prompt jump, and the stiff-aware solver |
+| [Tritium transport](theory/tritium.mdx) | 1D diffusion-trapping equations, McNabb–Foster traps, surface taxonomy, and the analytic permeation gates |
 | [Gamma-ray spectroscopy](theory/spectroscopy.mdx) | Smoothing, peak counting, energy/efficiency calibration, X-ray lines, and SPE readers |
 
 ### Reference

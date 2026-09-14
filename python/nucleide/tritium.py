@@ -1,0 +1,143 @@
+"""1D tritium diffusion-trapping kernel (backed by the `nucleide-tritium` crate)."""
+
+from typing import Any
+
+from nucleide._internal import (
+    tritium_breakthrough,
+    tritium_irreversible_fill,
+    tritium_langmuir,
+    tritium_oriani,
+    tritium_sieverts,
+    tritium_steady,
+    tritium_time_lag,
+    tritium_transient,
+)
+
+__all__ = [
+    "steady",
+    "transient",
+    "time_lag",
+    "breakthrough",
+    "oriani",
+    "langmuir",
+    "irreversible_fill",
+    "sieverts",
+]
+
+
+def steady(
+    length: float,
+    cells: int,
+    D: float,
+    left: dict[str, Any],
+    right: dict[str, Any],
+    traps: list[dict[str, Any]] | None = None,
+    temperature: list[float] | None = None,
+    source: list[float] | None = None,
+    E_D: float = 0.0,
+) -> dict[str, Any]:
+    """Trap-free-style steady state of the mobile/trapped slab.
+
+    ``left``/``right`` are boundary-spec dicts with ``kind`` selecting
+    ``"dirichlet"`` (``value`` [mol/m³]), ``"sieverts"``/``"henry"``
+    (``solubility``, ``pressure`` [Pa]), ``"recombination"`` (``rate`` —
+    accepted, rejected at solve time as named-open G5), or ``"zero_flux"``.
+    ``traps`` holds one spec dict per species (``k0``, ``p0``,
+    ``site_density`` required; ``e_k``/``e_p`` default to 0). ``temperature``
+    is one value (uniform, default 500 K) or one per cell; ``source`` is
+    ``None`` (zero), one value, or one per cell. Returns ``centres``,
+    ``mobile``, ``trapped`` (``[cell][trap]``), ``flux_left``/``flux_right``
+    (outward-positive), and the two inventories.
+    """
+    return tritium_steady(
+        length,
+        cells,
+        D,
+        E_D,
+        traps if traps is not None else [],
+        temperature if temperature is not None else [500.0],
+        source,
+        left,
+        right,
+    )
+
+
+def transient(
+    length: float,
+    cells: int,
+    D: float,
+    left: dict[str, Any],
+    right: dict[str, Any],
+    t: list[float],
+    traps: list[dict[str, Any]] | None = None,
+    temperature: list[float] | None = None,
+    source: list[float] | None = None,
+    E_D: float = 0.0,
+    mobile0: list[float] | None = None,
+    trapped0: list[list[float]] | None = None,
+    method: str = "crank_nicolson",
+    rtol: float = 1e-9,
+    atol: float = 1e-12,
+    dt_min: float = 1e-14,
+    dt_max: float | None = None,
+    max_steps: int = 1000000,
+) -> dict[str, Any]:
+    """Solve the mobile/trapped transient over the output grid ``t`` [s].
+
+    Same slab/trap/BC arguments as :func:`steady` plus the output times and
+    the optional initial profiles (both default to zero). ``method`` is
+    ``"crank_nicolson"`` (default) or ``"backward_euler"``. Returns
+    ``times``, ``mobile`` (``[time][cell]``), ``trapped``
+    (``[time][cell][trap]``), and the outward ``flux_left``/``flux_right``
+    series.
+    """
+    return tritium_transient(
+        length,
+        cells,
+        D,
+        E_D,
+        traps if traps is not None else [],
+        temperature if temperature is not None else [500.0],
+        source,
+        left,
+        right,
+        t,
+        mobile0,
+        trapped0,
+        method,
+        rtol,
+        atol,
+        dt_min,
+        dt_max,
+        max_steps,
+    )
+
+
+def time_lag(length: float, D: float) -> float:
+    """Permeation time lag ``t_lag = L²/6D`` [s] (G2-lag)."""
+    return tritium_time_lag(length, D)
+
+
+def breakthrough(D: float, length: float, times: list[float]) -> list[float]:
+    """Normalized outlet flux ``J(L,t)/J_ss`` at each time (G2 series)."""
+    return tritium_breakthrough(D, length, times)
+
+
+def oriani(D: float, K: float, N: float) -> float:
+    """Oriani effective diffusivity ``D_eff = D/(1 + K N)`` [m²/s] (G3a)."""
+    return tritium_oriani(D, K, N)
+
+
+def langmuir(N: float, K: float, c: float) -> float:
+    """Langmuir equilibrium load ``c_t = N K c/(1 + K c)`` [mol/m³] (T2-eq)."""
+    return tritium_langmuir(N, K, c)
+
+
+def irreversible_fill(k: float, c: float, N: float, times: list[float]) -> list[float]:
+    """Irreversible-trap fill ``c_t(t) = N(1 − e^{−kct})`` [mol/m³] (G3c)."""
+    return tritium_irreversible_fill(k, c, N, times)
+
+
+def sieverts(K_S: float, p: float) -> float:
+    """Sieverts surface concentration ``c = K_S sqrt(p)`` [mol/m³] (G4)."""
+    return tritium_sieverts(K_S, p)

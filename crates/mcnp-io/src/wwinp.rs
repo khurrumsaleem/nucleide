@@ -24,6 +24,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
+    /// Filesystem read failed.
     Io(String),
     /// Cylindrical meshes (`nr = 16`) are unsupported upstream too.
     Unsupported(&'static str),
@@ -31,7 +32,9 @@ pub enum Error {
     BadStructure(String),
     /// Numeric field failed to parse.
     BadNumber {
+        /// Which field was being parsed.
         context: &'static str,
+        /// The offending text.
         text: String,
     },
 }
@@ -69,11 +72,13 @@ pub struct Wwinp {
     pub ne: Vec<u32>,
     /// Fine mesh points per dimension.
     pub nf: [u32; 3],
+    /// Total fine mesh cells (`nf[0]*nf[1]*nf[2]`), i.e. values per energy group.
     pub nft: u64,
     /// Mesh minimum corner.
     pub origin: [f64; 3],
     /// Coarse mesh points per dimension (excluding origin, MCNP style).
     pub nc: [u32; 3],
+    /// Weight-window group count from block-1 line 4 (window table selector).
     pub nwg: u32,
     /// Raw header tail from line 1 (date/time), preserved for round trips.
     pub date_time: String,

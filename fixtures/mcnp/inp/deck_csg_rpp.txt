@@ -1,0 +1,9 @@
+CSG RPP message
+RPP macrobody expansion, lattice-free
+1 1 -2.7 -1 imp:n=1 $ inside the brick
+2 0 1 imp:n=0 $ outside the brick
+
+1 rpp -5 5 -5 5 -5 5
+
+mode n
+m1 13027 1.0

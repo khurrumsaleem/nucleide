@@ -22,16 +22,20 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
+    /// Filesystem read failed.
     Io(String),
     /// A required header word/section was missing or malformed.
     BadHeader(String),
     /// A numeric field failed to parse.
     BadNumber {
+        /// Which field was being parsed.
         field: &'static str,
+        /// The offending text.
         text: String,
     },
     /// Not enough fields on a directory entry line.
     TooFewFields {
+        /// Fields found on the directory entry line (need >= 7).
         got: usize,
     },
     /// `to_serpent` needs a temperature; this table has none.

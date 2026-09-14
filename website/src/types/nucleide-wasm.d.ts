@@ -609,6 +609,13 @@ export interface KineticsTransientResult {
   betaTotal: number;
 }
 
+export interface TritiumBreakthroughResult {
+  times: number[];
+  fluxOverJss: number[];
+  tLag: number;
+  jss: number;
+}
+
 export interface SpectroscopySmoothResult {
   smoothed: number[];
   gross: number;
@@ -824,6 +831,12 @@ export interface WasmApi {
     times: number[],
     n0: number,
   ): KineticsTransientResult;
+  tritiumBreakthrough(
+    length: number,
+    diffusivity: number,
+    c0: number,
+    times: number[],
+  ): TritiumBreakthroughResult;
   spectroscopySmooth(
     counts: number[],
     method: string,

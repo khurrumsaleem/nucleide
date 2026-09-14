@@ -1,0 +1,15 @@
+[package]
+name = "nucleide-tritium"
+description = "1D tritium diffusion-trapping kernel (Fick + McNabb-Foster, Sieverts surfaces, permeation gates)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nucleide-linalg.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

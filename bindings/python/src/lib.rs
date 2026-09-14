@@ -4975,6 +4975,52 @@ fn parse_deck(text: &str) -> PyResult<PyDeckProblem> {
     PyDeckProblem::loads(text)
 }
 
+/// Translate one deck's CSG to OpenMC `geometry.xml`.
+///
+/// Returns `(xml, drift)` where `drift` is `[{scope, target, action,
+/// reason}]` (all strings; `target` is the cell/surface number, `"0"` for
+/// deck scope). Scoped v1: surfaces, cells, and a material stub only;
+/// transforms, universes, tallies, and sources raise `ValueError`.
+fn csg_to_openmc_inner(
+    deck: &nucleide_mcnp_io::problem::DeckProblem,
+) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let (xml, table) = nucleide_csg_xlate::deck_csg_to_openmc_xml(deck)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((
+        xml,
+        table
+            .entries
+            .into_iter()
+            .map(|e| {
+                let mut d = BTreeMap::new();
+                d.insert("scope".to_string(), e.scope.to_string());
+                d.insert("target".to_string(), e.target.to_string());
+                d.insert("action".to_string(), e.action);
+                d.insert("reason".to_string(), e.reason);
+                d
+            })
+            .collect(),
+    ))
+}
+
+/// Translate MCNP deck text to OpenMC `geometry.xml` plus drift report.
+/// See [`csg_to_openmc_inner`].
+#[pyfunction]
+fn parse_csg_to_openmc(text: &str) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let deck = nucleide_mcnp_io::problem::parse_deck(text)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    csg_to_openmc_inner(&deck)
+}
+
+/// Translate an MCNP deck file to OpenMC `geometry.xml` plus drift report.
+/// See [`csg_to_openmc_inner`].
+#[pyfunction]
+fn read_csg_to_openmc(path: &str) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let deck = nucleide_mcnp_io::problem::parse_deck_file(path)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    csg_to_openmc_inner(&deck)
+}
+
 /// A unit-aware decay inventory over a depletion chain.
 #[pyclass(name = "Inventory")]
 struct PyInventory {
@@ -5845,6 +5891,278 @@ fn kinetics_prompt_jump(
 }
 
 // ---------------------------------------------------------------------------
+// Tritium transport (thin glue over `nucleide-tritium`; solver stays in core)
+// ---------------------------------------------------------------------------
+
+/// Parse a boundary-spec dict into the core [`Boundary`].
+///
+/// `kind` selects the surface law (`"dirichlet"`, `"sieverts"`, `"henry"`,
+/// `"recombination"`, `"zero_flux"`). Keys per kind: dirichlet (`value`
+/// [mol/m³]); sieverts/henry (`solubility`, `pressure` [Pa]);
+/// recombination (`rate`); zero_flux (no keys). Recombination ends are
+/// accepted here and rejected at solve time (G5 named-open).
+fn parse_tritium_boundary(
+    spec: &BTreeMap<String, Py<PyAny>>,
+    py: Python<'_>,
+) -> PyResult<nucleide_tritium::Boundary> {
+    use nucleide_tritium::Boundary as B;
+    let kind: String = spec
+        .get("kind")
+        .ok_or_else(|| PyValueError::new_err("boundary spec needs a `kind`"))?
+        .extract::<String>(py)
+        .map_err(|_| PyValueError::new_err("`kind` must be a string"))?;
+    let num = |key: &str| -> PyResult<f64> {
+        spec.get(key)
+            .ok_or_else(|| PyValueError::new_err(format!("boundary spec missing `{key}`")))?
+            .extract::<f64>(py)
+            .map_err(|_| PyValueError::new_err(format!("`{key}` must be a number")))
+    };
+    let b = match kind.as_str() {
+        "dirichlet" => B::dirichlet(num("value")?),
+        "sieverts" => B::sieverts(num("solubility")?, num("pressure")?),
+        "henry" => B::henry(num("solubility")?, num("pressure")?),
+        "recombination" => B::recombination(num("rate")?),
+        "zero_flux" => Ok(B::ZeroFlux),
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown boundary kind `{other}` (supported: dirichlet, sieverts, henry, recombination, zero_flux)"
+            )))
+        }
+    };
+    b.map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Parse a trap-spec dict into the core [`TrapSpec`].
+///
+/// Keys: `k0` [m³/mol/s], `p0` [1/s], `site_density` [mol/m³] (required);
+/// `e_k`/`e_p` [J/mol] (optional, default 0 = constant rates).
+fn parse_tritium_trap(
+    spec: &BTreeMap<String, Py<PyAny>>,
+    py: Python<'_>,
+) -> PyResult<nucleide_tritium::TrapSpec> {
+    let num = |key: &str| -> PyResult<f64> {
+        spec.get(key)
+            .ok_or_else(|| PyValueError::new_err(format!("trap spec missing `{key}`")))?
+            .extract::<f64>(py)
+            .map_err(|_| PyValueError::new_err(format!("`{key}` must be a number")))
+    };
+    let opt = |key: &str| -> PyResult<f64> {
+        match spec.get(key) {
+            None => Ok(0.0),
+            Some(v) => v
+                .extract::<f64>(py)
+                .map_err(|_| PyValueError::new_err(format!("`{key}` must be a number"))),
+        }
+    };
+    nucleide_tritium::TrapSpec::new(
+        num("k0")?,
+        opt("e_k")?,
+        num("p0")?,
+        opt("e_p")?,
+        num("site_density")?,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn tritium_params(
+    py: Python<'_>,
+    length: f64,
+    cells: usize,
+    d0: f64,
+    e_d: f64,
+    traps: Vec<BTreeMap<String, Py<PyAny>>>,
+    temperature: Vec<f64>,
+    source: Option<Vec<f64>>,
+) -> PyResult<nucleide_tritium::TransportParams> {
+    let parsed: Vec<nucleide_tritium::TrapSpec> = traps
+        .iter()
+        .map(|s| parse_tritium_trap(s, py))
+        .collect::<PyResult<_>>()?;
+    nucleide_tritium::TransportParams::new(
+        length,
+        cells,
+        d0,
+        e_d,
+        parsed,
+        temperature,
+        source.unwrap_or_default(),
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Trap-free-style steady state of (T1–T2).
+///
+/// Thin wrapper over `nucleide_tritium::steady_state`: `traps` holds one
+/// spec dict per species (see `parse_tritium_trap`), `temperature` is one
+/// value (uniform) or one per cell, `source` is None (zero), one value, or
+/// one per cell, and `left`/`right` are boundary-spec dicts (see
+/// `parse_tritium_boundary`). Returns a dict with `centres`, `mobile`,
+/// `trapped` (`[cell][trap]`), `flux_left`, `flux_right`,
+/// `inventory_mobile`, and `inventory_trapped`.
+#[pyfunction]
+#[pyo3(signature = (length, cells, d0, e_d, traps, temperature, source, left, right))]
+#[allow(clippy::too_many_arguments)]
+fn tritium_steady(
+    py: Python<'_>,
+    length: f64,
+    cells: usize,
+    d0: f64,
+    e_d: f64,
+    traps: Vec<BTreeMap<String, Py<PyAny>>>,
+    temperature: Vec<f64>,
+    source: Option<Vec<f64>>,
+    left: BTreeMap<String, Py<PyAny>>,
+    right: BTreeMap<String, Py<PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    let params = tritium_params(py, length, cells, d0, e_d, traps, temperature, source)?;
+    let left = parse_tritium_boundary(&left, py)?;
+    let right = parse_tritium_boundary(&right, py)?;
+    let s = nucleide_tritium::steady_state(&params, &left, &right)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    use pyo3::types::PyDict;
+    let out = PyDict::new(py);
+    out.set_item("centres", &s.centres).ok();
+    out.set_item("mobile", &s.mobile).ok();
+    out.set_item("trapped", &s.trapped).ok();
+    out.set_item("flux_left", s.flux_left).ok();
+    out.set_item("flux_right", s.flux_right).ok();
+    out.set_item("inventory_mobile", s.inventory_mobile).ok();
+    out.set_item("inventory_trapped", s.inventory_trapped).ok();
+    Ok(out.into_any().unbind())
+}
+
+/// Solve the (T1–T2) transient over the output grid `t`.
+///
+/// Thin wrapper over `nucleide_tritium::solve` with the same slab/trap/BC
+/// arguments as `tritium_steady` plus the output times `t` [s], the
+/// optional initial profiles (`mobile0` per cell, `trapped0` as
+/// `[cell][trap]`; both default to zero), and the solver options
+/// (`method` is `"crank_nicolson"` (default) or `"backward_euler"`).
+/// Returns a dict with `times`, `mobile` (`[time][cell]`), `trapped`
+/// (`[time][cell][trap]`), `flux_left`, and `flux_right`.
+#[pyfunction]
+#[pyo3(signature = (length, cells, d0, e_d, traps, temperature, source, left, right, t, mobile0=None, trapped0=None, method="crank_nicolson", rtol=1e-9, atol=1e-12, dt_min=1e-14, dt_max=None, max_steps=1000000))]
+#[allow(clippy::too_many_arguments)]
+fn tritium_transient(
+    py: Python<'_>,
+    length: f64,
+    cells: usize,
+    d0: f64,
+    e_d: f64,
+    traps: Vec<BTreeMap<String, Py<PyAny>>>,
+    temperature: Vec<f64>,
+    source: Option<Vec<f64>>,
+    left: BTreeMap<String, Py<PyAny>>,
+    right: BTreeMap<String, Py<PyAny>>,
+    t: Vec<f64>,
+    mobile0: Option<Vec<f64>>,
+    trapped0: Option<Vec<Vec<f64>>>,
+    method: &str,
+    rtol: f64,
+    atol: f64,
+    dt_min: f64,
+    dt_max: Option<f64>,
+    max_steps: usize,
+) -> PyResult<Py<PyAny>> {
+    use nucleide_tritium::{SolverOptions, Theta};
+    let params = tritium_params(py, length, cells, d0, e_d, traps, temperature, source)?;
+    let left = parse_tritium_boundary(&left, py)?;
+    let right = parse_tritium_boundary(&right, py)?;
+    let grid =
+        nucleide_tritium::TimeGrid::new(t).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let ntraps = params.traps.len();
+    let mobile = mobile0.unwrap_or_else(|| vec![0.0; params.cells]);
+    let trapped = trapped0.unwrap_or_else(|| vec![vec![0.0; ntraps]; params.cells]);
+    let initial = nucleide_tritium::InitialState::new(&params, mobile, trapped)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let theta = if method.eq_ignore_ascii_case("crank_nicolson") {
+        Theta::CrankNicolson
+    } else if method.eq_ignore_ascii_case("backward_euler") {
+        Theta::BackwardEuler
+    } else {
+        return Err(PyValueError::new_err(format!(
+            "unknown tritium method `{method}` (supported: crank_nicolson, backward_euler)"
+        )));
+    };
+    let opts = SolverOptions {
+        theta,
+        rtol,
+        atol,
+        dt_min,
+        dt_max: dt_max.unwrap_or(f64::INFINITY),
+        max_steps,
+    };
+    let sol = nucleide_tritium::solve(&params, &left, &right, &grid, &initial, &opts)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    use pyo3::types::PyDict;
+    let out = PyDict::new(py);
+    out.set_item("times", &sol.times).ok();
+    out.set_item("mobile", &sol.mobile).ok();
+    out.set_item("trapped", &sol.trapped).ok();
+    out.set_item("flux_left", &sol.flux_left).ok();
+    out.set_item("flux_right", &sol.flux_right).ok();
+    Ok(out.into_any().unbind())
+}
+
+/// Permeation time lag `t_lag = L²/6D` [s] (G2-lag).
+#[pyfunction]
+fn tritium_time_lag(length: f64, diffusivity: f64) -> PyResult<f64> {
+    nucleide_tritium::time_lag(length, diffusivity)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Normalized outlet flux `J(L,t)/J_ss` at each time (G2 series).
+#[pyfunction]
+fn tritium_breakthrough(diffusivity: f64, length: f64, times: Vec<f64>) -> PyResult<Vec<f64>> {
+    times
+        .iter()
+        .map(|t| {
+            nucleide_tritium::breakthrough_ratio(diffusivity, length, *t)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+        .collect()
+}
+
+/// Oriani effective diffusivity `D_eff = D/(1 + K N)` [m²/s] (G3a).
+#[pyfunction]
+fn tritium_oriani(diffusivity: f64, equilibrium_constant: f64, site_density: f64) -> PyResult<f64> {
+    nucleide_tritium::effective_diffusivity(diffusivity, equilibrium_constant, site_density)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Langmuir equilibrium load `c_t = N K c/(1 + K c)` [mol/m³] (T2-eq).
+#[pyfunction]
+fn tritium_langmuir(site_density: f64, equilibrium_constant: f64, c_mobile: f64) -> PyResult<f64> {
+    nucleide_tritium::equilibrium_trapped(site_density, equilibrium_constant, c_mobile)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Irreversible-trap fill `c_t(t) = N(1 − e^{−kct})` [mol/m³] at each time (G3c).
+#[pyfunction]
+fn tritium_irreversible_fill(
+    rate_k: f64,
+    c_mobile: f64,
+    site_density: f64,
+    times: Vec<f64>,
+) -> PyResult<Vec<f64>> {
+    times
+        .iter()
+        .map(|t| {
+            nucleide_tritium::irreversible_fill(rate_k, c_mobile, site_density, *t)
+                .map_err(|e| PyValueError::new_err(e.to_string()))
+        })
+        .collect()
+}
+
+/// Sieverts surface concentration `c = K_S sqrt(p)` [mol/m³] (G4).
+#[pyfunction]
+fn tritium_sieverts(solubility: f64, pressure: f64) -> PyResult<f64> {
+    nucleide_tritium::sieverts_concentration(solubility, pressure)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+// ---------------------------------------------------------------------------
 // Spectroscopy (thin glue over `nucleide-spectroscopy`; algorithms stay in core)
 // ---------------------------------------------------------------------------
 
@@ -6299,8 +6617,8 @@ fn uq_passthrough(delta: Vec<f64>) -> PyResult<Vec<f64>> {
     nucleide_linalg::decay::passthrough(&delta).map_err(uq_decay_err)
 }
 
-/// Fission-yield perturbation — named-open hook (waits on ENDF
-/// fission-yield tapes); always raises.
+/// Fission-yield perturbation over a caller-supplied block (same deficit
+/// discipline as `perturb_branches`, preserving the incoming sum).
 #[pyfunction]
 fn uq_perturb_fission_yields(base: Vec<f64>, rel: Vec<f64>) -> PyResult<Vec<f64>> {
     nucleide_linalg::decay::perturb_fission_yields(&base, &rel).map_err(uq_decay_err)
@@ -7067,6 +7385,14 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(kinetics_stable_period, m)?)?;
     m.add_function(wrap_pyfunction!(kinetics_prompt_jump, m)?)?;
     m.add_function(wrap_pyfunction!(kinetics_from_ifp, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_steady, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_transient, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_time_lag, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_breakthrough, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_oriani, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_langmuir, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_irreversible_fill, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_sieverts, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_rect_smooth, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_five_point_smooth, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_calc_bg, m)?)?;
@@ -7097,6 +7423,8 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(uq_perturb_fission_yields, m)?)?;
     m.add_function(wrap_pyfunction!(parse_deck, m)?)?;
     m.add_function(wrap_pyfunction!(read_deck, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_csg_to_openmc, m)?)?;
+    m.add_function(wrap_pyfunction!(read_csg_to_openmc, m)?)?;
     m.add_function(wrap_pyfunction!(cumulative_decays, m)?)?;
     m.add_function(wrap_pyfunction!(progeny, m)?)?;
     m.add_function(wrap_pyfunction!(branching_fraction, m)?)?;

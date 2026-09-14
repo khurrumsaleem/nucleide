@@ -1,0 +1,306 @@
+---
+title: Tritium Transport
+description: 1D tritium diffusion-trapping equations, the McNabb-Foster trap kinetics, surface boundary taxonomy, and the analytic permeation gates.
+sidebar:
+  order: 8
+references:
+  - id: crank-1975
+    title: "The Mathematics of Diffusion"
+    url: https://books.google.com/books/about/The_Mathematics_of_Diffusion.html?id=eHANhZwVouYC
+    authors: ["J. Crank"]
+    source: Clarendon Press, Oxford, 2nd edition
+    date: "1975"
+    type: book
+  - id: mcnabb-1963
+    title: "A new analysis of the diffusion of hydrogen in iron and ferritic steels"
+    url: https://aimehq.org/themes/custom/aime/doclibrary/transactions/vol227.html
+    authors: ["A. McNabb", "P. K. Foster"]
+    source: Transactions of the Metallurgical Society of AIME
+    journal: Transactions of the Metallurgical Society of AIME
+    volume: "227"
+    pages: "618–627"
+    date: "1963"
+    type: article
+  - id: oriani-1970
+    title: "The diffusion and trapping of hydrogen in steel"
+    url: https://doi.org/10.1016/0001-6160(70)90078-7
+    authors: ["R. A. Oriani"]
+    source: Acta Metallurgica
+    journal: Acta Metallurgica
+    volume: "18"
+    pages: "147–157"
+    date: "1970"
+    type: article
+    doi: "10.1016/0001-6160(70)90078-7"
+  - id: shewmon-2016
+    title: "Diffusion in Solids"
+    url: https://link.springer.com/book/10.1007/978-3-319-48206-4
+    authors: ["P. Shewmon"]
+    source: Springer / The Minerals, Metals & Materials Series, 2nd edition
+    date: "2016"
+    type: book
+---
+
+Nucleide covers activation (ALARA/FISPACT/R2S) but has nothing on tritium
+inventory and permeation in fusion materials. This page pins the **spec-phase
+equation set** for a scoped 1D kernel: Fickian diffusion of a mobile
+population `c_m` coupled to `N` McNabb–Foster trap species, with
+caller-supplied temperature and surface laws. The `nucleide-tritium` kernel
+implements this equation set; the T1–T2/G1–G4 labels below are the
+analytic-gate contract its tests replay, mirroring the E1–E4/O-gate pattern
+of the point-kinetics page.
+Equations are textbook (Crank; McNabb–Foster; Oriani;
+Shewmon)<Citation id="crank-1975" /><Citation id="mcnabb-1963" />
+<Citation id="oriani-1970" /><Citation id="shewmon-2016" /> —
+no simulator source was read to produce them.
+
+## Overview
+
+A 1D slab `0 ≤ x ≤ L` holds mobile tritium `c_m(x, t)` plus trapped
+populations `c_{t,j}(x, t)` for trap species `j = 1..N` (vacancies,
+dislocations, grain boundaries — distinguished only by their rate data).
+Tritium moves by Fickian diffusion with a caller-supplied diffusivity `D(T)`,
+parks in traps with temperature-dependent trapping/detrapping rates, and
+enters or leaves through surface laws (fixed concentration, Sieverts
+equilibrium, recombination flux, or symmetry). Temperature is a
+caller-supplied profile `T(x, t)`; there is no heat solve in v1.
+
+<Callout type="info" title="Code shape">
+  The crate mirrors the kinetics layout: `params.rs` (transport and
+  trap data with validating constructors), `bc.rs` (the surface-law
+  taxonomy), `solve.rs` (the implicit stepper plus closed-form gate
+  helpers), and `error.rs` (a `#[non_exhaustive]` error enum with the
+  crate `Result` alias).
+</Callout>
+
+## Mathematical details
+
+### T1 — Mobile balance
+
+$$
+\frac{\partial c_m}{\partial t}
+= \frac{\partial}{\partial x}\!\left(D(T)\,\frac{\partial c_m}{\partial x}\right)
+- \sum_{j=1}^{N}\frac{\partial c_{t,j}}{\partial t} + S(x, t).
+\tag{T1}
+$$
+
+`S` is a caller-supplied volumetric source (mol/m³/s); initial profiles
+`c_m(x, 0)` and `c_{t,j}(x, 0)` are caller-supplied (default zero).
+
+### T2 — McNabb–Foster trap kinetics
+
+Per trap species with site density `N_j` (mol/m³):
+
+$$
+\frac{\partial c_{t,j}}{\partial t}
+= k_j(T)\,c_m\,(N_j - c_{t,j}) - p_j(T)\,c_{t,j}.
+\tag{T2}
+$$
+
+At equilibrium (`∂/∂t = 0`) each species sits on its Langmuir isotherm
+
+$$
+c_{t,j} = \frac{N_j K_j c_m}{1 + K_j c_m},
+\qquad K_j = k_j / p_j,
+\tag{T2-eq}
+$$
+
+with occupancy `θ_j = K_j c_m / (1 + K_j c_m)`.
+
+### Caller-supplied Arrhenius stance
+
+The kernel ships **no material property tables** — the same stance as
+kinetics delayed data. Every coefficient is caller data, constant or
+Arrhenius in the caller-supplied temperature:
+
+$$
+D(T) = D_0 e^{-E_D/RT}, \qquad
+k_j(T) = k_{j0} e^{-E_{kj}/RT}, \qquad
+p_j(T) = p_{j0} e^{-E_{pj}/RT}, \qquad
+K_S(T) = K_{S0} e^{-E_S/RT}.
+\tag{T-Arr}
+$$
+
+Trap site densities `N_j` are static in v1 (no damage-created intrinsic
+trap evolution).
+
+### Boundary-condition taxonomy
+
+At each surface (`n` the outward normal, `J = −D∂c_m/∂n` the outward flux):
+
+- **Dirichlet**: `c_m = c̄` (prescribed surface concentration).
+- **Sieverts**: `c_m = K_S(T)√p` (diatomic-gas equilibrium at gas pressure
+  `p`; the linear Henry variant `c_m = K_H p` is a named alternative).
+- **Recombination**: `J = K_r(T)\,c_m²` (surface recombination to molecules;
+  nonlinear Robin condition).
+- **ZeroFlux**: `J = 0` (symmetry midplane or impermeable wall).
+
+### G1 — Steady linear profile
+
+Steady trap-free T1 with constant `D`, `S = 0`, and Dirichlet ends
+`c(0) = c0`, `c(L) = cL` gives `d²c/dx² = 0`, hence
+
+$$
+c(x) = c_0 + (c_L - c_0)\,x/L, \qquad
+J_{ss} = D\,(c_0 - c_L)/L, \qquad
+I = (c_0 + c_L)\,L/2.
+\tag{G1}
+$$
+
+`I` is the mobile inventory per unit area. Pinned in
+`fixtures/tritium/g1_steady.json` (algebraic, tolerance `1e-12`).
+
+### G2 — Permeation transient and time lag
+
+With `c(0,t) = c0`, `c(L,t) = 0`, `c(x,0) = 0`, splitting off the G1 steady
+profile leaves a homogeneous heat equation solved by separation of variables
+(eigenfunctions `sin(nπx/L)`, eigenvalues `Dn²π²/L²`). The outlet flux is
+
+$$
+\frac{J(L,t)}{J_{ss}}
+= 1 + 2\sum_{n=1}^{\infty}(-1)^n
+e^{-D n^2 \pi^2 t / L^2}.
+\tag{G2}
+$$
+
+Cumulative permeation `Q(t) = ∫₀ᵗ J dt` asymptotes to `J_ss(t − t_lag)` with
+
+$$
+t_{lag} = L^2 / 6D,
+\tag{G2-lag}
+$$
+
+the breakthrough-curve intercept. Pinned in
+`fixtures/tritium/g2_timelag.json` at seven log-spaced times (series cut at
+`|term| < 1e-18`; solver replay tolerance `1e-6`).
+
+### G3a — Low-occupancy (Oriani) limit
+
+For `K_j c_m ≪ 1`, (T2-eq) linearizes to `c_{t,j} ≈ N_jK_jc_m`; under local
+equilibrium T1+T2 collapse to `(1 + ΣN_jK_j)∂c_m/∂t = D∇²c_m`, i.e.
+
+$$
+D_{eff} = D / (1 + KN) \quad \text{(single trap)}.
+\tag{G3a}
+$$
+
+Pinned in `fixtures/tritium/g3a_oriani.json` (`KN = 3`, `D_eff = D/4`;
+algebraic, tolerance `1e-12`).
+
+### G3b — Saturated limit
+
+For `K_j c_m ≫ 1`, `c_{t,j} → N_j`: traps sit full, the mobile steady state
+is G1, and the trapped load follows the isotherm pointwise. Pinned in
+`fixtures/tritium/g3b_saturated.json` with the exact trapped inventory
+`2L(1 − ln 2)` (algebraic, tolerance `1e-12`).
+
+### G3c — Irreversible limit
+
+For `p_j → 0` at fixed mobile `c_m`, (T2) integrates directly (with
+`c_t(0) = 0`):
+
+$$
+c_t(t) = N\,(1 - e^{-k c_m t}).
+\tag{G3c}
+$$
+
+Pinned in `fixtures/tritium/g3c_irreversible.json` at seven times
+(algebraic, tolerance `1e-12`).
+
+### G4 — Sieverts steady state
+
+Sieverts ends `c(0) = K_S√p₁`, `c(L) = K_S√p₂` reduce the trap-free steady
+state to G1 between those concentrations, with permeability `Φ = D·K_S`:
+
+$$
+J = \Phi\,(\sqrt{p_1} - \sqrt{p_2}) / L.
+\tag{G4}
+$$
+
+Pinned in `fixtures/tritium/g4_sieverts.json` (algebraic, tolerance
+`1e-12`).
+
+### G5 — Recombination steady state (named open)
+
+With a recombination outlet the steady problem is nonlinear and has no
+G1-style closed form; G5 is a **named-open gate**: no fixture exists until
+the kernel landing pins the nonlinear-solve tolerance and the
+`K_r → ∞` recovery of G4.
+
+### Invariants
+
+- **Positivity**: nonneg initial data, boundary data, and source imply
+  `c_m, c_{t,j} ≥ 0` (maximum-principle consequence). The future discrete
+  scheme must preserve it.
+- **Mass conservation**: `d/dt[I_m + ΣI_{t,j}] = J(0,t) − J(L,t) + ∫S dx`
+  with `J = −D∂c_m/∂x`. The future scheme must satisfy it to roundoff.
+
+## Algorithm
+
+The discretization is a 1D cell-centred finite-volume grid with implicit
+θ-stepping in the kinetics `solve.rs` pattern (diffusion implicit, traps
+via the exact per-cell backward-Euler map with Picard coupling to
+rtol/atol). Each implicit step is a tridiagonal solve through the shared
+`linalg::tridiag` Thomas module the kernel landing added behind the
+workspace facade. Gate-to-test mapping: G1/G3a/G3b/G3c/G4 replay as
+algebraic assertions (`1e-12`), G2 as a transient solve (`1e-6`), plus
+positivity and mass-balance invariant checks.
+
+## Worked example: G1 slab
+
+With `D = 1e-9 m²/s`, `L = 1e-3 m`, `c0 = 1.0`, `cL = 0.0 mol/m³`, (G1)
+gives `c = [1.0, 0.75, 0.5, 0.25, 0.0]` at `x/L = [0, 0.25, 0.5, 0.75, 1]`,
+`J_ss = 1e-6 mol/m²/s`, and `I = 5e-4 mol/m²`. The same slab switched to
+the G2 transient breaks through at `t_lag = L²/6D ≈ 166.67 s`: the outlet
+flux is still `≈3e-3 J_ss` at `t = 31.6 s` and reaches `0.9999 J_ss` by
+`t = 1000 s`, exactly the `fixtures/tritium/g2_timelag.json` vector.
+
+## Assumptions and limitations
+
+- **1D only**: multi-D FEM, heterogeneous-material assembly, and heat
+  coupling are explicitly out — that is FESTIM's reason to exist, and
+  FESTIM is never a dependency.
+- **Prescribed temperature**: `T(x, t)` is caller data; no heat solve.
+- **Caller-supplied properties**: diffusivities, solubilities, trapping
+  rates, and surface constants ship as caller data; no vendored tables.
+- **Single mobile species**: tritium only; H/D co-diffusion and isotope
+  exchange are out.
+- **Static traps**: `N_j` fixed; damage-driven intrinsic trap creation is
+  deferred to a later design (the T2 form already covers both).
+- **Equilibrium surfaces**: Dirichlet/Sieverts ends assume fast surface
+  kinetics; finite-rate surface processes enter only via recombination.
+- **G5 open**: recombination steady state has no pinned gate yet.
+- **Thin facades only**: `nucleide.tritium` (Python) and
+  `tritiumBreakthrough` (WASM) expose the landed kernel; no new physics
+  past T1–T2/G1–G5.
+
+## Validation
+
+- **Analytic replay** (landed): Rust fixture tests plus
+  `tests/test_tritium.py` assert G1–G4 fixtures at the pinned tolerances,
+  following the kinetics oracle pattern. No `validation/*_vs_*.py` script
+  exists — there is no external oracle to wire, so none was added.
+- **No external probe**: a FESTIM cross-check, if
+  ever attempted, stays a loud-SKIP probe. Do **not** add FESTIM/FEniCS to
+  the validation container: the conda weight is intolerable for an
+  optional nicety, and the analytic gates stand alone.
+- `validation/` is untouched by this spec change.
+
+## Related work beyond Nucleide
+
+Adjacent capabilities Nucleide does not implement: multi-D finite-element
+tritium transport with heat coupling (the FESTIM capability envelope);
+plasma-facing implantation-profile and breeding-blanket (TBR) coupling
+models; gas-driven permeation experiment analysis beyond the Sieverts /
+recombination surface laws pinned here.
+
+## References
+
+- Crank (1975) The Mathematics of Diffusion, 2nd ed.<Citation id="crank-1975" />
+  (Fickian slab solutions; the G1/G2 derivations).
+- McNabb–Foster (1963), Trans. Met. Soc. AIME 227<Citation id="mcnabb-1963" />
+  (the T2 trap-kinetics formulation).
+- Oriani (1970), Acta Metall. 18<Citation id="oriani-1970" /> (local
+  equilibrium; the G3a effective diffusivity).
+- Shewmon, Diffusion in Solids, 2nd ed.<Citation id="shewmon-2016" />
+  (diffusion/BC treatment behind the taxonomy and G4).

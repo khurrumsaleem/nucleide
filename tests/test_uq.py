@@ -243,12 +243,30 @@ def test_lhs_huge_n_rejected() -> None:
         uq.sample_mvn([0.0], [[1.0]], 50_000_000, 1)
 
 
-def test_passthrough_and_fy_hook() -> None:
+def test_passthrough() -> None:
     assert uq.passthrough([0.1, -0.2]) == [pytest.approx(0.1), pytest.approx(-0.2)]
     with pytest.raises(ValueError, match="non-finite"):
         uq.passthrough([float("inf")])
-    with pytest.raises(ValueError, match="named-open"):
-        uq.perturb_fission_yields([0.5], [0.1])
+
+
+def test_perturb_fission_yields_preserves_incoming_sum() -> None:
+    # Independent-style block (sums to 2.0): raw = [0.99, 0.56, 0.40],
+    # total 1.95, rescaled to 2.0.
+    out = uq.perturb_fission_yields([0.9, 0.7, 0.4], [0.10, -0.20, 0.0])
+    assert sum(out) == pytest.approx(2.0, rel=1e-15)
+    assert out[0] == pytest.approx(0.99 * 2.0 / 1.95)
+    # Cumulative-style block (sums above 2): the preserver is sum(base),
+    # never a hard-coded 2.0.
+    cum = uq.perturb_fission_yields([1.5, 1.2, 0.8], [0.05, 0.05, 0.05])
+    assert sum(cum) == pytest.approx(3.5, rel=1e-12)
+    # Clamp: negatives hit zero before renormalisation; zero-base rows
+    # stay zero via 0 * (1 + r) = 0.
+    clamped = uq.perturb_fission_yields([0.9, 0.7, 0.0], [0.0, -1.5, 3.0])
+    assert clamped == [pytest.approx(1.6), 0.0, 0.0]
+    with pytest.raises(ValueError, match="degenerate"):
+        uq.perturb_fission_yields([0.9, 0.7], [-2.0, -3.0])
+    with pytest.raises(ValueError, match="length mismatch"):
+        uq.perturb_fission_yields([0.5], [0.1, 0.2])
 
 
 def test_malformed_inputs_raise() -> None:

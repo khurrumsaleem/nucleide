@@ -1,0 +1,10 @@
+CSG complement message
+Simple complement over a single half-space
+1 1 -19.1 -1 imp:n=1 $ inside the sphere
+2 0 #1 -2 imp:n=0 $ outside the sphere, below the plane
+
+1 so 10.0
+2 pz 0.0
+
+mode n
+m1 92235 1.0

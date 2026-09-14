@@ -14,7 +14,9 @@ use std::path::Path;
 /// Particle identified in a mesh tally header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParticleKind {
+    /// Neutron mesh tally (`neutron` in the tally header line).
     Neutron,
+    /// Photon mesh tally (`photon` in the tally header line).
     Photon,
 }
 
@@ -45,6 +47,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
+    /// Filesystem read failed.
     Io(String),
     /// File did not start with a recognizable MCNP header.
     BadHeader(String),
@@ -54,7 +57,9 @@ pub enum Error {
     BadParticleLine(String),
     /// A numeric field failed to parse.
     BadNumber {
+        /// Which field was being parsed.
         context: &'static str,
+        /// The offending text.
         text: String,
     },
 }
@@ -90,13 +95,19 @@ fn f64_of(context: &'static str, token: &str) -> Result<f64> {
 /// `structured_iterate_hex("xyz")` assignment order.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MeshTallyData {
+    /// FMESH tally number from the `Mesh Tally Number` block header.
     pub tally_number: u32,
+    /// Particle species named in the tally header line.
     pub particle: ParticleKind,
     /// True when flux-to-dose conversion factors modified this tally.
     pub dose_response: bool,
+    /// X bin boundaries in cm, in file order.
     pub x_bounds: Vec<f64>,
+    /// Y bin boundaries in cm, in file order.
     pub y_bounds: Vec<f64>,
+    /// Z bin boundaries in cm, in file order.
     pub z_bounds: Vec<f64>,
+    /// Energy bin boundaries in MeV, in file order.
     pub e_bounds: Vec<f64>,
     /// Column-name → index mapping from the table header
     /// (`"Rel Error"` normalizes to `"Rel_Error"`).
@@ -108,6 +119,8 @@ pub struct MeshTallyData {
     /// Per-cell energy-integrated totals (mirrors the single group when
     /// the file has only one energy bin).
     pub total_result: Vec<f64>,
+    /// Per-cell energy-integrated relative errors (mirrors the single group
+    /// when the file has only one energy bin).
     pub total_rel_error: Vec<f64>,
 }
 

@@ -237,6 +237,12 @@ NUCLIDE PU239 94239 2
     ],
   },
   {
+    path: "tutorials/interactive/tritium",
+    button: "Run breakthrough",
+    output: "text=Time lag",
+    chart: { button: "Run breakthrough", selector: ".js-plotly-plot" },
+  },
+  {
     path: "tutorials/interactive/spectroscopy",
     button: "Smooth spectrum",
     output: "text=Net counts",

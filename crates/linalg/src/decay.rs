@@ -23,11 +23,18 @@
 //! constraint) and follow the [`PerturbConvention`](crate::sample::PerturbConvention)
 //! elementwise, with negative results clamped to zero as above.
 //!
-//! Fission-yield perturbation is explicitly OUT: no ENDF fission-yield
-//! tapes are vendored or read anywhere in this workspace, so
-//! [`perturb_fission_yields`](crate::decay::perturb_fission_yields) is a named-open hook that always returns
-//! [`DecayError::FissionYieldsOpen`](crate::decay::DecayError). Next step is
-//! landing a tape reader, then wiring real FY blocks through this hook.
+//! Fission yields ([`perturb_fission_yields`](crate::decay::perturb_fission_yields)) follow the same
+//! deficit discipline as [`perturb_branches`](crate::decay::perturb_branches): caller-supplied
+//! nominal blocks (`raw[i] = base[i] * (1 + rel[i])`, negatives clamped to
+//! zero) are rescaled to preserve exactly the incoming sum. The preserver is
+//! always `sum(base)` — never a hard-coded constant — so independent blocks
+//! (nominal sum 2 per parent/energy set) and cumulative blocks (sums above
+//! 2) both round-trip. Zero-base rows stay zero via `0 * (1 + r) = 0`. This
+//! crate owns no yield data and never selects the set: the caller supplies
+//! the block and builds `rel` (e.g. `dY/Y` sigmas, or correlated draws from
+//! [`sample_mvn`](crate::sample::sample_mvn) forwarded as `rel`). An
+//! all-clamped draw is a [`DecayError`](crate::decay::DecayError), never a
+//! silent zero vector.
 
 use crate::sample::PerturbConvention;
 
@@ -54,9 +61,6 @@ pub enum DecayError {
     /// Renormalisation is impossible: the kept-branch sum is zero, or every
     /// perturbed branch clamped to zero.
     Degenerate,
-    /// Fission-yield perturbation is named-open (waits on ENDF
-    /// fission-yield tapes); no FY perturbation is performed.
-    FissionYieldsOpen,
 }
 
 impl std::fmt::Display for DecayError {
@@ -79,10 +83,6 @@ impl std::fmt::Display for DecayError {
             DecayError::Degenerate => write!(
                 f,
                 "decay branch renormalisation is degenerate (zero kept sum)"
-            ),
-            DecayError::FissionYieldsOpen => write!(
-                f,
-                "fission-yield perturbation is named-open (waits on ENDF fission-yield tapes)"
             ),
         }
     }
@@ -170,15 +170,34 @@ pub fn passthrough(delta: &[f64]) -> Result<Vec<f64>, DecayError> {
     Ok(delta.to_vec())
 }
 
-/// Fission-yield perturbation — named-open hook, always errors.
+/// Perturb one parent's caller-supplied fission yields with relative deltas.
 ///
-/// No ENDF fission-yield tapes exist on disk, so there is no evaluated
-/// nominal to perturb and no FY covariance contract to sample from.
-/// Next step: land a tape reader, then replace this stub with a real FY
-/// perturber taking caller-supplied FY blocks (same deficit discipline as
-/// [`perturb_branches`] where the evaluation defines one).
-pub fn perturb_fission_yields(_base: &[f64], _rel: &[f64]) -> Result<Vec<f64>, DecayError> {
-    Err(DecayError::FissionYieldsOpen)
+/// Implements theory (U8): `raw[i] = base[i] * (1 + rel[i])`, negatives
+/// clamped to zero, then rescaled so `sum(out) == sum(base)` — the same
+/// deficit discipline as [`perturb_branches`], except the preserver is the
+/// incoming block sum itself (independent blocks sum to 2 per parent/energy
+/// set; cumulative blocks sum higher), never a hard-coded constant.
+/// Zero-base rows stay zero via `0 * (1 + r) = 0`. Explicit-covariance mode
+/// is composition: the caller draws correlated deltas with the sampling
+/// kernel (e.g. [`sample_mvn`](crate::sample::sample_mvn)) and forwards them
+/// as `rel`. Returns [`DecayError::Degenerate`] when the incoming sum is
+/// zero or every yield clamps to zero.
+pub fn perturb_fission_yields(base: &[f64], rel: &[f64]) -> Result<Vec<f64>, DecayError> {
+    check_pair(base, rel, "rel")?;
+    let kept: f64 = base.iter().sum();
+    if kept <= 0.0 {
+        return Err(DecayError::Degenerate);
+    }
+    let raw: Vec<f64> = base
+        .iter()
+        .zip(rel.iter())
+        .map(|(b, r)| (b * (1.0 + r)).max(0.0))
+        .collect();
+    let total: f64 = raw.iter().sum();
+    if total <= 0.0 {
+        return Err(DecayError::Degenerate);
+    }
+    Ok(raw.iter().map(|v| v * kept / total).collect())
 }
 
 #[cfg(test)]
@@ -234,10 +253,38 @@ mod tests {
     }
 
     #[test]
-    fn fission_yields_stay_named_open() {
+    fn fission_yields_preserve_the_incoming_sum() {
+        // Synthetic independent-style block summing to 2.0 plus a
+        // cumulative-style block summing above 2: the preserver is
+        // sum(base), never a hard-coded constant.
+        let base = vec![0.9, 0.7, 0.4];
+        let rel = vec![0.10, -0.20, 0.0];
+        let out = perturb_fission_yields(&base, &rel).unwrap();
+        let kept: f64 = out.iter().sum();
+        assert!((kept - 2.0).abs() < 1e-15, "sum moved: sum = {kept}");
+        // raw = [0.99, 0.56, 0.40], total 1.95, rescaled to 2.0.
+        assert!((out[0] - 0.99 * 2.0 / 1.95).abs() < 1e-12);
+        assert!((out[1] - 0.56 * 2.0 / 1.95).abs() < 1e-12);
+        assert!((out[2] - 0.40 * 2.0 / 1.95).abs() < 1e-12);
+
+        let cum = vec![1.5, 1.2, 0.8];
+        let out = perturb_fission_yields(&cum, &[0.05, 0.05, 0.05]).unwrap();
+        assert!((out.iter().sum::<f64>() - 3.5).abs() < 1e-12);
+        assert!((out[0] - 1.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn fission_yields_clamp_and_zero_rows_stay_zero() {
+        // Negative raw yields clamp to zero before renormalisation; a
+        // zero-base row stays zero via 0 * (1 + r) = 0.
+        let base = vec![0.9, 0.7, 0.0];
+        let out = perturb_fission_yields(&base, &[0.0, -1.5, 3.0]).unwrap();
+        assert!((out.iter().sum::<f64>() - 1.6).abs() < 1e-12);
+        assert!((out[0] - 1.6).abs() < 1e-12 && out[1] == 0.0 && out[2] == 0.0);
+        assert!(perturb_fission_yields(&base, &[-2.0, -3.0, 0.0]).is_err());
         assert_eq!(
-            perturb_fission_yields(&[0.5], &[0.1]).unwrap_err(),
-            DecayError::FissionYieldsOpen
+            perturb_fission_yields(&[0.0, 0.0], &[0.1, 0.2]).unwrap_err(),
+            DecayError::Degenerate
         );
     }
 

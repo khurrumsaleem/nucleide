@@ -29,11 +29,17 @@ pub mod decay;
 /// sampler keeps its own Cholesky/eigen factor path).
 pub mod lstsq;
 
+/// Real tridiagonal solve (Thomas algorithm, O(N)) over caller vectors
+/// (shared kernel: the 1D tritium-transport implicit stepper consumes it;
+/// no backend call, the elimination is hand-rolled).
+pub mod tridiag;
+
 pub use decay::DecayError;
 /// Complex scalar used throughout the facade.
 pub use faer::complex_native::c64 as C64;
 pub use lstsq::LstsqError;
 pub use sample::SampleError;
+pub use tridiag::TridiagError;
 
 /// Zero constant for the scalar type.
 pub const C64_ZERO: C64 = C64 { re: 0.0, im: 0.0 };

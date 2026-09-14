@@ -93,9 +93,20 @@ print(perturb_branches([0.5, 0.3, 0.1], [0.1, -0.2, 0.0]))
 print(perturb_energies([0.5, 1.5], [0.2, -0.1], "relative"))
 ```
 
-Fission-yield perturbation stays a named-open hook (`perturb_fission_yields`
-always raises — it waits on FY tapes), and there are no vendored
-covariance, branch, or yield stores anywhere in this path.
+`perturb_fission_yields` perturbs a caller-supplied yield block with the
+same deficit discipline (`raw = base * (1 + rel)`, negatives clamped to
+zero, rescaled to the incoming block sum — independent blocks sum to 2,
+cumulative blocks higher; zero-base rows stay zero). The caller supplies
+the block and builds `rel` (e.g. `dY/Y` sigmas, or correlated draws from
+`sample_mvn`); set selection (e.g. the lowest-energy independent set)
+lives with the caller. There are no vendored covariance, branch, or yield
+stores anywhere in this path:
+
+```python
+from nucleide.uq import perturb_fission_yields
+
+print(perturb_fission_yields([0.9, 0.7, 0.4], [0.1, -0.2, 0.0]))
+```
 
 ## See also
 

@@ -1,0 +1,41 @@
+---
+title: Tritium permeation
+description: Solve a 1D permeation transient and read the breakthrough curve and time lag in the browser.
+sidebar:
+  order: 12
+---
+
+A 1D slab $0 \le x \le L$ holds mobile tritium $c_m(x, t)$ with Fickian
+diffusion at a caller-supplied diffusivity $D$ (T1, trap-free here):
+
+$$
+\frac{\partial c_m}{\partial t}
+= D\,\frac{\partial^2 c_m}{\partial x^2}.
+\tag{T1}
+$$
+
+The demo below solves the permeation setup $c(0, t) = c_0$, $c(L, t) = 0$,
+$c(x, 0) = 0$ with the crate's implicit finite-volume stepper and plots the
+normalized outlet flux $J(L, t)/J_{ss}$ (G2):
+
+$$
+\frac{J(L,t)}{J_{ss}}
+= 1 + 2\sum_{n=1}^{\infty}(-1)^n
+e^{-D n^2 \pi^2 t / L^2}.
+\tag{G2}
+$$
+
+The dashed marker sits at the time lag $t_{\mathrm{lag}} = L^2/6D$ (G2-lag),
+the intercept of the cumulative-permeation asymptote. The default inputs
+replay `fixtures/tritium/g2_timelag.json` ($D = 10^{-9}\ \mathrm{m}^2/\mathrm{s}$,
+$L = 10^{-3}\ \mathrm{m}$, $c_0 = 1.0\ \mathrm{mol}/\mathrm{m}^3$,
+$t_{\mathrm{lag}} \approx 166.67\ \mathrm{s}$). All inputs are validated
+inline (finite, with $L > 0$, $D > 0$, $c_0 \ge 0$, $t_{\mathrm{end}} > 0$)
+before any solve runs.
+
+<InteractiveDemo kind="tritium" />
+
+## See also
+
+- Theory: [Tritium transport](../../theory/tritium.mdx)
+- Crate docs: [`crates/tritium/src/lib.rs`](https://github.com/nukehub-dev/nucleide/blob/main/crates/tritium/src/lib.rs)

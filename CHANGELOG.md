@@ -13,6 +13,51 @@ workspace crates from tags.
 
 ## [Unreleased]
 
+### Added
+
+- Fission-yield perturbation consumer: `nucleide-linalg`
+  `perturb_fission_yields` now perturbs caller-supplied yield blocks
+  (`raw = base * (1 + rel)`, negatives clamped to zero, rescaled to the
+  incoming block sum — independent blocks sum to 2, cumulative blocks
+  higher; zero-base rows stay zero), closing the last named-open hook in
+  the UQ kernel (the `FissionYieldsOpen` error variant is removed). The
+  thin Python `nucleide.uq.perturb_fission_yields` wrapper starts working
+  (signature unchanged); the caller supplies the block and builds `rel`
+  (tape `dY/Y` sigmas or correlated draws forwarded from the sampling
+  kernel). New U7 validation gate in `validation/uq_lite_vs_sandy.py`
+  (theory U8) over a caller-selected U235-thermal subset: perturbed sums
+  exact at the pinned seed, draw moments within the IID k-SE bound.
+- Scoped MCNP→OpenMC CSG translation v1 (new `nucleide-csg-xlate` crate):
+  `deck_csg_to_openmc_xml` maps deck surfaces, cells, and a material stub
+  (`material="void"` or the MCNP number) to OpenMC `geometry.xml` with a
+  per-cell/per-surface drift report (macrobody expansions, complement
+  inlines, reflecting/periodic links, dropped params/cards, each with
+  reasons). Axis planes, spheres, on-axis cylinders, `SPH`, `RPP`, and
+  axis-aligned `RCC` map; cones, quadrics, tori, general planes, other
+  macrobodies, non-flat complements, transforms, universes/lattices/fills,
+  tallies, and sources are loud named errors. Thin Python
+  `nucleide.mcnp.parse_csg_to_openmc` / `read_csg_to_openmc` facades plus
+  synthetic `fixtures/mcnp/inp/deck_csg_*.txt` decks and a CSG section in
+  `validation/parsers_vs_refs.py` (structural probes always run; the OpenMC
+   `Region.from_expression` cross-check runs in the container).
+- Tritium-transport analytic-gate spec (no kernel yet):
+  `docs/theory/tritium.mdx` pins the T1–T2 equation set and the G1–G5
+  gate contract (steady linear, permeation time-lag, single-trap limits,
+  Sieverts steady; recombination stays named-open) plus
+   `fixtures/tritium/` oracles for the analytic-gate replay at kernel landing.
+- 1D tritium-transport kernel v1 (new `nucleide-tritium` crate): T1 mobile
+  diffusion with N extrinsic McNabb–Foster trap species (T2), caller
+  supplied Arrhenius data and steady temperature profile (no tables, no
+  heat solve), Dirichlet/Sieverts/Henry/zero-flux surface taxonomy
+  (recombination stays a named-open G5 error), and a cell-centred
+  finite-volume theta-stepper (Crank–Nicolson default, backward Euler on
+  request) solving through the new shared `nucleide-linalg` `tridiag`
+   Thomas-solver module. Analytic-gate replay only (Rust fixture tests
+   plus `tests/test_tritium.py` on G1–G4 at the pinned tolerances; no
+   `validation/*_vs_*.py`, no FESTIM oracle). Thin Python
+  `nucleide.tritium` facade, WASM `tritiumBreakthrough` facade with a
+  breakthrough-curve interactive tutorial.
+
 ## [0.10.0] - 2026-09-14
 
 ### Added

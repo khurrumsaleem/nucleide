@@ -153,6 +153,26 @@ additionally caps values above 2 at 2 for relative-unit samples centered
 at 1 — no analogue here, since branches renormalise and energies are
 absolute.
 
+Fission yields renormalise to preserve the incoming block sum — the same
+deficit discipline as (U5), except the preserver is `sum(base)` itself
+(independent blocks sum to 2 per parent/energy set, cumulative blocks sum
+higher), never a hard-coded constant:
+
+$$
+b'_i = \mathrm{kept}\;
+\frac{\max(0,\, b_i(1 + \delta_i))}
+{\sum_j \max(0,\, b_j(1 + \delta_j))},
+\qquad \mathrm{kept} = \sum_j b_j.
+\tag{U8}
+$$
+
+Zero-base rows stay zero via $0(1 + \delta) = 0$. The kernel owns no
+yield data and never selects the set: the caller supplies the block and
+builds the relative draws (tape `dY/Y` sigmas, or correlated draws from
+(U1) forwarded as $\delta$); set selection (e.g. the lowest-energy
+independent set) lives with the caller. Explicit-covariance mode is that
+composition — no new parameters.
+
 Latin-hypercube draws reuse the (U1) factor path with a stratified normal
 source:
 
@@ -191,7 +211,8 @@ stratified (U7) normal source (per-dimension Fisher–Yates permutation plus
 jitter from the seeded `StdRng`, hand-rolled $\Phi^{-1}$).
 `sample_mean` / `sample_cov` implement (U2); `check_convergence`
 implements (U3) with caller tolerances. `perturb_branches` implements
-(U5); `perturb_energies` implements
+(U5); `perturb_fission_yields` implements (U8) over caller-supplied
+yield blocks; `perturb_energies` implements
 (U4) with a zero clamp (a no-op for the log-normal convention, whose draws
 stay positive).
 
@@ -221,12 +242,21 @@ one-per-stratum recovery per dimension plus G2 sample mean/covariance
 within the $k$ IID standard-error upper bound (moment worst 1.064 SE at
 the pinned seed).
 
+The U7 gate perturbs a caller-selected U235-thermal subset
+(Te134/Xe138/Sr95 from the real yield library, `dY/Y` sigmas, $n = 20000$,
+$k = 5$, seed 20260917) with theory (U8): every perturbed draw sums to
+the incoming block sum exactly (kept sum 0.1556691), and the forwarded
+relative draws recover their diagonal moment block within the IID $k$-SE
+gate (moment worst 1.534 SE at the pinned seed).
+
 ## Assumptions and limitations
 
 - Inputs are caller-supplied blocks; no covariance library is read or
   shipped, and no ENDF/ERRORR parsing exists here.
-- Fission-yield perturbation is a named-open hook (waits on FY tapes);
-  MF32/MF40 resonance machinery and transport coupling are explicitly out.
+- Fission-yield perturbation over caller-supplied blocks is in
+  (`perturb_fission_yields`, theory U8, U7 gate); ERRORR/NJOY covariance
+  tapes for yields stay out (caller-supplied blocks only), as do
+  MF32/MF40 resonance machinery and transport coupling.
   Latin-hypercube sampling over caller-supplied blocks is in (`sample_lhs`,
   theory U7, separate G1/G2 gate); tape-driven LHS workflows stay out.
 - Draws are not interchangeable with SANDY's: the published SANDY scheme
@@ -239,7 +269,9 @@ the pinned seed).
 - SANDY samples MF31–MF35/MF8 covariances from ENDF-6 tapes (including
   decay data and fission yields) with NJOY/ERRORR preprocessing and
   variance-decomposition sensitivity indices — beyond this kernel's
-  caller-block scope. Latin-hypercube parity is closed over
+  caller-block scope. Fission-yield parity is closed over
+  caller-supplied blocks (`perturb_fission_yields`, U8, U7 gate);
+  tape-driven FY covariance workflows stay out. Latin-hypercube parity is closed over
   caller-supplied blocks (`sample_lhs`, U7, G1/G2 gate); tape-driven LHS
   workflows stay out. Log-normal sampling is covered
   here only over caller-supplied blocks ($y = \exp(x)$ post-transform with

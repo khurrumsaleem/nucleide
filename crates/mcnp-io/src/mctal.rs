@@ -51,9 +51,18 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
+    /// Filesystem read failed.
     Io(String),
+    /// MCTAL layout violation (short header, missing `kcode` line, bad bin
+    /// counts, truncated bodies, or unsupported named-open subset).
     BadStructure(String),
-    BadNumber { context: &'static str, text: String },
+    /// A numeric field failed to parse.
+    BadNumber {
+        /// Which field was being parsed.
+        context: &'static str,
+        /// The offending text.
+        text: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -83,13 +92,24 @@ pub type AvgStdev = (f64, f64);
 /// Per-cycle kcode statistics (19-value variant only).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct CycleAverages {
+    /// Running-average collision keff with its standard deviation (19-value
+    /// cycle-record values 5–6).
     pub avg_k_col: AvgStdev,
+    /// Running-average absorption keff with its standard deviation (values 7–8).
     pub avg_k_abs: AvgStdev,
+    /// Running-average track-length keff with its standard deviation (values 9–10).
     pub avg_k_path: AvgStdev,
+    /// Running-average combined keff with its standard deviation (values 11–12).
     pub avg_k_combined: AvgStdev,
+    /// Running-average active-cycle combined keff with its standard deviation
+    /// (values 13–14).
     pub avg_k_combined_active: AvgStdev,
+    /// Running-average combined prompt lifetime in shakes with its standard
+    /// deviation (values 15–16).
     pub prompt_life_combined: AvgStdev,
+    /// Histories run in this cycle (value 17).
     pub cycle_histories: f64,
+    /// Figure of merit for this cycle (value 18).
     pub fom: f64,
 }
 
@@ -318,13 +338,19 @@ impl TallyBody {
 /// Parsed MCTAL file: header, tally bodies, and kcode data.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mctal {
+    /// Code-name token from the header line (e.g. `mcnp`).
     pub code_name: String,
+    /// Code-version token from the header line (e.g. `6.2.0`).
     pub code_version: String,
+    /// Code-date token from the header line.
     pub code_date: String,
+    /// Code-time token from the header line.
     pub code_time: String,
     /// Dump counter token (kept as string upstream too).
     pub n_dump: String,
+    /// History count from the header line.
     pub n_histories: u64,
+    /// Print-table flag from the header line.
     pub n_prn: u32,
     /// Input-deck comment card.
     pub comment: String,
@@ -343,7 +369,9 @@ pub struct Mctal {
     pub tallies: Vec<TallyBody>,
     /// Parsed mesh-tally bodies (`detector_type <= -1`) in file order.
     pub mesh_tallies: Vec<MeshTallyBody>,
+    /// Declared cycle count from the `kcode` line.
     pub n_cycles: usize,
+    /// Declared inactive-cycle count from the `kcode` line.
     pub n_inactive: usize,
     /// 0/5 = one 5-float line per cycle; 19 = four lines per cycle.
     pub vars_per_cycle: usize,
@@ -353,7 +381,9 @@ pub struct Mctal {
     pub k_abs: Vec<f64>,
     /// keff (track length) per cycle.
     pub k_path: Vec<f64>,
+    /// Collision prompt lifetime in shakes per cycle.
     pub prompt_life_col: Vec<f64>,
+    /// Track-length prompt lifetime in shakes per cycle.
     pub prompt_life_path: Vec<f64>,
     /// Running averages block, present when vars_per_cycle >= 19.
     pub averages: Vec<CycleAverages>,

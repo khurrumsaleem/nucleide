@@ -3,7 +3,7 @@
   "name": "uq_lite",
   "title": "UQ-lite sampling vs SANDY",
   "environment": {
-    "date": "2026-09-13",
+    "date": "2026-09-14",
     "python": "3.12.14",
     "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
     "nucleide": "0.10.0",
@@ -55,6 +55,12 @@
           "strata-exact + <= 5.0 SE (upper bound)",
           "True/1.064 SE",
           "PASS"
+        ],
+        [
+          "U7 FY sum+moments",
+          "sums exact + <= 5 SE",
+          "True/1.534 SE",
+          "PASS"
         ]
       ]
     },
@@ -81,6 +87,10 @@
     {
       "kind": "prose",
       "text": "U6 LHS stratification+moments: method cholesky, stratification-exact True, moment worst 1.064 SE as an upper bound (k = 5.0)."
+    },
+    {
+      "kind": "prose",
+      "text": "U7 FY sum+moments: U235-thermal ['Te134', 'Xe138', 'Sr95'], kept sum 0.1556691 exact over 20000 draws (True), draw moments worst 1.534 SE (k = 5)."
     },
     {
       "kind": "table",

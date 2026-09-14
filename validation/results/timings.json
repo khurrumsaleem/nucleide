@@ -3,7 +3,7 @@
   "name": "timings",
   "title": "Timings (`timings.py`)",
   "environment": {
-    "date": "2026-09-13",
+    "date": "2026-09-14",
     "python": "3.12.14",
     "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
     "nucleide": "0.10.0",
@@ -25,18 +25,18 @@
       "rows": [
         [
           "CRAM-48 solve (`chain_ni.xml`)",
-          "1.414652e-04 s",
-          "OpenMC CRAM48: 3.074373e-03 s"
+          "1.478627e-04 s",
+          "OpenMC CRAM48: 3.038439e-03 s"
         ],
         [
           "Default uranium enrichment solve",
-          "1.155028e-04 s",
-          "PyNE multicomponent: 5.898991e-03 s"
+          "1.063248e-04 s",
+          "PyNE multicomponent: 5.776597e-03 s"
         ],
         [
           "MAGIC total-mode solve (synthetic tally)",
-          "5.897499e-07 s",
-          "PyNE-equivalent pure Python: 4.127150e-06 s"
+          "5.851502e-07 s",
+          "PyNE-equivalent pure Python: 3.849500e-06 s"
         ],
         [
           "Native Rust CRAM-48 solve (Criterion, no Python)",

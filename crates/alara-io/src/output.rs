@@ -1,8 +1,7 @@
 //! ALARA activation-output listings parsed into [`ResponseFrame`].
 //!
 //! This mirrors the reference `alara_output_processing` Python tool shipped
-//! with ALARA (`ALARA/tools/alara_output_processing.py`, vendored under
-//! `.research/` for study): `*** <param> ***` headers open a response block,
+//! with ALARA (`ALARA/tools/alara_output_processing.py`): `*** <param> ***` headers open a response block,
 //! `Interval #n ...` / `Zone #n: ...` / `Material #n: ...` lines select the
 //! geometric block, and each `isotope ...` table contributes one
 //! [`ResponseRow`] per (nuclide, cooling time), closed by its `total` row.

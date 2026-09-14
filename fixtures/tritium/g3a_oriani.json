@@ -1,0 +1,15 @@
+{
+  "description": "G3a single-trap low-occupancy (Oriani) oracle: equilibrium trapping linearizes to a retardation factor.",
+  "provenance": "Params are hand-picked (D=1e-9 m^2/s, K=k/p=1.0 m^3/mol, N=3.0 mol/m^3, c_ref=1e-3 mol/m^3) so Kc_ref=1e-3<<1. Then c_t=NKc/(1+Kc)~NKc and T1+T2 collapse to (1+KN)dc/dt=D laplacian(c), i.e. D_eff=D/(1+KN) (G3a). Retardation R=1+KN=4.0, D_eff=2.5e-10 m^2/s. Algebraic gate tolerance 1e-12.",
+  "equation": "G3a",
+  "params": {
+    "D": 1e-09,
+    "K": 1.0,
+    "N": 3.0,
+    "c_ref": 0.001
+  },
+  "Kc_ref": 0.001,
+  "retardation": 4.0,
+  "D_eff": 2.5e-10,
+  "tolerance": 1e-12
+}

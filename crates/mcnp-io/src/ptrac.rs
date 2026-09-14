@@ -34,6 +34,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
+    /// Filesystem read failed.
     Io(String),
     /// Big-endian or otherwise unsupported layout.
     Unsupported(String),
@@ -91,22 +92,34 @@ fn mapping(code: i32) -> Option<&'static str> {
 /// Per-event-type variable counts.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct VariableNums {
+    /// Variable count on the NPS line.
     pub nps: usize,
+    /// Combined variable count for source (1000) events.
     pub src: usize,
+    /// Combined variable count for bank events.
     pub bnk: usize,
+    /// Combined variable count for surface (3000) events.
     pub sur: usize,
+    /// Combined variable count for collision (4000) events.
     pub col: usize,
+    /// Combined variable count for termination (5000) events.
     pub ter: usize,
 }
 
 /// Variable-id lists per event type, in file order.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VariableIds {
+    /// Variable-id codes for the NPS line, in file order.
     pub nps: Vec<i32>,
+    /// Variable-id codes for source events, in file order.
     pub src: Vec<i32>,
+    /// Variable-id codes for bank events, in file order.
     pub bnk: Vec<i32>,
+    /// Variable-id codes for surface events, in file order.
     pub sur: Vec<i32>,
+    /// Variable-id codes for collision events, in file order.
     pub col: Vec<i32>,
+    /// Variable-id codes for termination events, in file order.
     pub ter: Vec<i32>,
 }
 
@@ -143,7 +156,9 @@ pub struct PtracFile {
     pub problem_title: String,
     /// Detected number-width layout.
     pub format: Format,
+    /// Per-event-type variable counts from the count record.
     pub variable_nums: VariableNums,
+    /// Per-event-type variable-id lists, in file order.
     pub variable_ids: VariableIds,
     data: Vec<u8>,
     events_start: usize,

@@ -1,0 +1,15 @@
+{
+  "description": "G2 permeation time-lag oracle: slab with c(0,t)=c0, c(L,t)=0, c(x,0)=0, constant D.",
+  "provenance": "Params match g1_steady.json (D=1e-9 m^2/s, L=1e-3 m, c0=1.0 mol/m^3). Separation of variables on v=c-c_ss gives J(L,t)/J_ss=1+2*sum_{n>=1}(-1)^n exp(-D n^2 pi^2 t/L^2) (G2); cumulative permeation asymptotes to J_ss(t-L^2/6D), hence t_lag=L^2/6D=166.66666666666663 s. Ratios evaluated in float64 with the series truncated once |term|<1e-18 (term counts recorded); pre-breakthrough entries are ~1e-16 series-residual noise around the true value 0. Solver replay tolerance 1e-6.",
+  "equation": "G2",
+  "params": {
+    "D": 1e-09,
+    "L": 0.001,
+    "c0": 1.0
+  },
+  "t_lag": 166.66666666666663,
+  "t": [1.0, 3.1622776601683795, 10.0, 31.622776601683793, 100.0, 316.22776601683796, 1000.0],
+  "J_over_Jss": [4.440892098500626e-16, -6.661338147750939e-16, 1.5670853503735316e-10, 0.00233913729944657, 0.292899651842241, 0.911785294907445, 0.9998965536275924],
+  "series_terms": [65, 37, 21, 12, 11, 11, 11],
+  "tolerance": 1e-06
+}

@@ -36,11 +36,12 @@ FLUKA `fluka_usrbin_single.lis` USRBIN sample.
 | `fispact/` | 1 | 1,058 bytes | fispact — Synthetic FISPACT-II-style inventory authored for Nucleide (no license needed) |
 | `fluka/` | 4 | 7,685 bytes | fluka — USRBIN `.lis` files (single/multiple/degenerate) + test input |
 | `kinetics/` | 3 | 2,493 bytes | fixtures/kinetics/ — synthetic point-kinetics inputs and oracles |
-| `mcnp/` | 27 | 471,097 bytes | mcnp — MCNP input decks, tallies, and binary-format oracles |
+| `mcnp/` | 32 | 472,224 bytes | mcnp — MCNP input decks, tallies, and binary-format oracles |
 | `mcpl/` | 6 | 4,981 bytes | mcpl — Synthetic MCPL interchange fixtures authored for Nucleide (no license needed) |
 | `origen/` | 3 | 681 bytes | origen — Synthetic ORIGEN TAPE samples authored for Nucleide (no license needed) |
 | `serpent/` | 6 | 653,120 bytes | serpent — Serpent 1 & 2 res/dep/det outputs |
 | `spectroscopy/` | 6 | 6,380 bytes | fixtures/spectroscopy/ — synthetic gamma-spectroscopy inputs and oracles |
+| `tritium/` | 6 | 4,978 bytes | fixtures/tritium/ — synthetic 1D tritium-transport analytic-gate oracles |
 | `uq/` | 5 | 1,539 bytes | UQ-lite synthetic oracle inputs |
 
 <!-- GEN:fixture-index:END -->

@@ -1,0 +1,16 @@
+CSG sphere-in-box message
+Sphere inside a plane box, void outside
+1 1 -10.0 -1 imp:n=1 $ fuel sphere
+2 0 1 2 -3 4 -5 6 -7 imp:n=0 $ box interior outside the sphere
+3 0 -2 : 3 : -4 : 5 : -6 : 7 imp:n=0 $ outside world
+
+1 so 5.0
+2 px -10.0
+3 px 10.0
+4 py -10.0
+5 py 10.0
+6 pz -10.0
+7 pz 10.0
+
+mode n
+m1 92235 0.05 92238 0.95 $ enriched uranium

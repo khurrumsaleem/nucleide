@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 //! MCNP-family file I/O: xsdir, meshtal, SSW (surfsrc), PTRAC, WWINP,
 //! MCTAL, input-deck materials/cells/surfaces/problems, and mesh-to-geometry
 //! deck generation.

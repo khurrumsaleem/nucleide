@@ -35,6 +35,7 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | Nuclide core (`nucleide-nuclei`) | Canonical nucid representation, particle registry, reaction-name registry (labels, MT mapping, hashes), name-dialect conversions (ZZAAAMM, ZAID/MCNP, Serpent, FLUKA, NIST, CINDER, ALARA, SZA, ARMI/MCC3), AME2020 masses (incl. isomer masses), natural abundances, half-lives, screening cross sections / scattering lengths / prompt decay energies (generated from ENDF/B + NIST), ENDF/B-VIII.0 decay branches, free-form name normalization, dose factors |
 | Materials (`nucleide-material`) | Compositions, mixing arithmetic, unit conversions, DOE/PNNL Materials Compendium loading, materials XML export, activity/decay-heat/dose-per-gram analytics, label-collision checks and conservation audits, mass-efficiency separator / fixed-ratio blender, Page CUSUM change detector |
 | MCNP I/O (`nucleide-mcnp-io`) | xsdir, meshtal, SSW/SURFSRC, PTRAC, WWINP, MCTAL (headers, kcode, standard tally bodies), ENDL readers; NumPy `result_array()` / `totals_array()` meshtal and `tally_vals_array()` MCTAL bridges; material extraction from input decks; full-deck parse/edit/write round-trip (cells, surfaces, materials); L3 semantic views (MODE/TRn/universes/lattices/FILL/tallies) with validation; mesh-to-geometry deck generation |
+| CSG translation (`nucleide-csg-xlate`) | Scoped MCNP→OpenMC `geometry.xml` translation (surfaces, cells, material stub) with drift report; macrobodies expand, everything beyond v1 is a loud error |
 | MCPL I/O (`nucleide-mcpl-io`) | Monte Carlo Particle List interchange reader/writer (format versions 2/3, single/double precision, gzip-transparent) plus neutron/gamma-only SSW↔MCPL conversion |
 | Serpent I/O (`nucleide-serpent-io`) | `_res.m`, `_dep.m`, `_det.m` readers producing structured records |
 | FLUKA I/O (`nucleide-fluka-io`) | USRBIN tally reader, material/compound card generation |
@@ -42,6 +43,7 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | Depletion (`nucleide-depletion`) | CRAM (orders 16/48) matrix exponential, analytic Bateman fast path (`method=` selector with CRAM-48 fallback), depletion-chain XML parsing, Predictor/CECM/CF4 time-series integrators with activity/decay-heat observables, unit-aware decay inventories, cumulative decays and chain-lineage queries |
 | Enrichment (`nucleide-enrichment`) | Multicomponent cascade solver (numeric), SWU closed-form helpers |
 | Point kinetics (`nucleide-kinetics`) | Prescribed-reactivity PKE solver, inhour roots, prompt-jump factor |
+| Tritium transport (`nucleide-tritium`) | 1D Fick + McNabb–Foster diffusion-trapping kernel, Sieverts surfaces, permeation breakthrough and time-lag gates |
 | Spectroscopy (`nucleide-spectroscopy`) | Spectrum smoothing, gross/net counting, energy/efficiency calibration, X-ray lines, SPE parsing, decay-line SDEF source cards (E9) fed from caller lists or the runtime decay-lines TSV interchange |
 | Variance reduction (`nucleide-vr-tools`) | MAGIC weight-window generation, mesh source sampling with alias tables |
 | UQ sampling (`nucleide-linalg`) | Seeded MVN + log-normal + LHS draws over caller-supplied covariance blocks, SANDY-compatible estimators |
@@ -65,6 +67,7 @@ nucleide/
 │   ├── nuclei/        # nuclide ids, naming conventions, physical data
 │   ├── material/      # compositions, mixing, libraries, XML export
 │   ├── mcnp-io/       # xsdir/meshtal/SSW/MCTAL/PTRAC/WWINP
+│   ├── csg-xlate/     # scoped MCNP CSG -> OpenMC geometry.xml translation
 │   ├── mcpl-io/       # MCPL interchange read/write + SSW conversion
 │   ├── serpent-io/    # res/dep/det readers
 │   ├── fluka-io/      # usrbin reader, material cards
@@ -77,6 +80,7 @@ nucleide/
 │   ├── enrichment/    # cascades, SWU
 │   ├── depletion/     # CRAM + chain files
 │   ├── kinetics/      # prescribed-reactivity point kinetics + inhour
+│   ├── tritium/       # 1D diffusion-trapping kernel + permeation gates
 │   ├── spectroscopy/  # smoothing, counting, calibration, X-ray, SPE
 │   ├── emit/          # five-dialect card emission + mass-drift reports
 │   └── linalg/        # isolation facade over the linear-algebra backend

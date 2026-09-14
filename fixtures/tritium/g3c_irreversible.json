@@ -1,0 +1,14 @@
+{
+  "description": "G3c irreversible-trap fill oracle: with p->0 at fixed mobile c, the McNabb-Foster ODE integrates to a saturating exponential.",
+  "provenance": "Params are hand-picked (k=0.05 m^3/mol/s, p=0.0 1/s, N=2.0 mol/m^3, c=1.0 mol/m^3 held fixed). dc_t/dt=k*c*(N-c_t) gives c_t(t)=N(1-exp(-k*c*t)) (G3c) with rate k*c=0.05 1/s, evaluated in float64 at seven times. Algebraic gate tolerance 1e-12.",
+  "equation": "G3c",
+  "params": {
+    "k": 0.05,
+    "p": 0.0,
+    "N": 2.0,
+    "c": 1.0
+  },
+  "t": [0.0, 10.0, 20.0, 50.0, 100.0, 200.0, 1000.0],
+  "c_trapped": [0.0, 0.7869386805747332, 1.2642411176571153, 1.8358300027522023, 1.986524106001829, 1.999909200140475, 2.0],
+  "tolerance": 1e-12
+}

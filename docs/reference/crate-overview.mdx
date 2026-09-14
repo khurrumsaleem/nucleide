@@ -56,6 +56,17 @@ Depends on:
 Python:
   [<span class="ref-pill"><code>nucleide.mcnp</code></span>](./python-api.mdx#nucleidemcnp)
 
+### nucleide-csg-xlate
+
+`crates/csg-xlate` · [source](https://github.com/nukehub-dev/nucleide/tree/main/crates/csg-xlate)
+
+MCNP CSG to OpenMC geometry.xml translation with per-cell/per-surface drift reports
+
+Depends on:
+  [<span class="ref-pill"><code>nucleide-mcnp-io</code></span>](../architecture/crate-responsibilities.md#nucleide-mcnp-io)
+
+Python: -
+
 ### nucleide-mcpl-io
 
 `crates/mcpl-io` · [source](https://github.com/nukehub-dev/nucleide/tree/main/crates/mcpl-io)
@@ -189,6 +200,18 @@ Depends on:
 Python:
   [<span class="ref-pill"><code>nucleide.spectroscopy</code></span>](./python-api.mdx#nucleidespectroscopy)
 
+### nucleide-tritium
+
+`crates/tritium` · [source](https://github.com/nukehub-dev/nucleide/tree/main/crates/tritium)
+
+1D tritium diffusion-trapping kernel (Fick + McNabb-Foster, Sieverts surfaces, permeation gates)
+
+Depends on:
+  [<span class="ref-pill"><code>nucleide-linalg</code></span>](../architecture/crate-responsibilities.md#nucleide-linalg)
+
+Python:
+  [<span class="ref-pill"><code>nucleide.tritium</code></span>](./python-api.mdx#nucleidetritium)
+
 ### nucleide-vr-tools
 
 `crates/vr-tools` · [source](https://github.com/nukehub-dev/nucleide/tree/main/crates/vr-tools)
@@ -260,6 +283,8 @@ Depends on:
   [<span class="ref-pill"><code>nucleide-origen-io</code></span>](../architecture/crate-responsibilities.md#nucleide-origen-io)
   [<span class="ref-pill"><code>nucleide-r2s</code></span>](../architecture/crate-responsibilities.md#nucleide-r2s)
   [<span class="ref-pill"><code>nucleide-emit</code></span>](../architecture/crate-responsibilities.md#nucleide-emit)
+  [<span class="ref-pill"><code>nucleide-tritium</code></span>](../architecture/crate-responsibilities.md#nucleide-tritium)
+  [<span class="ref-pill"><code>nucleide-csg-xlate</code></span>](../architecture/crate-responsibilities.md#nucleide-csg-xlate)
   [<span class="ref-pill"><code>nucleide-linalg</code></span>](../architecture/crate-responsibilities.md#nucleide-linalg)
 
 Python: -
@@ -287,6 +312,7 @@ Depends on:
   [<span class="ref-pill"><code>nucleide-fluka-io</code></span>](../architecture/crate-responsibilities.md#nucleide-fluka-io)
   [<span class="ref-pill"><code>nucleide-origen-io</code></span>](../architecture/crate-responsibilities.md#nucleide-origen-io)
   [<span class="ref-pill"><code>nucleide-vr-tools</code></span>](../architecture/crate-responsibilities.md#nucleide-vr-tools)
+  [<span class="ref-pill"><code>nucleide-tritium</code></span>](../architecture/crate-responsibilities.md#nucleide-tritium)
   [<span class="ref-pill"><code>nucleide-linalg</code></span>](../architecture/crate-responsibilities.md#nucleide-linalg)
 
 Python: -

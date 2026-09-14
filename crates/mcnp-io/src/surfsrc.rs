@@ -27,15 +27,20 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
+    /// Filesystem or stream I/O failure.
     Io(String),
     /// Leading/trailing record-length markers disagreed.
     BadRecordMarker {
+        /// Leading record-length marker.
         lead: i32,
+        /// Trailing record-length marker.
         trailer: i32,
     },
     /// Payload exhausted mid-field.
     ShortRecord {
+        /// Bytes required for the field.
         need: usize,
+        /// Bytes remaining in the payload.
         left: usize,
     },
     /// Unsupported code/version signature.
@@ -45,13 +50,18 @@ pub enum Error {
     MissingTable2,
     /// Writer: tracklist length disagrees with the header's `nrss`.
     TrackCountMismatch {
+        /// Track count from the header (`nrss`).
         expected: u64,
+        /// Tracks actually supplied.
         found: usize,
     },
     /// Writer: a track's record width disagrees with `abs(ncrd)`.
     TrackRecordWidth {
+        /// Zero-based track index.
         index: usize,
+        /// Record width from `abs(ncrd)`.
         expected: usize,
+        /// Doubles in this track's record.
         found: usize,
     },
     /// `combine_files`: headers disagree on a compared field, carry
@@ -107,39 +117,63 @@ impl std::error::Error for Error {}
 /// One surface entry from the header's per-surface records.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceSurf {
+    /// Surface id from the per-surface record.
     pub id: i32,
+    /// Macrobody facet id (`-1` when `kjaq != 1`).
     pub facet_id: i32,
+    /// Surface-type code from the per-surface record.
     pub surface_type: i32,
+    /// Declared surface-parameter count.
     pub num_params: usize,
+    /// Surface coefficients in cm (length `num_params`).
     pub surf_params: Vec<f64>,
 }
 
 /// Parsed SSW header block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SurfSrcHeader {
+    /// Code identifier (`mcnp`, `mcnpx`, `SF_00001`, ...).
     pub kod: String,
+    /// Code version string.
     pub ver: String,
+    /// Build date string.
     pub loddat: String,
+    /// Problem date-time string.
     pub idtm: String,
+    /// Problem creation date-time string.
     pub probid: String,
+    /// Problem title string (80 chars).
     pub aid: String,
+    /// Dump number.
     pub knod: i32,
     /// Histories used to generate the source (absolute value).
     pub np1: i64,
     /// Signed `np1` exactly as stored (negative ⇒ table-2 present).
     pub orignp1: i64,
+    /// Track count (records following the header).
     pub nrss: i64,
+    /// Track-record width in doubles (sign carries the writer convention;
+    /// the width is `abs`).
     pub ncrd: i32,
+    /// Surface count (per-surface records).
     pub njsw: i32,
+    /// History count from table 1.
     pub niss: i64,
     /// Present only when the file carries table 2.
     pub niwr: Option<i32>,
+    /// Source particle type, present only when the file carries table 2.
     pub mipts: Option<i32>,
+    /// Macrobody facet flag, present only when the file carries table 2.
     pub kjaq: Option<i32>,
+    /// Trailing table-1 ints beyond the fixed counters, verbatim.
     pub table1extra: Vec<i32>,
+    /// Trailing table-2 ints beyond niwr/mipts/kjaq, verbatim.
     pub table2extra: Vec<i32>,
+    /// Per-surface records in file order.
     pub surflist: Vec<SourceSurf>,
+    /// Fixed summary ints (`(2 + 4*mipts) * (njsw + niwr) + 1` entries).
     pub summary_table: Vec<i32>,
+    /// Trailing summary ints beyond the fixed count, verbatim.
     pub summary_extra: Vec<i32>,
 }
 
@@ -209,18 +243,32 @@ impl SurfSrcHeader {
 /// One track record from the tracklist.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackData {
+    /// Raw track record doubles (`abs(ncrd)` values, file order).
     pub record: Vec<f64>,
+    /// History number (record field 0).
     pub nps: f64,
+    /// Packed cell/surface flag word (record field 1).
     pub bitarray: f64,
+    /// Particle weight (record field 2).
     pub wgt: f64,
+    /// Energy in MeV (record field 3).
     pub erg: f64,
+    /// Time in shakes (record field 4).
     pub tme: f64,
+    /// X position in cm (record field 5).
     pub x: f64,
+    /// Y position in cm (record field 6).
     pub y: f64,
+    /// Z position in cm (record field 7).
     pub z: f64,
+    /// X direction cosine (record field 8; `w` is reconstructed).
     pub u: f64,
+    /// Y direction cosine (record field 9; `w` is reconstructed).
     pub v: f64,
+    /// Cosine to the surface normal (record field 10).
     pub cs: f64,
+    /// Reconstructed z direction cosine (`sqrt(1-u*u-v*v)` with the sign
+    /// of `bitarray`).
     pub w: f64,
 }
 
@@ -234,7 +282,9 @@ impl TrackData {
 /// A parsed MCNP surface-source file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SurfSrc {
+    /// Source path when opened from disk (`None` for `from_bytes`).
     pub path: Option<String>,
+    /// Parsed SSW header block.
     pub header: SurfSrcHeader,
     data: Vec<u8>,
 }

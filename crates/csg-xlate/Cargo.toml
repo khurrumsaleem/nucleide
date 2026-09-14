@@ -1,0 +1,13 @@
+[package]
+name = "nucleide-csg-xlate"
+description = "MCNP CSG to OpenMC geometry.xml translation with per-cell/per-surface drift reports"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nucleide-mcnp-io.workspace = true
+quick-xml.workspace = true
+thiserror.workspace = true

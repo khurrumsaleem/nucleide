@@ -12,6 +12,7 @@ import { ActivationDemo } from "./ActivationDemo";
 import { DeterministicDemo } from "./DeterministicDemo";
 import { EmitterDemo } from "./EmitterDemo";
 import { KineticsTransient } from "./KineticsTransient";
+import { TritiumBreakthrough } from "./TritiumBreakthrough";
 import { McplDemo } from "./McplDemo";
 import { SpectroscopyDemo } from "./SpectroscopyDemo";
 import { UqDemo } from "./UqDemo";
@@ -32,6 +33,7 @@ interface InteractiveDemoProps {
     | "deterministic"
     | "emitter"
     | "kinetics"
+    | "tritium"
     | "mcpl-io"
     | "spectroscopy"
     | "uq";
@@ -67,6 +69,8 @@ export function InteractiveDemo({ kind }: InteractiveDemoProps) {
       return <EmitterDemo />;
     case "kinetics":
       return <KineticsTransient />;
+    case "tritium":
+      return <TritiumBreakthrough />;
     case "mcpl-io":
       return <McplDemo />;
     case "spectroscopy":

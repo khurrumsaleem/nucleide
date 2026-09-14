@@ -3,7 +3,7 @@
   "name": "parsers",
   "title": "Parser cross-validation (`parsers_vs_refs.py`)",
   "environment": {
-    "date": "2026-09-13",
+    "date": "2026-09-14",
     "python": "3.12.14",
     "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
     "nucleide": "0.10.0",
@@ -382,6 +382,80 @@
     {
       "kind": "prose",
       "text": "SKIPPED mcnp_meshtal_single_meshtal.txt: `pyne.mcnp.Meshtal` requires PyMOAB (nomoab build)"
+    },
+    {
+      "kind": "heading",
+      "level": 3,
+      "text": "CSG translation vs OpenMC"
+    },
+    {
+      "kind": "prose",
+      "text": "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped\nv1: surfaces, cells, and a material stub only). Structural probes \u2014 surface\nand cell counts, region ids referencing defined surfaces, boundary\nattributes, material stubs \u2014 always run; the OpenMC `Region.from_expression`\ncross-check runs only when `openmc` is importable (validation container).\nReject decks must raise `ValueError`."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Deck",
+        "Probe",
+        "Values compared",
+        "Max rel diff / status"
+      ],
+      "rows": [
+        [
+          "deck_csg_sphere_box.txt",
+          "structure",
+          "7 surfs, 3 cells, 14 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_rpp.txt",
+          "structure",
+          "6 surfs, 2 cells, 12 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_rcc.txt",
+          "structure",
+          "3 surfs, 2 cells, 6 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_complement.txt",
+          "structure",
+          "2 surfs, 2 cells, 3 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_complement_reject.txt",
+          "reject",
+          "1",
+          "OK (ValueError)"
+        ],
+        [
+          "deck_csg_sphere_box.txt",
+          "openmc regions",
+          "3",
+          "OK"
+        ],
+        [
+          "deck_csg_rpp.txt",
+          "openmc regions",
+          "2",
+          "OK"
+        ],
+        [
+          "deck_csg_rcc.txt",
+          "openmc regions",
+          "2",
+          "OK"
+        ],
+        [
+          "deck_csg_complement.txt",
+          "openmc regions",
+          "2",
+          "OK"
+        ]
+      ]
     },
     {
       "kind": "heading",

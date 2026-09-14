@@ -11,51 +11,74 @@ use crate::inp::Error;
 /// MCNP surface types: planes, quadrics, and macrobodies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfKind {
-    /// Plane normal to x/y/z (`PX`, `PY`, `PZ`).
+    /// Plane normal to x (`PX`): one coefficient, `x = const`.
     Px,
+    /// Plane normal to y (`PY`): one coefficient, `y = const`.
     Py,
+    /// Plane normal to z (`PZ`): one coefficient, `z = const`.
     Pz,
     /// General plane (`P`).
     P,
-    /// Sphere centered at origin / general / x/y/z-shifted (`S`, `SO`,
-    /// `SX`, `SY`, `SZ`).
+    /// General sphere (`S`): four coefficients, center plus radius.
     S,
+    /// Sphere centered at the origin (`SO`): one coefficient, radius.
     So,
+    /// Sphere centered on the x axis (`SX`): two coefficients, center plus radius.
     Sx,
+    /// Sphere centered on the y axis (`SY`): two coefficients, center plus radius.
     Sy,
+    /// Sphere centered on the z axis (`SZ`): two coefficients, center plus radius.
     Sz,
-    /// Cylinder parallel to x/y/z (`CX`, `CY`, `CZ`).
+    /// Cylinder parallel to x (`CX`): one coefficient, radius.
     Cx,
+    /// Cylinder parallel to y (`CY`): one coefficient, radius.
     Cy,
+    /// Cylinder parallel to z (`CZ`): one coefficient, radius.
     Cz,
-    /// Cone parallel to x/y/z (`KX`, `KY`, `KZ`).
+    /// Cone parallel to x (`KX`): five coefficients.
     Kx,
+    /// Cone parallel to y (`KY`): five coefficients.
     Ky,
+    /// Cone parallel to z (`KZ`): five coefficients.
     Kz,
-    /// Quadrics (`SQ`, `GQ`).
+    /// Special quadric (`SQ`): ten coefficients.
     Sq,
+    /// General quadric (`GQ`): sixteen coefficients.
     Gq,
-    /// Tori parallel to x/y/z (`TX`, `TY`, `TZ`).
+    /// Torus parallel to x (`TX`): six coefficients.
     Tx,
+    /// Torus parallel to y (`TY`): six coefficients.
     Ty,
+    /// Torus parallel to z (`TZ`): six coefficients.
     Tz,
-    /// Planes `x/y/z = const` (`X`, `Y`, `Z`).
+    /// Plane `x = const` (`X`): one coefficient.
     X,
+    /// Plane `y = const` (`Y`): one coefficient.
     Y,
+    /// Plane `z = const` (`Z`): one coefficient.
     Z,
-    /// Macrobodies: box, hexahedron, wedge, prism, ellipsoid, truncated
-    /// cone, cylinder, torus (`BOX`, `RHP`, `HEX`, `WED`, `RPP`, `SPH`,
-    /// `RCC`, `REC`, `TRC`, `ELL`, `ARB`).
+    /// Box macrobody (`BOX`): twelve coefficients, corner plus three edge vectors.
     McBox,
+    /// Right hexagonal prism macrobody (`RHP`): fifteen coefficients.
     Rhp,
+    /// Hexahedron macrobody (`HEX`): fifteen coefficients.
     Hex,
+    /// Wedge macrobody (`WED`): twelve coefficients.
     Wed,
+    /// Rectangular parallelepiped macrobody (`RPP`): six coefficients
+    /// (`xmin xmax ymin ymax zmin zmax`).
     Rpp,
+    /// Sphere macrobody (`SPH`): four coefficients (`x y z r`).
     Sph,
+    /// Right circular cylinder macrobody (`RCC`): seven coefficients.
     Rcc,
+    /// Right elliptical cylinder macrobody (`REC`): twelve coefficients.
     Rec,
+    /// Truncated cone macrobody (`TRC`): eight coefficients.
     Trc,
+    /// Ellipsoid macrobody (`ELL`): seven coefficients.
     Ell,
+    /// Arbitrary polyhedron macrobody (`ARB`): variable tail, no fixed arity.
     Arb,
 }
 

@@ -646,6 +646,8 @@ class Inventory:
 
 def parse_deck(text: str) -> DeckProblem: ...
 def read_deck(path: str) -> DeckProblem: ...
+def parse_csg_to_openmc(text: str) -> tuple[str, list[dict[str, str]]]: ...
+def read_csg_to_openmc(path: str) -> tuple[str, list[dict[str, str]]]: ...
 def cumulative_decays(
     chain: Chain,
     n0: dict[str, float],
@@ -690,6 +692,49 @@ def kinetics_prompt_jump(
 def kinetics_from_ifp(
     betas: list[float], lambda_gen: float, lambdas: list[float]
 ) -> dict[str, Any]: ...
+def tritium_steady(
+    length: float,
+    cells: int,
+    d0: float,
+    e_d: float,
+    traps: list[dict[str, Any]],
+    temperature: list[float],
+    source: list[float] | None,
+    left: dict[str, Any],
+    right: dict[str, Any],
+) -> dict[str, Any]: ...
+def tritium_transient(
+    length: float,
+    cells: int,
+    d0: float,
+    e_d: float,
+    traps: list[dict[str, Any]],
+    temperature: list[float],
+    source: list[float] | None,
+    left: dict[str, Any],
+    right: dict[str, Any],
+    t: list[float],
+    mobile0: list[float] | None = None,
+    trapped0: list[list[float]] | None = None,
+    method: str = "crank_nicolson",
+    rtol: float = 1e-9,
+    atol: float = 1e-12,
+    dt_min: float = 1e-14,
+    dt_max: float | None = None,
+    max_steps: int = 1000000,
+) -> dict[str, Any]: ...
+def tritium_time_lag(length: float, diffusivity: float) -> float: ...
+def tritium_breakthrough(diffusivity: float, length: float, times: list[float]) -> list[float]: ...
+def tritium_oriani(
+    diffusivity: float, equilibrium_constant: float, site_density: float
+) -> float: ...
+def tritium_langmuir(
+    site_density: float, equilibrium_constant: float, c_mobile: float
+) -> float: ...
+def tritium_irreversible_fill(
+    rate_k: float, c_mobile: float, site_density: float, times: list[float]
+) -> list[float]: ...
+def tritium_sieverts(solubility: float, pressure: float) -> float: ...
 def spectroscopy_rect_smooth(counts: list[float], m: int) -> list[float]: ...
 def spectroscopy_five_point_smooth(counts: list[float]) -> list[float]: ...
 def spectroscopy_calc_bg(

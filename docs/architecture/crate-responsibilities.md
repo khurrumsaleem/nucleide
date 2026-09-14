@@ -62,6 +62,17 @@ SSW↔MCPL conversion v1 (`ssw` module: explicit per-track surface/kind
 parameters, reference-header cloning for the return leg, named errors past
 n/γ). Depends on `nucleide-mcnp-io` for the SSW header/track types.
 
+### `nucleide-csg-xlate`
+
+Scoped MCNP CSG to OpenMC `geometry.xml` translation (v1: surfaces, cells,
+and a material stub only) with a per-cell/per-surface drift report in the
+`emit` drift pattern. Maps axis planes, spheres, on-axis cylinders, `SPH`,
+`RPP`, and axis-aligned `RCC` (half-space expansion); cones, quadrics, tori,
+general planes, other macrobodies, complements beyond flat intersections,
+reflecting/periodic conflicts, transforms, universes, tallies, and sources
+are loud errors. Depends on `nucleide-mcnp-io` only among workspace crates;
+never the reverse, never on bindings.
+
 ### `nucleide-serpent-io`
 
 Parsers for Serpent MATLAB-style output files (`_res.m`, `_dep.m`, `_det.m`).
@@ -126,6 +137,17 @@ densities. Depends on `nucleide-alara-io`, `nucleide-mcnp-io`,
 codes. The uniform split preserves only the total shutdown strength until
 group-wise emission data is wired through per nuclide.
 
+### `nucleide-tritium`
+
+1D tritium diffusion-trapping kernel: Fickian mobile transport (T1) coupled
+to N extrinsic McNabb–Foster trap species (T2) on a slab with
+caller-supplied temperature, solved by cell-centred finite volumes with
+implicit theta-stepping through the shared `linalg::tridiag` Thomas solver.
+Owns the Dirichlet/Sieverts/Henry/zero-flux surface taxonomy
+(recombination is a named-open G5); multi-D/FEM, heat coupling, and
+vendored property tables stay out. Depends on `nucleide-linalg` only among
+workspace crates; bindings depend on it, never the reverse.
+
 ### `nucleide-emit`
 
 Single-material emission to MCNP/Serpent/FLUKA/ALARA/PARTISN cards plus a
@@ -163,21 +185,23 @@ When publishing to crates.io, publish in dependency order:
 2. `nucleide-nuclei`
 3. `nucleide-material`
 4. `nucleide-mcnp-io`
-5. `nucleide-mcpl-io`
-6. `nucleide-serpent-io`
-7. `nucleide-fluka-io`
-8. `nucleide-enrichment`
-9. `nucleide-depletion`
-10. `nucleide-kinetics`
-11. `nucleide-spectroscopy`
-12. `nucleide-vr-tools`
-13. `nucleide-alara-io`
-14. `nucleide-cccc-io`
-15. `nucleide-fispact-io`
-16. `nucleide-origen-io`
-17. `nucleide-r2s`
-18. `nucleide-emit`
-19. `nucleide-bindings`
+5. `nucleide-csg-xlate`
+6. `nucleide-mcpl-io`
+7. `nucleide-serpent-io`
+8. `nucleide-fluka-io`
+9. `nucleide-enrichment`
+10. `nucleide-depletion`
+11. `nucleide-kinetics`
+12. `nucleide-spectroscopy`
+13. `nucleide-tritium`
+14. `nucleide-vr-tools`
+15. `nucleide-alara-io`
+16. `nucleide-cccc-io`
+17. `nucleide-fispact-io`
+18. `nucleide-origen-io`
+19. `nucleide-r2s`
+20. `nucleide-emit`
+21. `nucleide-bindings`
 
 (`nucleide-wasm` is cdylib-only and never published; keep this list in
 sync with the publish list in `.github/workflows/release.yml`.)

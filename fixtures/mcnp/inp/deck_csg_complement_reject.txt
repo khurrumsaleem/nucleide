@@ -1,0 +1,10 @@
+CSG complement reject message
+Complement over a union (v1 loud error, never inlined)
+1 1 -19.1 -1 : -2 imp:n=1 $ union of two interiors
+2 0 #1 imp:n=0 $ complement of a union
+
+1 so 10.0
+2 so 20.0
+
+mode n
+m1 92235 1.0

@@ -14,8 +14,12 @@ Two tiers:
    closed-form E[y_i]), U6 Latin-hypercube stratification + moments on
    `fixtures/uq/lhs_2x2.json` (separate gate: the IID k-SE null is wrong
    for stratified draws, so U6 checks exact one-per-stratum recovery plus
-   moments within the IID bound as an upper bound only). No evaluated
-   data: every input is a synthetic round value.
+   moments within the IID bound as an upper bound only), U7 fission-yield
+   sum preservation + moment recovery over a caller-selected U235-thermal
+   product subset from the real yield library (perturbed sums exact at
+   the pinned seed; the forwarded relative draws recover their moment
+   block within the IID k-SE gate). No evaluated
+   data in U1-U6: every input there is a synthetic round value.
 2. SANDY cross-check: the same nucleide draws wrapped in
    ``sandy.samples.Samples`` (rows = variables, columns = realizations) with
    ``get_mean``/``get_cov`` compared against ``nucleide.uq`` ``sample_mean``/
@@ -193,8 +197,57 @@ def _lhs_gate(fx: dict, label: str) -> tuple[list[str], str]:
     )
 
 
+def _fy_gate(label: str) -> tuple[list[str], str]:
+    """Fission-yield consumer gate over a caller-selected U235-thermal subset.
+
+    The caller selects the products, builds ``rel_sigma = dY/Y`` from the
+    real yield library (lowest-energy independent set — the depletion
+    convention), and forwards IID relative draws through
+    ``perturb_fission_yields``. (i) Sum preservation is exact at the pinned
+    seed: every perturbed draw sums to the incoming block sum with no
+    negative entries. (ii) The forwarded draws recover their diagonal
+    moment block within the IID k-SE gate. Explicit-covariance mode is the
+    same composition with caller-drawn correlated deltas. Existing
+    U1/U2/U5/U6 gates are untouched.
+    """
+    import nucleide.nuclei as nuclei
+
+    names = ["Te134", "Xe138", "Sr95"]
+    prods = {p: (y, dy) for p, y, dy in nuclei.fission_yields("U235")[0][1]}
+    base = [prods[n][0] for n in names]
+    sigma = [prods[n][1] / prods[n][0] for n in names]
+    kept = sum(base)
+    n, k, seed = 20000, 5, 20260917
+    cov = [[sigma[i] ** 2 if i == j else 0.0 for j in range(3)] for i in range(3)]
+    out = uq.sample_mvn([0.0, 0.0, 0.0], cov, n, seed)
+    sm = uq.sample_mean(out["samples"])
+    sc = uq.sample_cov(out["samples"])
+    worst = 0.0
+    for i in range(3):
+        worst = max(worst, abs(sm[i]) / (math.sqrt(cov[i][i] / n) or 1.0))
+        for j in range(3):
+            se = math.sqrt((cov[i][i] * cov[j][j] + cov[i][j] ** 2) / (n - 1))
+            worst = max(worst, abs(sc[i][j] - cov[i][j]) / (se or 1.0))
+    sums_ok = True
+    for s in out["samples"]:
+        pert = uq.perturb_fission_yields(base, s)
+        if abs(sum(pert) - kept) > 1e-9 or any(v < 0.0 for v in pert):
+            sums_ok = False
+            break
+    ok = out["method"] == "cholesky" and sums_ok and worst <= k
+    note = (
+        f"{label}: U235-thermal {names}, kept sum {kept:.7f} exact "
+        f"over {n} draws ({sums_ok}), draw moments worst {worst:.3f} SE "
+        f"(k = {k})."
+    )
+    return (
+        [label, f"sums exact + <= {k} SE", f"{sums_ok}/{worst:.3f} SE", _check(ok, label)],
+        note,
+    )
+
+
 def tier1() -> tuple[list[list[str]], list[str]]:
-    """Synthetic gates U1-U6 (always run)."""
+    """Synthetic gates U1-U7 (always run)."""
     rows: list[list[str]] = []
     notes: list[str] = []
 
@@ -232,6 +285,10 @@ def tier1() -> tuple[list[list[str]], list[str]]:
     notes.append(note)
 
     row, note = _lhs_gate(_load("lhs_2x2.json"), "U6 LHS stratification+moments")
+    rows.append(row)
+    notes.append(note)
+
+    row, note = _fy_gate("U7 FY sum+moments")
     rows.append(row)
     notes.append(note)
     return rows, notes

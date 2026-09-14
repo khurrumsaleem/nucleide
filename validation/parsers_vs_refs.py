@@ -16,6 +16,7 @@ from __future__ import annotations
 import sys
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from common import Report, fmt, rel_diff
@@ -26,6 +27,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SERPENT_DIR = REPO_ROOT / "fixtures" / "serpent"
 MCNP_DIR = REPO_ROOT / "fixtures" / "mcnp"
 FLUKA_DIR = REPO_ROOT / "fixtures" / "fluka"
+CSG_DIR = MCNP_DIR / "inp"
+
+# Scoped-v1 CSG fixtures: GO decks translate, reject decks raise ValueError.
+CSG_GO_FIXTURES = [
+    "deck_csg_sphere_box.txt",
+    "deck_csg_rpp.txt",
+    "deck_csg_rcc.txt",
+    "deck_csg_complement.txt",
+]
+CSG_REJECT_FIXTURES = ["deck_csg_complement_reject.txt"]
 
 # Worst relative difference over every compared numeric field.
 WORST = 0.0
@@ -454,6 +465,129 @@ def fluka_section(report: Report) -> None:
     report.prose(_note(note))
 
 
+def csg_section(report: Report) -> None:
+    """MCNP CSG translation fixtures vs OpenMC (scoped v1)."""
+    report.heading("CSG translation vs OpenMC")
+    report.prose(
+        "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed"
+        "\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped"
+        "\nv1: surfaces, cells, and a material stub only). Structural probes — surface"
+        "\nand cell counts, region ids referencing defined surfaces, boundary"
+        "\nattributes, material stubs — always run; the OpenMC `Region.from_expression`"
+        "\ncross-check runs only when `openmc` is importable (validation container)."
+        "\nReject decks must raise `ValueError`."
+    )
+    rows, skips = compare_csg()
+    if rows:
+        report.table(["Deck", "Probe", "Values compared", "Max rel diff / status"], rows)
+    for note in skips:
+        report.prose(note)
+
+
+def compare_csg() -> tuple[list[list[str]], list[str]]:
+    """Translate the CSG fixtures and probe the resulting geometry XML."""
+    import re
+    import xml.etree.ElementTree as ET
+
+    rows: list[list[str]] = []
+    skips: list[str] = []
+    parsed: dict[str, ET.Element] = {}
+    for name in CSG_GO_FIXTURES:
+        path = CSG_DIR / name
+        try:
+            xml, _ = nucleide.mcnp.read_csg_to_openmc(str(path))
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "translate", "—", f"ERROR: {exc}"])
+            continue
+        try:
+            root = ET.fromstring(xml)
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "xml well-formed", "—", f"ERROR: {exc}"])
+            continue
+        parsed[name] = root
+        surfs = root.findall("surface")
+        cells = root.findall("cell")
+        known = {s.get("id") for s in surfs}
+        n_refs = 0
+        bad = 0
+        for cell in cells:
+            region = cell.get("region", "")
+            for tok in re.findall(r"-?\d+", region):
+                n_refs += 1
+                bad += tok.lstrip("-") not in known
+            mat = cell.get("material", "")
+            bad += not (mat == "void" or mat.isdigit())
+        for surf in surfs:
+            boundary = surf.get("boundary", "transmission")
+            if boundary not in ("transmission", "reflective", "periodic"):
+                bad += 1
+            if boundary == "periodic" and surf.get("periodic_surface_id") not in known:
+                bad += 1
+        if bad:
+            _track(1.0)
+        rows.append(
+            [
+                name,
+                "structure",
+                f"{len(surfs)} surfs, {len(cells)} cells, {n_refs} refs",
+                "OK" if not bad else f"{bad} MISMATCHES",
+            ]
+        )
+    for name in CSG_REJECT_FIXTURES:
+        try:
+            nucleide.mcnp.read_csg_to_openmc(str(CSG_DIR / name))
+        except ValueError:
+            rows.append([name, "reject", "1", "OK (ValueError)"])
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "reject", "1", f"WRONG ERROR: {exc}"])
+        else:
+            _track(1.0)
+            rows.append([name, "reject", "1", "MISSING ERROR"])
+    try:
+        import openmc
+    except ImportError as exc:
+        skips.append(_note(f"SKIPPED CSG OpenMC cross-check: oracle unavailable ({exc})"))
+        return rows, skips
+    for name, root in parsed.items():
+        try:
+            surfaces = {
+                int(s.get("id", "0")): _openmc_surface(openmc, s) for s in root.findall("surface")
+            }
+            cells = root.findall("cell")
+            for cell in cells:
+                region = openmc.Region.from_expression(cell.get("region", ""), surfaces)
+                _ = str(region)
+            rows.append([name, "openmc regions", str(len(cells)), "OK"])
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "openmc regions", "—", f"ERROR: {exc}"])
+    return rows, skips
+
+
+def _openmc_surface(openmc: Any, elem: Any) -> Any:
+    """Build an `openmc.Surface` from one translated `<surface>` element."""
+    stype = elem.get("type", "")
+    coeffs = [float(v) for v in elem.get("coeffs", "").split()]
+    if stype == "x-plane":
+        return openmc.XPlane(x0=coeffs[0])
+    if stype == "y-plane":
+        return openmc.YPlane(y0=coeffs[0])
+    if stype == "z-plane":
+        return openmc.ZPlane(z0=coeffs[0])
+    if stype == "sphere":
+        return openmc.Sphere(x0=coeffs[0], y0=coeffs[1], z0=coeffs[2], r=coeffs[3])
+    if stype == "x-cylinder":
+        return openmc.XCylinder(y0=coeffs[0], z0=coeffs[1], r=coeffs[2])
+    if stype == "y-cylinder":
+        return openmc.YCylinder(x0=coeffs[0], z0=coeffs[1], r=coeffs[2])
+    if stype == "z-cylinder":
+        return openmc.ZCylinder(x0=coeffs[0], y0=coeffs[1], r=coeffs[2])
+    raise ValueError(f"CSG probe cannot build OpenMC surface type {stype!r}")
+
+
 def main() -> int:
     report = Report("parsers", "Parser cross-validation (`parsers_vs_refs.py`)")
     report.prose(
@@ -463,6 +597,7 @@ def main() -> int:
     )
     serpent_section(report)
     mcnp_section(report)
+    csg_section(report)
     endl_section(report)
     fluka_section(report)
     report.emit()

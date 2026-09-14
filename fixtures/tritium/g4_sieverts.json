@@ -1,0 +1,20 @@
+{
+  "description": "G4 Sieverts-law steady-state oracle: surface concentrations fixed by c=K_S*sqrt(p), linear profile between.",
+  "provenance": "Params are hand-picked (D=1e-9 m^2/s, L=1e-3 m, K_S=2.0 mol/m^3/Pa^1/2, p1=16.0 Pa, p2=1.0 Pa). Sieverts BCs give c0=K_S*sqrt(p1)=8.0 and cL=K_S*sqrt(p2)=2.0 mol/m^3; the trap-free steady profile is linear (G4) with J=D(c0-cL)/L=6.000000000000001e-06 mol/m^2/s (float64 rounding of 6e-6), inventory (c0+cL)L/2=5e-3 mol/m^2, permeability Phi=D*K_S=2e-9 mol/m/s/Pa^1/2. Algebraic gate tolerance 1e-12.",
+  "equation": "G4",
+  "params": {
+    "D": 1e-09,
+    "L": 0.001,
+    "K_S": 2.0,
+    "p1": 16.0,
+    "p2": 1.0
+  },
+  "c0": 8.0,
+  "cL": 2.0,
+  "x_over_L": [0.0, 0.25, 0.5, 0.75, 1.0],
+  "c": [8.0, 6.5, 5.0, 3.5, 2.0],
+  "J": 6.000000000000001e-06,
+  "permeability": 2e-09,
+  "inventory": 0.005,
+  "tolerance": 1e-12
+}

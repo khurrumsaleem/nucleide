@@ -4345,6 +4345,80 @@ pub fn kinetics_transient(
 }
 
 // ---------------------------------------------------------------------------
+// Tritium transport (permeation breakthrough curve)
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct TritiumBreakthroughResult {
+    times: Vec<f64>,
+    #[serde(rename = "fluxOverJss")]
+    flux_over_jss: Vec<f64>,
+    #[serde(rename = "tLag")]
+    t_lag: f64,
+    #[serde(rename = "jss")]
+    jss: f64,
+}
+
+/// Solve a trap-free permeation transient and report the normalized outlet
+/// flux alongside the time lag.
+///
+/// Thin facade over `nucleide-tritium`: the slab `0 ≤ x ≤ L` starts empty
+/// with Dirichlet ends `c(0) = c0`, `c(L) = 0` (the G2 setup) at uniform
+/// diffusivity `diffusivity`, and the solve runs on a fixed 200-cell grid
+/// with default [`SolverOptions`](nucleide_tritium::SolverOptions) and an
+/// internal step capped at `(L²/D)/2000`. Returns `{ times, fluxOverJss,
+/// tLag, jss }` with `tLag = L²/6D` (G2-lag) and `jss = D·c0/L` (G1).
+#[wasm_bindgen(js_name = tritiumBreakthrough)]
+pub fn tritium_breakthrough(
+    length: f64,
+    diffusivity: f64,
+    c0: f64,
+    times: Vec<f64>,
+) -> Result<JsValue, JsValue> {
+    check_finite_vec(&times, "times")?;
+    for (value, label) in [(length, "length"), (diffusivity, "diffusivity"), (c0, "c0")] {
+        if !value.is_finite() {
+            return Err(js_err(format!("{label} must be finite")));
+        }
+    }
+    let params = nucleide_tritium::TransportParams::new(
+        length,
+        200,
+        diffusivity,
+        0.0,
+        vec![],
+        vec![500.0],
+        vec![],
+    )
+    .map_err(js_err)?;
+    let left = nucleide_tritium::Boundary::dirichlet(c0).map_err(js_err)?;
+    let right = nucleide_tritium::Boundary::dirichlet(0.0).map_err(js_err)?;
+    let grid = nucleide_tritium::TimeGrid::new(times).map_err(js_err)?;
+    let initial = nucleide_tritium::InitialState::zeros(&params);
+    let diffusive = length * length / diffusivity;
+    let sol = nucleide_tritium::solve(
+        &params,
+        &left,
+        &right,
+        &grid,
+        &initial,
+        &nucleide_tritium::SolverOptions {
+            dt_max: diffusive / 2000.0,
+            ..Default::default()
+        },
+    )
+    .map_err(js_err)?;
+    let jss = diffusivity * c0 / length;
+    let flux_over_jss: Vec<f64> = sol.flux_right.iter().map(|f| f / jss).collect();
+    to_js(&TritiumBreakthroughResult {
+        times: sol.times,
+        flux_over_jss,
+        t_lag: nucleide_tritium::time_lag(length, diffusivity).map_err(js_err)?,
+        jss,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Spectroscopy (smoothing + peak counting)
 // ---------------------------------------------------------------------------
 

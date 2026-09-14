@@ -1,0 +1,175 @@
+"""CSG translation tests: MCNP decks to OpenMC geometry XML (synthetic fixtures)."""
+
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+import pytest
+
+import nucleide
+
+FIXTURES = Path(__file__).parent.parent / "fixtures" / "mcnp" / "inp"
+
+GO_FIXTURES = [
+    "deck_csg_sphere_box.txt",
+    "deck_csg_rpp.txt",
+    "deck_csg_rcc.txt",
+    "deck_csg_complement.txt",
+]
+
+
+def _translate(name: str) -> tuple[str, list[dict[str, str]]]:
+    return nucleide.mcnp.read_csg_to_openmc(str(FIXTURES / name))
+
+
+def _regions(xml: str) -> dict[str, str]:
+    root = ET.fromstring(xml)
+    assert root.tag == "geometry"
+    return {c.get("id", ""): c.get("region", "") for c in root.findall("cell")}
+
+
+def _surfaces(xml: str) -> dict[str, dict[str, str]]:
+    root = ET.fromstring(xml)
+    return {
+        s.get("id", ""): {"type": s.get("type", ""), "coeffs": s.get("coeffs", "")}
+        for s in root.findall("surface")
+    }
+
+
+class TestCsgFixtures:
+    def test_go_fixtures_translate(self) -> None:
+        for name in GO_FIXTURES:
+            xml, drift = _translate(name)
+            root = ET.fromstring(xml)
+            assert root.tag == "geometry"
+            assert root.findall("surface")
+            assert root.findall("cell")
+            assert isinstance(drift, list)
+
+    def test_sphere_box_regions(self) -> None:
+        xml, _ = _translate("deck_csg_sphere_box.txt")
+        assert _regions(xml) == {
+            "1": "-1",
+            "2": "1 2 -3 4 -5 6 -7",
+            "3": "-2 | 3 | -4 | 5 | -6 | 7",
+        }
+        surfs = _surfaces(xml)
+        assert surfs["1"] == {"type": "sphere", "coeffs": "0 0 0 5"}
+        assert surfs["2"] == {"type": "x-plane", "coeffs": "-10"}
+
+    def test_rpp_expands_to_six_planes(self) -> None:
+        xml, drift = _translate("deck_csg_rpp.txt")
+        surfs = _surfaces(xml)
+        assert len(surfs) == 6
+        assert [s["type"] for s in surfs.values()].count("x-plane") == 2
+        assert _regions(xml)["1"] == "2 -3 4 -5 6 -7"
+        actions = [d["action"] for d in drift]
+        assert "macrobody-expansion" in actions
+
+    def test_rcc_expands_to_cylinder_and_caps(self) -> None:
+        xml, drift = _translate("deck_csg_rcc.txt")
+        surfs = _surfaces(xml)
+        assert surfs["2"] == {"type": "z-cylinder", "coeffs": "0 0 2"}
+        assert surfs["3"] == {"type": "z-plane", "coeffs": "-5"}
+        assert surfs["4"] == {"type": "z-plane", "coeffs": "5"}
+        assert _regions(xml)["1"] == "-2 3 -4"
+        assert any(d["action"] == "macrobody-expansion" and d["scope"] == "surface" for d in drift)
+
+    def test_complement_inlines(self) -> None:
+        xml, drift = _translate("deck_csg_complement.txt")
+        assert _regions(xml)["2"] == "1 -2"
+        assert any(d["action"] == "complement-expansion" for d in drift)
+
+    def test_region_ids_reference_defined_surfaces(self) -> None:
+        for name in GO_FIXTURES:
+            xml, _ = _translate(name)
+            root = ET.fromstring(xml)
+            known = {s.get("id") for s in root.findall("surface")}
+            for cell in root.findall("cell"):
+                region = cell.get("region", "")
+                ids = {
+                    tok.lstrip("~+-")
+                    for tok in region.replace("|", " ").replace("(", " ").replace(")", " ").split()
+                }
+                assert ids <= known, (name, region)
+
+    def test_material_stub(self) -> None:
+        xml, _ = _translate("deck_csg_sphere_box.txt")
+        root = ET.fromstring(xml)
+        mats = {c.get("id"): c.get("material") for c in root.findall("cell")}
+        assert mats == {"1": "1", "2": "void", "3": "void"}
+
+    def test_parse_text_matches_file(self) -> None:
+        path = FIXTURES / "deck_csg_rpp.txt"
+        xml_file, _ = nucleide.mcnp.read_csg_to_openmc(str(path))
+        xml_text, _ = nucleide.mcnp.parse_csg_to_openmc(path.read_text())
+        assert xml_text == xml_file
+
+
+class TestCsgLoudErrors:
+    def test_union_complement_rejected(self) -> None:
+        with pytest.raises(ValueError, match="too complex"):
+            nucleide.mcnp.read_csg_to_openmc(str(FIXTURES / "deck_csg_complement_reject.txt"))
+
+    def test_cone_rejected(self) -> None:
+        deck = "msg\ntitle\n1 1 -1.0 -1\n\n1 kz 0 0 0 1 1\n\nm1 1001 1.0\n"
+        with pytest.raises(ValueError, match="no v1 mapping"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_canted_rcc_rejected(self) -> None:
+        deck = "msg\ntitle\n1 1 -1.0 -1\n\n1 rcc 0 0 0 1 1 1 2\n\nm1 1001 1.0\n"
+        with pytest.raises(ValueError, match="out of v1 scope"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_universe_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1 u=0\n\n1 so 10\n\n"
+        with pytest.raises(ValueError, match="out of v1 scope"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_tally_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1\n\n1 so 10\n\nf4:n 1\n"
+        with pytest.raises(ValueError, match="out of v1 scope"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_source_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1\n\n1 so 10\n\nsdef pos=0 0 0\n"
+        with pytest.raises(ValueError, match="out of v1 scope"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_trcl_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1 trcl=1\n\n1 so 10\n\ntr1 0 0 0\n"
+        with pytest.raises(ValueError, match="out of v1 scope"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_reflective_periodic_conflict_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1\n\n*1 -2 pz 0\n2 pz 5\n\n"
+        with pytest.raises(ValueError, match="both reflective and periodic"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_periodic_divergent_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1\n\n1 -2 pz 0\n2 -3 pz 5\n3 pz 9\n\n"
+        with pytest.raises(ValueError, match="ambiguous"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_unknown_surface_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -99\n\n1 so 10\n\n"
+        with pytest.raises(ValueError, match="missing surface"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_unknown_cell_rejected(self) -> None:
+        deck = "msg\ntitle\n1 0 -1 #-99\n\n1 so 10\n\n"
+        with pytest.raises(ValueError, match="missing cell"):
+            nucleide.mcnp.parse_csg_to_openmc(deck)
+
+    def test_reflecting_and_periodic(self) -> None:
+        xml, drift = nucleide.mcnp.parse_csg_to_openmc(
+            "msg\ntitle\n1 0 -1 2 -3\n\n*1 so 10\n2 -3 pz 0\n3 pz 5\n\n"
+        )
+        root = ET.fromstring(xml)
+        by_id = {s.get("id"): s for s in root.findall("surface")}
+        assert by_id["1"].get("boundary") == "reflective"
+        assert by_id["2"].get("boundary") == "periodic"
+        assert by_id["2"].get("periodic_surface_id") == "3"
+        assert by_id["3"].get("periodic_surface_id") == "2"
+        assert any(d["action"] == "periodic-link" for d in drift)

@@ -126,8 +126,15 @@ def passthrough(delta: list[float]) -> list[float]:
 
 
 def perturb_fission_yields(base: list[float], rel: list[float]) -> list[float]:
-    """Fission-yield perturbation (named-open: waits on ENDF fission-yield tapes).
+    """Perturb caller-supplied fission yields with relative deltas.
 
-    Always raises; fission-yield blocks stay out of the decay-only sub-scope.
+    ``raw[i] = base[i] * (1 + rel[i])``, negatives clamped to zero, then
+    rescaled so ``sum(out) == sum(base)`` (the incoming block sum itself —
+    independent blocks sum to 2 per parent/energy set, cumulative blocks
+    sum higher — never a hard-coded constant). Zero-base rows stay zero.
+    The caller supplies the block and builds ``rel`` (e.g. ``dY/Y``
+    sigmas, or correlated draws from :func:`sample_mvn` forwarded as
+    ``rel``); set selection (e.g. the lowest-energy independent set) also
+    lives with the caller.
     """
     return uq_perturb_fission_yields(base, rel)

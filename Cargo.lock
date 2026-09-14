@@ -766,6 +766,7 @@ version = "0.10.0"
 dependencies = [
  "nucleide-alara-io",
  "nucleide-cccc-io",
+ "nucleide-csg-xlate",
  "nucleide-depletion",
  "nucleide-emit",
  "nucleide-enrichment",
@@ -781,6 +782,7 @@ dependencies = [
  "nucleide-r2s",
  "nucleide-serpent-io",
  "nucleide-spectroscopy",
+ "nucleide-tritium",
  "nucleide-vr-tools",
  "numpy",
  "pyo3",
@@ -792,6 +794,15 @@ version = "0.10.0"
 dependencies = [
  "nucleide-nuclei",
  "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "nucleide-csg-xlate"
+version = "0.10.0"
+dependencies = [
+ "nucleide-mcnp-io",
+ "quick-xml",
  "thiserror 2.0.20",
 ]
 
@@ -942,6 +953,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nucleide-tritium"
+version = "0.10.0"
+dependencies = [
+ "nucleide-linalg",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "nucleide-vr-tools"
 version = "0.10.0"
 dependencies = [
@@ -971,6 +991,7 @@ dependencies = [
  "nucleide-origen-io",
  "nucleide-serpent-io",
  "nucleide-spectroscopy",
+ "nucleide-tritium",
  "nucleide-vr-tools",
  "serde",
  "serde-wasm-bindgen",
