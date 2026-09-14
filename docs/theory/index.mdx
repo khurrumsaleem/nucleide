@@ -20,7 +20,7 @@ understand *why* the code behaves the way it does, not just *how* to call it.
 | [Point kinetics](kinetics.mdx) | Running prescribed-reactivity transients and want the PKE system, the inhour relation, and the prompt-jump approximation. |
 | [Tritium transport](tritium.mdx) | Running 1D diffusion-trapping permeation and want the McNabb–Foster system, the surface taxonomy, and the closed-form permeation checks. |
 | [Gamma-ray spectroscopy](spectroscopy.mdx) | Smoothing spectra, counting peaks, calibrating energy/efficiency, X-ray lines, SDEF decay-source cards, and the SPE readers. |
-| [UQ-lite sampling](uq-sampling.mdx) | Seeded MVN, log-normal, and LHS sampling over caller-supplied covariance blocks, SANDY-compatible estimators, and the decay perturbation consumer. |
+| [UQ-lite sampling](uq-sampling.mdx) | Seeded MVN, log-normal, and LHS sampling over caller-supplied covariance blocks, SANDY-compatible estimators, and the decay and fission-yield perturbation consumers. |
 
 <Mermaid
   chart={`
@@ -33,6 +33,12 @@ flowchart LR
     G --> I[Alias-table sampling]
     J[Nuclear data] --> K[NuclideId layout]
     J --> L["AME2020 / ENDF/B-VIII.0"]
+    M[Point kinetics] --> N[Inhour relation]
+    M --> O[Prompt jump]
+    P[Tritium transport] --> Q[McNabb–Foster traps]
+    P --> R[Surface taxonomy]
+    S[Spectroscopy] --> T2[Energy/efficiency calibration]
+    U[UQ sampling] --> V[Seeded MVN / log-normal / LHS]
   `.trim()}
 />
 

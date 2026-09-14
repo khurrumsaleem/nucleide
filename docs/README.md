@@ -86,7 +86,7 @@ status, and license.
 | [Run kinetics](tutorials/python/run-kinetics.md) | Solve prescribed-reactivity point-kinetics transients |
 | [Run spectroscopy](tutorials/python/run-spectroscopy.md) | Smooth spectra, count peaks, calibrate energy/efficiency, evaluate X-ray lines, read `.spe` files |
 | [MCPL particle interchange](tutorials/python/mcpl-interchange.md) | Read and write MCPL particle lists |
-| [UQ sampling](tutorials/python/uq-sampling.md) | Draw seeded MVN, log-normal, and LHS samples over caller-supplied covariance blocks and perturb decay data |
+| [UQ sampling](tutorials/python/uq-sampling.md) | Draw seeded MVN, log-normal, and LHS samples over caller-supplied covariance blocks and perturb decay and fission-yield data |
 | [VR and MAGIC](tutorials/python/vr-magic.md) | Derive weight-window lower bounds with MAGIC and sample birth voxels through alias tables |
 | [Reaction names](tutorials/python/rxname.md) | Resolve reaction names/ids/MT numbers and walk the parent/daughter reaction graph |
 | [Translate CSG](tutorials/python/translate-csg.md) | Translate scoped MCNP CSG decks to OpenMC, Serpent, or PHITS geometry, with a drift report listing every approximation the translator made |

@@ -32,8 +32,9 @@ and assumes you have already installed the project (see
     calibrate energy/efficiency, evaluate X-ray lines, and read `.spe` files.
 12. [MCPL particle interchange](mcpl-interchange.md) — read and write MCPL
     particle lists.
-13. [UQ sampling](uq-sampling.md) — draw seeded MVN samples over
-    caller-supplied covariance blocks and perturb decay data.
+13. [UQ sampling](uq-sampling.md) — draw seeded MVN, log-normal, and LHS
+    samples over caller-supplied covariance blocks and perturb decay and
+    fission-yield data.
 14. [VR and MAGIC](vr-magic.md) — derive weight-window lower bounds with
     MAGIC and sample birth voxels through alias tables.
 15. [Reaction names](rxname.md) — resolve reaction names/ids/MT numbers and
