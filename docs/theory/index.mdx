@@ -21,6 +21,10 @@ understand *why* the code behaves the way it does, not just *how* to call it.
 | [Tritium transport](tritium.mdx) | Running 1D diffusion-trapping permeation and want the McNabb–Foster system, the surface taxonomy, and the closed-form permeation checks. |
 | [Gamma-ray spectroscopy](spectroscopy.mdx) | Smoothing spectra, counting peaks, calibrating energy/efficiency, X-ray lines, SDEF decay-source cards, and the SPE readers. |
 | [UQ-lite sampling](uq-sampling.mdx) | Seeded MVN, log-normal, and LHS sampling over caller-supplied covariance blocks, SANDY-compatible estimators, and the decay and fission-yield perturbation consumers. |
+| [Damage metrics](damage-metrics.mdx) | Folding multigroup fluxes into NRT-dpa and arc-dpa, gas production, and He/dpa ratios, with uncertainty propagation through the fold. |
+| [Fusion neutron sources](fusion-sources.mdx) | Building D-D/D-T ring, point, and parametric tokamak sources and want the Ballabio spectra, Bosch–Hale reactivity, and the Miller-geometry map. |
+| [Neutron spectrum unfolding](unfolding.mdx) | Recovering a spectrum from activation detector measurements with SAND-II iteration. |
+| [Clearance screening](clearance-screening.mdx) | Classifying activation inventories against clearance-limit tables. |
 
 <Mermaid
   chart={`
@@ -39,6 +43,11 @@ flowchart LR
     P --> R[Surface taxonomy]
     S[Spectroscopy] --> T2[Energy/efficiency calibration]
     U[UQ sampling] --> V[Seeded MVN / log-normal / LHS]
+    W[Damage metrics] --> X["NRT / arc-dpa folds"]
+    Y[Fusion sources] --> Z[Ballabio spectra]
+    Y --> Z2[Miller map]
+    AA[Unfolding] --> AB[SAND-II iteration]
+    AC[Clearance screening] --> AD[Sum of fractions]
   `.trim()}
 />
 

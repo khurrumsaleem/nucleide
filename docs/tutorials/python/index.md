@@ -45,3 +45,11 @@ and assumes you have already installed the project (see
     approximation the translator made.
 17. [Run tritium](run-tritium.md) — steady-state and transient 1D tritium
     permeation solves with traps and recombination boundaries.
+18. [Damage metrics](damage-metrics.md) — fold multigroup fluxes into dpa and
+    gas production, and propagate uncertainty through the fold.
+19. [Fusion sources](fusion-sources.md) — build ring, point, and parametric
+    tokamak neutron sources and emit MCNP/Serpent source cards.
+20. [Unfold a spectrum](unfold-spectrum.md) — recover a neutron spectrum from
+    activation detector measurements with SAND-II iteration.
+21. [Clearance screening](clearance-screening.md) — classify parsed activation
+    inventories against clearance limits.
