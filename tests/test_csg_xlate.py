@@ -390,8 +390,9 @@ class TestCsgGdml:
         assert solids_sec is not None
         solids = {s.get("name"): s for s in solids_sec}
         # Sphere: origin-centered orb; planes: one cube per surface+sense.
+        # GDML lengths are millimetres: 5 cm -> "50".
         assert solids["sl1"].tag == "orb"
-        assert solids["sl1"].get("r") == "5"
+        assert solids["sl1"].get("r") == "50"
         assert solids["sl2p"].tag == "box"
         assert solids["sl2m"].tag == "box"
         # Cell 2 = box minus sphere (its region lists the positive sphere).
@@ -415,7 +416,7 @@ class TestCsgGdml:
         assert solids_sec is not None
         solids = {s.get("name"): s for s in solids_sec}
         assert solids["sl1"].tag == "box"
-        assert solids["sl1"].get("x") == "10"
+        assert solids["sl1"].get("x") == "100"
         assert not any(d["action"] == "macrobody-expansion" for d in drift)
 
     def test_rcc_is_finite_tube_with_caps(self) -> None:
@@ -426,8 +427,8 @@ class TestCsgGdml:
         solids = {s.get("name"): s for s in solids_sec}
         tube = solids["sl1t"]
         assert tube.tag == "tube"
-        assert tube.get("rmax") == "2"
-        assert tube.get("z") == "10"
+        assert tube.get("rmax") == "20"
+        assert tube.get("z") == "100"
         assert any(d["action"] == "macrobody-expansion" for d in drift)
 
     def test_cylinders_rotate_x_and_y_tubes(self) -> None:
@@ -462,14 +463,14 @@ class TestCsgGdml:
             assert pos is not None
             positions.add((pos.get("x"), pos.get("y"), pos.get("z")))
         assert positions == {
-            ("1", "1", "1"),
-            ("3", "1", "1"),
-            ("1", "3", "1"),
-            ("3", "3", "1"),
-            ("1", "1", "3"),
-            ("3", "1", "3"),
-            ("1", "3", "3"),
-            ("3", "3", "3"),
+            ("10", "10", "10"),
+            ("30", "10", "10"),
+            ("10", "30", "10"),
+            ("30", "30", "10"),
+            ("10", "10", "30"),
+            ("30", "10", "30"),
+            ("10", "30", "30"),
+            ("30", "30", "30"),
         }
         assert any(d["action"] == "lattice-expanded" and d["target"] == "10" for d in drift)
 

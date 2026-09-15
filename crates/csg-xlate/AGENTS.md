@@ -70,7 +70,12 @@ Owns `crates/csg-xlate/src/lib.rs` (`deck_csg_to_openmc_xml`,
   replaces them). Reflecting and periodic boundaries are loud
   `GdmlBoundaryOutOfScope` (Geant4 expresses boundaries through wrapper
   code, not geometry markup). Emitted documents carry `version="3.1.7"`;
-  the v1 element subset is pinned in the `gdml.rs` module docs.
+  the v1 element subset is pinned in the `gdml.rs` module docs. All lengths
+  convert cm→mm (×10) at emission — positions and every solid dimension —
+  keeping GDML's schema-default `unit="mm"` semantics; the drift
+  `halfspace-bounded` note states the cutoff in mm (with the cm source
+  value). The OpenMC/Serpent/PHITS directions stay cm-native (no unit
+  markup; those codes read cm).
 - Loud errors, never silent mistranslation: hexagonal `LAT=2` lattices,
   lattice `0`-holes, non-`RPP`/axis-plane-bounded lattice cells,
   single-universe fills of lattice type, matrix fills without `LAT=1`,

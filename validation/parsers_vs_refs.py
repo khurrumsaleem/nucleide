@@ -526,7 +526,8 @@ def csg_section(report: Report) -> None:
         "\nGDML is solid-based: every cell becomes a named boolean solid plus a"
         "\n`<volume>`, every universe an `<assembly>`, rectangular `LAT=1` lattices"
         "\nexpand to one `<physvol>` per element at the element center (checked against"
-        "\nthe deck bounds), and infinite half-spaces are bounded by the per-deck"
+        "\nthe deck bounds; all lengths convert from MCNP cm to GDML millimetres, the"
+        "\nschema default), and infinite half-spaces are bounded by the per-deck"
         "\ncutoff recorded in the drift report. The structural probe verifies that"
         "\nevery reference (`solidref`, boolean `first`/`second`, `volumeref`,"
         "\n`materialref`, `world`) resolves and that the document carries the pinned"
@@ -782,7 +783,8 @@ def _gdml_structure_probe(xml_text: str, deck: Any) -> tuple[str, str]:
     first/second, volumeref, materialref, world) resolves to a defined name,
     that every volume carries materialref + solidref, and — for decks with a
     matrix FILL — that the lattice cell volume holds one placement per FILL
-    element at the element center derived from the deck bounds.
+    element at the element center derived from the deck bounds (cm ×10 to
+    GDML millimetres).
     """
     import math
     import xml.etree.ElementTree as ET
@@ -862,7 +864,9 @@ def _gdml_structure_probe(xml_text: str, deck: Any) -> tuple[str, str]:
                 for i in range(counts[0]):
                     want.add(
                         tuple(
-                            bounds[2 * a] + (idx + 0.5) * pitch[a]
+                            # GDML positions are millimetres (schema default):
+                            # the deck cm centres convert x10.
+                            10.0 * (bounds[2 * a] + (idx + 0.5) * pitch[a])
                             for a, idx in (enumerate((i, j, k)))
                         )
                     )

@@ -80,7 +80,9 @@ material. Materials stay a stub: cell cards carry `material="1"` /
 yourself. The GDML direction renders cells as named boolean solids inside a
 `world` volume, universes as assemblies, and lattices as one placement per
 element; because Geant4 has no infinite solids, infinite half-spaces are
-bounded by a per-deck cutoff recorded in the drift report.
+bounded by a per-deck cutoff recorded in the drift report. GDML lengths are
+millimetres (the schema default): every MCNP centimetre value — positions
+and solid dimensions — is converted ×10 at emission.
 
 ## The drift report
 

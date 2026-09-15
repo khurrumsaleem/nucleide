@@ -30,6 +30,16 @@
 //! - `gdml_define.xsd`: `positionType` (unit default `mm`) and `rotationType`
 //!   (unit default `radian`); both units are emitted explicitly.
 //!
+//! # Length units
+//!
+//! MCNP lengths are centimetres; GDML's schema default is millimetres. Every
+//! emitted length — `<position>`/`<firstposition>` offsets and every solid
+//! dimension (`box` `x`/`y`/`z`, `orb` `r`, `tube` `rmax`/`z`) — is converted
+//! ×10 at the XML write, keeping the schema-default `unit="mm"` spelling
+//! (angles stay radians). The internal solid/transform model stays in cm so
+//! boolean compositions and the drift `halfspace-bounded` cutoff `L` remain
+//! source-deck quantities; only the rendered numbers are mm.
+//!
 //! The schema declares no target namespace and unqualified element/attribute
 //! form, so the document carries
 //! `xsi:noNamespaceSchemaLocation="http://cern.ch/geant4/GDML/schema/gdml.xsd"`
@@ -967,6 +977,16 @@ fn num(v: f64) -> String {
     v.to_string()
 }
 
+/// Scale one MCNP centimetre length to GDML millimetres (schema default).
+fn mm(v: f64) -> f64 {
+    10.0 * v
+}
+
+/// Scale a cm translation triplet to mm.
+fn mm3(t: [f64; 3]) -> [f64; 3] {
+    [mm(t[0]), mm(t[1]), mm(t[2])]
+}
+
 /// Push `x`/`y`/`z` attributes onto a start element.
 fn push_xyz(elem: &mut BytesStart<'_>, t: [f64; 3]) {
     for (k, v) in [("x", t[0]), ("y", t[1]), ("z", t[2])] {
@@ -988,7 +1008,7 @@ fn write_xf(
         let name = format!("pos{seq}");
         *seq += 1;
         elem.push_attribute(("name", name.as_str()));
-        push_xyz(&mut elem, xf.t);
+        push_xyz(&mut elem, mm3(xf.t));
         elem.push_attribute(("unit", "mm"));
         writer.write_event(Event::Empty(elem))?;
     }
@@ -1036,18 +1056,20 @@ fn write_solids(
                 match *elem {
                     "box" => {
                         for (k, v) in ["x", "y", "z"].iter().zip(vals) {
-                            let s = num(*v);
+                            let s = num(mm(*v));
                             elem_start.push_attribute((*k, s.as_str()));
                         }
                     }
                     "orb" => {
-                        let s = num(vals[0]);
+                        let s = num(mm(vals[0]));
                         elem_start.push_attribute(("r", s.as_str()));
                     }
                     _ => {
                         // tube: rmax, deltaphi, z (rmin/startphi default).
+                        // `rmax`/`z` are lengths (cm -> mm); `deltaphi` is an
+                        // angle and passes through unchanged.
                         for (k, v) in ["rmax", "deltaphi", "z"].iter().zip(vals) {
-                            let s = num(*v);
+                            let s = num(if *k == "deltaphi" { *v } else { mm(*v) });
                             elem_start.push_attribute((*k, s.as_str()));
                         }
                     }
@@ -1074,7 +1096,7 @@ fn write_solids(
                     let name = format!("fp{seq}");
                     *seq += 1;
                     p.push_attribute(("name", name.as_str()));
-                    push_xyz(&mut p, rel.t);
+                    push_xyz(&mut p, mm3(rel.t));
                     p.push_attribute(("unit", "mm"));
                     writer.write_event(Event::Empty(p))?;
                 }
@@ -1196,8 +1218,10 @@ pub fn deck_csg_to_gdml(deck: &DeckProblem) -> Result<(String, DriftTable)> {
         target: 0,
         action: "halfspace-bounded".to_string(),
         reason: format!(
-            "infinite half-spaces bounded by |coord| <= {} mm (Geant4 has no \
-             infinite solids; cell shapes exact within the cutoff)",
+            "infinite half-spaces bounded by |coord| <= {} mm (L = {} cm in the \
+             source deck; Geant4 has no infinite solids; cell shapes exact \
+             within the cutoff)",
+            num(mm(g.solids.l)),
             num(g.solids.l)
         ),
     });
@@ -1520,7 +1544,8 @@ mod tests {
         ));
         assert!(xml.contains("<define/>"));
         // Sphere: origin-centered orb referenced directly by its volume.
-        assert!(xml.contains("<orb name=\"sl1\" r=\"5\"/>"));
+        // 5 cm -> 50 mm (MCNP cm converts x10 to GDML mm).
+        assert!(xml.contains("<orb name=\"sl1\" r=\"50\"/>"));
         assert!(xml.contains("<volume name=\"vol1\">"));
         // Plane half-space boxes share one cube definition per sense.
         assert!(xml.contains("<box name=\"sl2p\""));
@@ -1549,11 +1574,34 @@ mod tests {
             "m1 13027 1.0",
         ))
         .unwrap();
-        assert!(xml.contains("<box name=\"sl1\" x=\"10\" y=\"10\" z=\"10\"/>"));
+        assert!(xml.contains("<box name=\"sl1\" x=\"100\" y=\"100\" z=\"100\"/>"));
         assert!(!drift
             .entries
             .iter()
             .any(|e| e.action == "macrobody-expansion"));
+    }
+
+    #[test]
+    fn one_cm_lengths_emit_as_ten_mm() {
+        // Regression: cm values must convert x10 at emission — a 1 cm sphere
+        // radius, a 1 cm RPP span, and a 1 cm translation all spell "10".
+        let (xml, _) = translate(&deck_text(
+            "1 1 -1.0 -1\n2 1 -1.0 -2",
+            "1 so 1.0\n2 sph 0 2 0 0.5\n3 rpp 0 1 0 1 0 1",
+            "m1 92235 1.0",
+        ))
+        .unwrap();
+        assert!(xml.contains("<orb name=\"sl1\" r=\"10\"/>"), "{xml}");
+        assert!(xml.contains("<orb name=\"sl2\" r=\"5\"/>"), "{xml}");
+        assert!(
+            xml.contains("<box name=\"sl3\" x=\"10\" y=\"10\" z=\"10\"/>"),
+            "{xml}"
+        );
+        // The sphere centre (0, 2, 0) cm is a 20 mm y-offset position.
+        assert!(
+            xml.contains("x=\"0\" y=\"20\" z=\"0\" unit=\"mm\"/>"),
+            "{xml}"
+        );
     }
 
     #[test]
@@ -1565,8 +1613,10 @@ mod tests {
         ))
         .unwrap();
         // Interior: named boolean tube + caps; the tube is finite (z = |h|).
-        assert!(xml
-            .contains("<tube name=\"sl1t\" rmax=\"2\" deltaphi=\"6.283185307179586\" z=\"10\"/>"));
+        // 2 cm radius / 10 cm height -> 20 mm / 100 mm.
+        assert!(xml.contains(
+            "<tube name=\"sl1t\" rmax=\"20\" deltaphi=\"6.283185307179586\" z=\"100\"/>"
+        ));
         assert!(xml.contains("<intersection name=\"sl1\">"));
         assert!(drift
             .entries
@@ -1598,7 +1648,7 @@ mod tests {
             "m1 1001 1.0",
         ))
         .unwrap();
-        assert!(xml.contains("<box name=\"sl1\" x=\"10\" y=\"10\" z=\"10\"/>"));
+        assert!(xml.contains("<box name=\"sl1\" x=\"100\" y=\"100\" z=\"100\"/>"));
         let err = translate(&deck_text(
             "1 1 -1.0 -1",
             "1 box 0 0 0 1 1 0 0 1 0 0 0 1",
@@ -1693,10 +1743,10 @@ mod tests {
             "m1 92235 1.0",
         ))
         .unwrap();
-        // 2x2x1 = four element placements at the element centers.
+        // 2x2x1 = four element placements at the element centers (cm -> mm).
         assert_eq!(xml.matches("<volumeref ref=\"asm").count(), 4);
-        assert!(xml.contains("x=\"1\" y=\"1\" z=\"1\" unit=\"mm\"/>"));
-        assert!(xml.contains("x=\"3\" y=\"3\" z=\"1\" unit=\"mm\"/>"));
+        assert!(xml.contains("x=\"10\" y=\"10\" z=\"10\" unit=\"mm\"/>"));
+        assert!(xml.contains("x=\"30\" y=\"30\" z=\"10\" unit=\"mm\"/>"));
         assert!(drift
             .entries
             .iter()
