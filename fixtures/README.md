@@ -33,7 +33,7 @@ FLUKA `fluka_usrbin_single.lis` USRBIN sample.
 | `data/` | 2 | 7,859,273 bytes | data — DOE/PNNL Materials Compendium JSON (+ its license) |
 | `depletion/` | 4 | 37,843 bytes | depletion — Depletion-chain XML files (simple chains, Ni chain) |
 | `endl/` | 1 | 762 bytes | endl — Synthetic EEDL-style tables authored for Nucleide (no license needed) |
-| `fispact/` | 1 | 1,058 bytes | fispact — Synthetic FISPACT-II-style inventory authored for Nucleide (no license needed) |
+| `fispact/` | 2 | 5,215 bytes | fispact — Synthetic FISPACT-II-style inventory authored for Nucleide (no license needed) |
 | `fluka/` | 4 | 7,685 bytes | fluka — USRBIN `.lis` files (single/multiple/degenerate) + test input |
 | `kinetics/` | 3 | 2,493 bytes | fixtures/kinetics/ — synthetic point-kinetics inputs and oracles |
 | `mcnp/` | 35 | 473,216 bytes | mcnp — MCNP input decks, tallies, and binary-format oracles |

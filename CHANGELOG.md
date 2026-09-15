@@ -15,6 +15,32 @@ workspace crates from tags.
 
 ### Added
 
+- Clearance / waste-classification analytics (0.12.0 cycle 04) in
+  `nucleide-alara-io` and `nucleide-fispact-io` (exposed through
+  `nucleide.alara` and `nucleide.fispact`). The clearance index
+  CI = Σ Aᵢ/CLᵢ and the sum-of-fractions screening rule (RS-G-1.7 §5,
+  referenced by designation) run as pure arithmetic over parsed
+  `(nuclide, activity)` inventories — Sublet et al., NDS 139 (2017) 77 is
+  the methodology reference; further indices from that paper stay
+  recorded, not implemented. Limit tables are caller-supplied, with the EU
+  2013/59/Euratom Annex VII Table A vendored as the attributed default
+  (official legal text transcribed from EUR-Lex CELEX:32013L0059, OJ L 13,
+  17.1.2014, accessed 2026-09-15; reusable per Decision (EU) 2011/833;
+  Bq/g == kBq/kg; IAEA tables never vendored). Nuclides key through the
+  `nuclei` dialect machinery; missing limits and bad values are loud named
+  errors; the boundary CI == 1 classifies as satisfied ("does not
+  exceed"). Screening arithmetic only — never a compliance decision.
+  `fispact-io` gains the clearance-block reader for the real FISPACT-II
+  wide inventory table printed with the `HAZARDS` + `CLEAR` keywords
+  (grammar cross-checked against the Apache-2.0 `fispact/workshops`
+  reference outputs): per-step `(interval, time_s, cooling)` rows with
+  activity, per-nuclide clearance index, flags, and half-life (`Stable` →
+  `-1`). Validation adds `validation/clearance_vs_pypact.py`: always-run
+  analytic gates C1-C5 (exact CI vectors, boundary probes both sides, EU
+  table spots, fixture parse, end-to-end screening) plus a pypact
+  (Apache-2.0) cross-check of the overlapping inventory columns with loud
+  SKIP outside the oracle environment.
+
 - Parametric tokamak plasma source in `nucleide-plasma-source` (Cycle 01
   second landing, exposed through `nucleide.plasma_source` with
   `kind="parametric"`): Miller-geometry flux surfaces (Fausser et al., Fus.

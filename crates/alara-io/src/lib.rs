@@ -11,6 +11,9 @@
 //! Nuclide identity reuses [`nucleide_nuclei::NuclideId`]; every fallible entry point
 //! returns [`Error`] (never panics) with file/line context where known.
 //!
+//! Clearance / waste-classification analytics (clearance index and the
+//! sum-of-fractions rule over parsed inventories) live in [`clearance`].
+//!
 //! ## Out of scope (explicitly)
 //!
 //! - ALARA solver core (activation/transmutation mathematics)
@@ -25,6 +28,7 @@
 //! assert_eq!(parse_time_to_seconds(2.0, "h").unwrap(), 7200.0);
 //! ```
 
+pub mod clearance;
 pub mod deck;
 pub mod error;
 pub mod flux;
@@ -33,6 +37,10 @@ pub mod output;
 pub mod photon;
 pub mod schedule;
 
+pub use clearance::{
+    clearance_index, inventory_from_frame, sum_of_fractions, ClearanceClass, ClearanceTable,
+    SumOfFractions,
+};
 pub use deck::{AlaraDeck, KNOWN_BLOCKS};
 pub use error::{Error, Result};
 pub use flux::{FluxSpec, FluxSpectra};

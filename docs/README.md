@@ -5,7 +5,8 @@ exposed through a typed Python API: parse legacy code output (MCNP, Serpent,
 FLUKA, ALARA, and friends), build materials, and run solvers for depletion,
 point kinetics, enrichment cascades, spectroscopy, tritium transport, fusion
 neutron sources, spectrum unfolding, and variance reduction — plus
-damage/gas metrics (dpa, appm) and uncertainty-quantification sampling.
+damage/gas metrics (dpa, appm), clearance/waste-classification screening,
+and uncertainty-quantification sampling.
 These docs are organized by audience, so you can jump straight to what you
 need.
 
@@ -41,7 +42,7 @@ need.
   <text x="530" y="161" text-anchor="middle" class="cm-i">Enrichment &#xb7; Spectroscopy</text>
   <text x="530" y="176" text-anchor="middle" class="cm-i">Variance reduction &#xb7; UQ sampling</text>
   <text x="530" y="191" text-anchor="middle" class="cm-i">Tritium transport &#xb7; Fusion sources</text>
-  <text x="530" y="206" text-anchor="middle" class="cm-i">Spectrum unfolding</text>
+  <text x="530" y="206" text-anchor="middle" class="cm-i">Spectrum unfolding &#xb7; Clearance screening</text>
   <text x="530" y="219" text-anchor="middle" class="cm-s">Damage metrics (dpa/appm) &#xb7; plus the R2S workflow glue</text>
   <line x1="185" y1="252" x2="185" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
   <line x1="475" y1="252" x2="475" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
