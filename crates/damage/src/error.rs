@@ -37,7 +37,7 @@ pub enum Error {
     #[error("damage: {0} must be non-negative")]
     Negative(&'static str),
     /// A physical quantity that must be strictly positive is not
-    /// (`"seconds"`, `"ed_ev"`).
+    /// (`"seconds"`, `"ed_ev"`, `"t_dam_ev"`).
     #[error("damage: {0} must be strictly positive")]
     NonPositive(&'static str),
     /// Group bounds are not strictly increasing: `bounds[{index}]` is not

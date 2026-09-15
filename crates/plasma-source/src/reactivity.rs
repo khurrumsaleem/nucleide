@@ -67,6 +67,9 @@ impl FusionReaction {
     /// \[keV\] (Bosch & Hale 1992; Atzeni–Meyer-ter-Vehn parametrization).
     ///
     /// Returns 0 at `T = 0` and errors on negative/non-finite temperature.
+    /// Outside the fit's validity domain the result is a loud
+    /// [`Error::FitOutOfDomain`], never `NaN` (the D-D η factor goes
+    /// non-positive around 300–4700 keV, far above the published range).
     pub fn reactivity_m3_per_s(self, ti_kev: f64) -> Result<f64> {
         if !ti_kev.is_finite() {
             return Err(Error::NonFinite("ion temperature"));
@@ -80,7 +83,21 @@ impl FusionReaction {
         let fit = self.reactivity_fit();
         let xi = fit.xi_coeff * ti_kev.powf(-1.0 / 3.0);
         let eta = 1.0 - eval_poly(&fit.num, ti_kev) / eval_poly(&fit.den, ti_kev);
-        Ok(fit.c1 * eta.powf(-5.0 / 6.0) * xi * xi * (-3.0 * eta.powf(1.0 / 3.0) * xi).exp())
+        if eta <= 0.0 {
+            return Err(Error::FitOutOfDomain {
+                reaction: self.label(),
+                ti_kev,
+            });
+        }
+        let value =
+            fit.c1 * eta.powf(-5.0 / 6.0) * xi * xi * (-3.0 * eta.powf(1.0 / 3.0) * xi).exp();
+        if !value.is_finite() {
+            return Err(Error::FitOutOfDomain {
+                reaction: self.label(),
+                ti_kev,
+            });
+        }
+        Ok(value)
     }
 }
 
@@ -132,5 +149,20 @@ mod tests {
             FusionReaction::Dt.reactivity_m3_per_s(-1.0),
             Err(Error::NegativeIonTemperature(-1.0))
         );
+    }
+
+    #[test]
+    fn dd_reactivity_is_loud_outside_the_fit_domain() {
+        // The D-D η factor goes non-positive around 300–4700 keV (far above
+        // the published fit range); the old code returned Ok(NaN) there.
+        match FusionReaction::Dd.reactivity_m3_per_s(1000.0) {
+            Err(Error::FitOutOfDomain { reaction, ti_kev }) => {
+                assert_eq!(reaction, "D-D");
+                assert_eq!(ti_kev, 1000.0);
+            }
+            other => panic!("expected FitOutOfDomain, got {other:?}"),
+        }
+        // In-domain values stay finite and positive.
+        assert!(FusionReaction::Dd.reactivity_m3_per_s(100.0).unwrap() > 0.0);
     }
 }

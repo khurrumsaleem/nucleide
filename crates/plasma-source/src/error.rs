@@ -24,6 +24,16 @@ pub enum Error {
     /// The ion temperature must be finite and non-negative; got `{0}` keV.
     #[error("plasma-source: ion temperature must be >= 0 keV, got {0}")]
     NegativeIonTemperature(f64),
+    /// The reactivity fit leaves its validity domain at this temperature
+    /// (the D-D η factor goes non-positive around 300–4700 keV, far above
+    /// the published fit range): `{reaction}` at `{ti_kev}` keV.
+    #[error("plasma-source: {reaction} reactivity fit out of domain at {ti_kev} keV")]
+    FitOutOfDomain {
+        /// Reaction whose fit diverged.
+        reaction: &'static str,
+        /// Ion temperature in keV where the fit broke down.
+        ti_kev: f64,
+    },
     /// The particle weight must be finite and strictly positive; got `{0}`.
     #[error("plasma-source: particle weight must be > 0, got {0}")]
     NonPositiveWeight(f64),

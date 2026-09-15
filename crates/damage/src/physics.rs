@@ -185,10 +185,17 @@ pub fn nrt_displacements_for(
 ///
 /// By construction `ξ(2E_d/κ) = 1` (junction with the middle branch) and
 /// `ξ → c_arc` as `T_d → ∞` (MD saturation); `b_arc < 0` makes it monotone
-/// decreasing. `T_d` is a damage energy in eV.
+/// decreasing. `T_d` is a damage energy in eV; `T_d = 0` diverges
+/// (`0^b_arc` with `b_arc < 0`) and is a loud error, never `inf`.
 pub fn arc_efficiency(t_dam_ev: f64, ed_ev: f64, params: &ArcParams) -> Result<f64> {
-    if !t_dam_ev.is_finite() || t_dam_ev < 0.0 {
+    if !t_dam_ev.is_finite() {
+        return Err(Error::NonFinite("t_dam_ev"));
+    }
+    if t_dam_ev < 0.0 {
         return Err(Error::Negative("t_dam_ev"));
+    }
+    if t_dam_ev == 0.0 {
+        return Err(Error::NonPositive("t_dam_ev"));
     }
     if !ed_ev.is_finite() || ed_ev <= 0.0 {
         return Err(Error::NonPositive("ed_ev"));
@@ -448,6 +455,11 @@ mod tests {
         assert!(matches!(
             arc_efficiency(-1.0, 40.0, &ArcParams::new(-0.5, 0.3).unwrap()),
             Err(Error::Negative("t_dam_ev"))
+        ));
+        // ξ(0) diverges (0^b_arc with b_arc < 0): loud, never inf.
+        assert!(matches!(
+            arc_efficiency(0.0, 40.0, &ArcParams::new(-0.5, 0.3).unwrap()),
+            Err(Error::NonPositive("t_dam_ev"))
         ));
     }
 }
