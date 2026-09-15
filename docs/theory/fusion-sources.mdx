@@ -1,0 +1,433 @@
+---
+title: Fusion Neutron Sources
+description: D-D/D-T fusion neutron spectra, the Miller tokamak source model, and MCNP/Serpent card emission.
+sidebar:
+  order: 10
+references:
+  - id: brysk-1973
+    title: "Fusion neutron energies and spectra"
+    url: https://doi.org/10.1088/0032-1028/15/7/001
+    authors: ["H. Brysk"]
+    source: Plasma Physics
+    journal: Plasma Physics
+    volume: "15"
+    pages: "611–617"
+    date: "1973"
+    type: article
+    doi: "10.1088/0032-1028/15/7/001"
+  - id: ballabio-1998
+    title: "Relativistic calculation of fusion product spectra for thermonuclear plasmas"
+    url: https://doi.org/10.1088/0029-5515/38/11/310
+    authors: ["L. Ballabio", "J. Källne", "G. Gorini"]
+    source: Nuclear Fusion
+    journal: Nuclear Fusion
+    volume: "38"
+    pages: "1723–1735"
+    date: "1998"
+    type: article
+    doi: "10.1088/0029-5515/38/11/310"
+  - id: fausser-2012
+    title: "Tokamak D-T neutron source models for different plasma physics confinement modes"
+    url: https://doi.org/10.1016/j.fusengdes.2012.02.025
+    authors: ["C. Fausser", "A. Li Puma", "F. Gabriel", "R. Villari"]
+    source: Fusion Engineering and Design
+    journal: Fusion Engineering and Design
+    volume: "87"
+    pages: "787–792"
+    date: "2012"
+    type: article
+    doi: "10.1016/j.fusengdes.2012.02.025"
+  - id: bosch-hale-1992
+    title: "Improved formulas for fusion cross-sections and thermal reactivities"
+    url: https://doi.org/10.1088/0029-5515/32/4/I07
+    authors: ["H.-S. Bosch", "G. M. Hale"]
+    source: Nuclear Fusion
+    journal: Nuclear Fusion
+    volume: "32"
+    pages: "611–631"
+    date: "1992"
+    type: article
+    doi: "10.1088/0029-5515/32/4/I07"
+  - id: eriksson-2016
+    title: "Calculating fusion neutron energy spectra from arbitrary reactant distributions"
+    url: https://doi.org/10.1016/j.cpc.2015.10.010
+    authors: ["J. Eriksson", "S. Conroy", "E. Andersson Sundén", "C. Hellesen"]
+    source: Computer Physics Communications
+    journal: Computer Physics Communications
+    volume: "199"
+    pages: "40–46"
+    date: "2016"
+    type: article
+    doi: "10.1016/j.cpc.2015.10.010"
+---
+
+Transport codes need to know where neutrons are born and with what energy. This page
+pins the physics behind `nucleide.plasma_source`, the tokamak fusion-neutron source
+capability: temperature-broadened D-D (2.45 MeV) and D-T (14.1 MeV) spectra, a
+parametric Miller-geometry plasma driven by caller-supplied L/H/A-mode profiles,
+seeded sampling to particle vectors, and emission of MCNP source-definition cards
+(`SDEF`) and Serpent source cards (`src`) with an emission report that quantifies
+what the cards preserve and what they lose.
+
+The spectrum of thermonuclear neutrons is Gaussian to good approximation, with a
+width proportional to $\sqrt{T_i}$<Citation id="brysk-1973" />. Nucleide implements
+the closed-form coefficient fits of Ballabio et al.<Citation id="ballabio-1998" />,
+which refine the Brysk scaling with a small mean-energy shift and a weakly
+temperature-dependent width; at $T_i = 0$ the spectrum collapses to the
+monoenergetic nominal line. The spatial side is the public ITER/EU-DEMO
+parametrization of Fausser et al. — a Miller flux-surface map with L/H/A-mode
+density and temperature profiles<Citation id="fausser-2012" /> — and the neutron
+emission is reactivity-weighted with the Bosch–Hale fits in the
+Atzeni–Meyer-ter-Vehn parametrization<Citation id="bosch-hale-1992" />. All
+equations and coefficients are transcribed as published facts and pinned by
+independently recomputed reference values; no simulator source was read to
+produce them.
+
+## Overview
+
+`nucleide.plasma_source` builds fusion neutron sources at two levels of fidelity.
+The simple tier is a point source or an axisymmetric ring on the full torus (a
+tokamak midplane circle): positions are exact, and the only physics is the
+energy spectrum. The parametric tier models the plasma cross-section with Miller
+flux surfaces and caller-supplied L/H/A-mode profiles of ion density and
+temperature; birth positions weight the local neutron production, so the source
+follows the profiles and the geometry rather than a hand-drawn shape. Both tiers
+sample seeded, deterministic particle vectors (position, direction, energy,
+weight) and emit `SDEF` and `src` cards with an emission report.
+
+Units follow the transport-code card convention: lengths in centimetres, energies
+in MeV, ion temperature in keV. Profile densities are caller data in m⁻³ (the
+Fausser convention) and converted internally; reactivity is reported in m³/s.
+
+<Callout type="info" title="Code shape">
+  The `nucleide-plasma-source` crate mirrors the two tiers: `source.rs` /
+  `sample.rs` (ring/point configurations and the seeded sampler),
+  `reaction.rs` / `spectrum.rs` (Ballabio spectrum moments and card
+  tabulation), `reactivity.rs` (Bosch–Hale fits), `miller.rs` (flux-surface
+  map and Jacobian), `profile.rs` (L/H/A-mode profiles), `parametric.rs`
+  (weight tables, parametric sampler, emission histograms), `emit_sdef.rs` /
+  `emit_serpent.rs` (cards), `report.rs` (emission report), and `error.rs`
+  (a `#[non_exhaustive]` error enum with the crate `Result` alias).
+</Callout>
+
+## Mathematical details
+
+### S1 — Temperature-broadened neutron spectrum
+
+The spectrum of thermonuclear neutrons is Gaussian to good approximation, with a
+width proportional to $\sqrt{T_i}$<Citation id="brysk-1973" />. Nucleide uses the
+closed-form fits of Ballabio et al., Table III<Citation id="ballabio-1998" />,
+which refine the Brysk scaling with a small mean-energy shift and a weakly
+temperature-dependent width:
+
+$$
+\bar{E}(T_i) = E_0 + \frac{a_1\,T_i^{2/3}}{1 + a_2\,T_i^{a_3}} + a_4\,T_i,
+\tag{S1a}
+$$
+
+$$
+\mathrm{FWHM}(T_i) = w_0\left(1 + \frac{b_1\,T_i^{2/3}}{1 + b_2\,T_i^{b_3}} + b_4\,T_i\right)\sqrt{T_i},
+\qquad
+\sigma = \frac{\mathrm{FWHM}}{2\sqrt{2\ln 2}}.
+\tag{S1b}
+$$
+
+Here $T_i$ is in keV and the mean shift is computed in keV and added to $E_0$ in
+MeV; $(a_1, \dots, a_4)$ and $(w_0, b_1, \dots, b_4)$ are the published Table III
+coefficients for each reaction. $E_0$ is the nominal cold line: 14.021 MeV for
+D-T and 2.4495 MeV for D-D — the "14.1 MeV" and "2.45 MeV" lines of the
+literature. At $T_i = 0$ both corrections vanish and the spectrum is the
+monoenergetic nominal line.
+
+### S2 — Thermonuclear reactivity
+
+Emission weights the profiles by the thermonuclear reactivity
+$\langle\sigma v\rangle$ of Bosch &amp; Hale<Citation id="bosch-hale-1992" />,
+evaluated in the compact parametrization reproduced by Atzeni &amp;
+Meyer-ter-Vehn:
+
+$$
+\langle\sigma v\rangle(T) = C_1\,\eta^{-5/6}\,\xi^2\,e^{-3\,\eta^{1/3}\xi}\ \ [\mathrm{m^3/s}],
+\qquad
+\xi = A\,T^{-1/3},
+\qquad
+\eta(T) = 1 - \frac{\mathrm{num}(T)}{\mathrm{den}(T)}.
+\tag{S2}
+$$
+
+$T$ is in keV and num, den are per-reaction rational correction polynomials:
+
+| Reaction | $C_1$ [m³/s] | $A$ | num($T$) | den($T$) |
+| --- | --- | --- | --- | --- |
+| D-T | 643.41e-22 | 6.6610 | $-1.0675\mathrm{e}{-4}T^3 + 4.6064\mathrm{e}{-3}T^2 + 1.5136\mathrm{e}{-2}T$ | $1.366\mathrm{e}{-5}T^3 + 1.35\mathrm{e}{-2}T^2 + 7.5189\mathrm{e}{-2}T + 1$ |
+| D-D | 3.5741e-22 | 6.2696 | $5.8577\mathrm{e}{-3}T$ | $-2.964\mathrm{e}{-6}T^2 + 7.6822\mathrm{e}{-3}T + 1$ |
+
+The reactivity vanishes as $T \to 0$ (the exponential beats the power-law
+growth), which the parametric sampler relies on at cold separatrix temperatures;
+the crate returns exactly 0 at $T = 0$. The D-D row is the published D-D fit —
+the neutron-relevant D(d,n)³He branch shares it to the precision of the
+coefficients. Where the fit leaves its validity domain (the D-D $\eta$ goes
+non-positive around 300–4700 keV, far above the published range) the crate
+raises a clear out-of-domain error instead of returning NaN.
+
+### S3 — Miller flux-surface map and volume element
+
+The parametric plasma cross-section is the Miller map of Fausser et
+al.<Citation id="fausser-2012" />, in the spelling common to that paper and the
+MIT `openmc-plasma-source` package:
+
+$$
+\Delta(a) = \mathrm{esh}\left(1 - \frac{a^2}{a_\text{minor}^2}\right),
+\qquad
+R(a,\theta) = R_0 + a\cos(\theta + \delta\sin\theta) + \Delta(a),
+\qquad
+Z(a,\theta) = \kappa\,a\sin\theta.
+\tag{S3}
+$$
+
+Major radius $R_0$, minor-radius label $a \in [0, a_\text{minor}]$, elongation
+$\kappa$, triangularity $\delta$, and Shafranov factor $\mathrm{esh}$ are the
+shape parameters (lengths in cm). Neutron production lives on flux surfaces, so
+the volume element matters:
+
+$$
+\frac{dV}{da\,d\theta\,d\varphi} = R\,|J|,
+\qquad
+J = \frac{\partial R}{\partial a}\frac{\partial Z}{\partial\theta}
+  - \frac{\partial R}{\partial\theta}\frac{\partial Z}{\partial a}.
+\tag{S3-V}
+$$
+
+— the poloidal Jacobian times the toroidal radius $R$. The $R$ factor is
+mandatory: without it the core is over-represented. Closed forms pinned by the
+crate: in the torus limit ($\kappa = 1$, $\delta = 0$, $\mathrm{esh} = 0$)
+$J = a$ exactly; at $\delta = 0$ (any $\kappa$, $\mathrm{esh}$)
+
+$$
+J = \kappa\,a\left(1 - \frac{2\,\mathrm{esh}\,a\cos\theta}{a_\text{minor}^2}\right),
+$$
+
+the cross-section area is $\pi\kappa a^2$, and the torus volume is
+$2\pi^2\kappa a^2 R_0$ for any $\mathrm{esh}$ — the Shafranov terms integrate
+out, so the shift moves surfaces outboard without changing the volume. The map
+is up-down symmetric and the vertical extent is $\max|Z| = \kappa\,a_\text{minor}$.
+
+### S4 — L/H/A-mode plasma profiles
+
+Profiles over the minor radius are the L/H/A-mode parametrizations of Fausser
+et al.<Citation id="fausser-2012" />. L mode is a single power-law falloff:
+
+$$
+f(r) = f_c\left(1 - \frac{r^2}{a^2}\right)^{\alpha},
+\tag{S4-L}
+$$
+
+H and A mode (same algebra; the modes differ by parameter choice, not formula)
+add a pedestal at $r_\text{ped}$ and a linear edge:
+
+$$
+f(r) = \begin{cases}
+f_\text{ped} + (f_c - f_\text{ped})\left(1 - (r/r_\text{ped})^2\right)^{\alpha} & r \le r_\text{ped}, \\[6pt]
+f_\text{sep} + (f_\text{ped} - f_\text{sep})\,\dfrac{a - r}{a - r_\text{ped}} & r > r_\text{ped},
+\end{cases}
+\tag{S4-H}
+$$
+
+the temperature core instead carries a $\beta_T$ exponent,
+$(1 - (r/r_\text{ped})^{\beta_T})^{\alpha_T}$. Profiles are *inputs*: the caller
+supplies the centre, peaking, pedestal, and separatrix values and the mode
+label; nothing here computes or fits profiles, and no equilibrium is solved.
+Density is caller data in m⁻³ and temperature in keV.
+
+### S5 — Reactivity-weighted emission strength
+
+Neutron production at minor radius $r$ follows the local ion density and
+temperature through the reaction rate:
+
+$$
+S(r) = f_\text{fuel}\, n_i(r)^2\, \langle\sigma v\rangle\bigl(T_i(r)\bigr).
+\tag{S5}
+$$
+
+$f_\text{fuel} = 1/4$ for equimolar D-T ($n_D = n_T = n_i/2$) and $1/2$ for pure
+D-D — the ½ avoids double-counting identical reactant pairs and follows the
+Fausser/`openmc-plasma-source` strength convention. Birth positions weight
+$S \cdot R \cdot |J|$, the volume element of (S3-V); the total relative
+strength is its toroidal integral,
+$S_\text{tot} = 2\pi \int_0^a\!\int_0^{2\pi} S\,R\,|J|\,d\theta\,dr$ — arbitrary
+global scale, but ratios between configurations are meaningful. Because
+$\langle\sigma v\rangle \to 0$ as $T_i \to 0$, a cold separatrix makes no
+neutrons.
+
+## Algorithm
+
+**Ring and point sampling.** A point source sits at its configured position; a
+ring source draws a uniform azimuth on the midplane circle, so radius and height
+are exact for every particle and only the azimuth carries sampling error. Energies
+are the monoenergetic line or a Box–Muller Gaussian draw ($\bar{E} + \sigma z$);
+directions are isotropic, with $\cos\theta$ uniform in $[-1, 1]$ and azimuth
+uniform in $[0, 2\pi)$.
+
+**Parametric sampling.** At construction the sampler tabulates the
+strength-weighted radial distribution on a fixed 256-cell grid over
+$[0, a_\text{minor}]$; each cell precomputes its poloidal cumulative distribution
+on 256 points (trapezoid quadrature of the periodic $R \cdot |J|$ integrand), so
+drawing a particle needs no per-particle quadrature: $r$ from the radial table,
+$\theta$ from the owning cell's poloidal table, $\varphi$ uniform, then $(R, Z)$
+from the Miller map. The birth energy comes from the Ballabio Gaussian at the
+local ion temperature $T_i(r)$. Both samplers run on a small self-contained RNG
+(SplitMix64 seed expansion feeding xoshiro256\*\*), so a pinned seed reproduces
+the stream on a given platform.
+
+**Source cards and the emission report.** A monoenergetic spectrum renders as a
+single line with probability 1. A Gaussian renders as discrete lines at bin
+centers over a symmetric $\bar{E} \pm 4\sigma$ window (21 lines by default), with
+probabilities from the exact normal CDF (`erf` via the Abramowitz–Stegun 7.1.26
+rational approximation, $|\epsilon| \le 1.5\mathrm{e}{-7}$, far below the
+six-significant-digit card format); the probability mass outside the window is
+dropped and reported. Parametric cards can only carry the *marginals* — radial
+and vertical birth histograms plus the global marginal energy spectrum — so the
+emission report also carries the joint-correlation distance
+$\tfrac{1}{2}\sum_{ij}|p_\text{true}(i,j) - p_r(i)\,p_z(j)|$, half the L1 distance
+between the true $(r, z)$ birth joint and the product of the marginals (0 for
+independent). Every report row records the fraction of the source strength the
+card accounts for and the fraction lost (`rel_drift`); `reparsed` marks rows
+machine-verified by feeding the emitted text back through that code's own reader
+— true for `SDEF`, which must round-trip byte-identically through
+`nucleide-mcnp-io` (a failed round trip raises a clear error rather than shipping
+unverified text), and false by design for Serpent `src`, where the workspace has
+no source reader and the rows are checked analytically against the public
+input-manual spelling.
+
+## Worked example: ITER-like D-T ring
+
+An ITER-like D-T ring at $R = 300$ cm, $z = 25$ cm with $T_i = 20$ keV. First the
+spectrum and reactivity closed forms through `spectrum_moments` (the Ballabio
+moments of a reaction at an ion temperature) and `reactivity` (the Bosch–Hale
+$\langle\sigma v\rangle$):
+
+```python
+import nucleide.plasma_source as ps
+
+ps.spectrum_moments("dt", 20.0)
+# {'reaction': 'dt', 'label': 'D-T', 'nominal_mev': 14.021,
+#  'mean_mev': 14.072874253353246, 'sigma_mev': 0.33772176292161377}
+ps.spectrum_moments("dd", 0.0)["sigma_mev"]  # 0.0 — cold spectrum is monoenergetic
+ps.reactivity("dt", 20.0)                    # 4.330220397689176e-22 m^3/s
+ps.reactivity("dd", 20.0)                    # 2.6025829587215236e-24 m^3/s
+```
+
+Evaluating (S1a)–(S1b) at $T_i = 20$ keV with the D-T Table III coefficients
+gives mean 14.0729 MeV and $\sigma$ 0.33772 MeV against the 14.021 MeV nominal
+line; at $T_i = 0$ the width vanishes and both reactions collapse to their
+monoenergetic lines (14.021 MeV and 2.4495 MeV). The reactivity ratio at
+20 keV, $\langle\sigma v\rangle_{DT} / \langle\sigma v\rangle_{DD} \approx 166$,
+is why D-T dominates neutron production at fusion temperatures.
+
+Then sampling and card emission through `particles` (a seeded particle vector)
+and `emit_source_cards` (both cards plus the emission report):
+
+```python
+import numpy as np
+import nucleide.plasma_source as ps
+
+spec = {"kind": "ring", "radius": 300.0, "height": 25.0,
+        "reaction": "dt", "ion_temperature_kev": 20.0}
+out = ps.particles(spec, 4, seed=2026)
+np.hypot(out["x"], out["y"])  # array([300., 300., 300., 300.]) — exactly R
+out["z"]                      # array([25., 25., 25., 25.])
+out["energy"]                 # array([14.17846035, 13.81800956, 14.3161297 , 14.02004292])
+
+cards = ps.emit_source_cards(spec)
+cards["sdef"]["card"].splitlines()[:4]
+# ['SDEF POS=0 0 25', '     AXS=0 0 1', '     RAD=D1', '     ERG=D2']
+cards["sdef"]["drift"][0]["rel_drift"]  # 6.337207213114038e-05
+
+import nucleide.mcnp as mcnp
+mcnp.parse_sdef(cards["sdef"]["card"])["card"] == cards["sdef"]["card"]  # True
+```
+
+Hand checks: every birth sits exactly on the ring (radius 300 cm to machine
+precision, height exactly 25 cm), so the azimuth is the only sampled spatial
+coordinate. The first particle's energy, 14.1785 MeV, sits $0.31\sigma$ above
+the 14.0729 MeV mean. Re-running with the same seed replays the identical
+stream — the vectors above match the crate's pinned Rust reference stream. The
+card keeps the ring exactly (`RAD=D1` with `SI1 L 300 300`) and tabulates the
+Gaussian at 21 bin centers spanning $\bar{E} \pm 4\sigma$ (12.7863–15.3594 MeV).
+The emission report's first row accounts for 0.999937 of the probability mass;
+the lost $6.34\mathrm{e}{-5}$ is the Gaussian tail beyond $\pm 4\sigma$,
+$1 - \mathrm{erf}(4/\sqrt{2}) = 6.334\mathrm{e}{-5}$. The `SDEF` text re-parses
+byte-identically through `nucleide.mcnp.parse_sdef` (the typed `SDEF` reader).
+
+## Assumptions and limitations
+
+- **Full torus only.** Toroidal sectors (partial-azimuth limits) are not yet
+  supported and raise a clear error at every entry point — never a silent guess.
+- **Maxwellian fuel, two choices.** Reactants are Maxwellian at a common $T_i$;
+  the fuel is equimolar D-T (strength factor $1/4$) or pure D-D ($1/2$).
+  Arbitrary fuel mixtures — the Eriksson et al. reactant-distribution
+  weighting<Citation id="eriksson-2016" /> — are not yet supported; adding them
+  later requires a documented normalization convention first.
+- **Neutron branch only.** The D(d,p)T proton branch is out of scope for a
+  neutron source crate.
+- **Profiles are caller inputs.** Nothing computes or fits profiles and no
+  equilibrium is solved. Malformed geometry or profile parameters (non-positive
+  minor radius or elongation, triangularity outside $(-1, 1)$, pedestal radius
+  outside $(0, a)$, non-positive centre density or temperature) raise a clear,
+  named error, and a configuration whose total emission strength is zero raises
+  a clear error instead of sampling nothing.
+- **Published fit domains.** The Ballabio and Bosch–Hale fits are used within
+  their published ranges. Negative or non-finite ion temperatures raise a clear
+  error, and the D-D reactivity's correction factor goes non-positive around
+  300–4700 keV, where the crate raises a clear out-of-domain error rather than
+  returning NaN.
+- **Cards carry marginals, not correlations.** A product-form card cannot
+  represent the correlated $(r, z)$ birth joint or the position–energy
+  correlation; the emission report quantifies both losses (the truncated energy
+  tail and the joint-correlation distance).
+- **Determinism per platform.** A pinned seed reproduces the particle stream on
+  a given platform; platform libm differences can shift the last ulp of
+  individual streams, with no effect on moments or card text at any meaningful
+  tolerance.
+- **No file writing in the crate.** Particle vectors and card strings are
+  returned to the caller; writing MCPL or MCNP files stays caller-side
+  (`nucleide.mcpl`, `nucleide.mcnp`).
+
+## Validation
+
+- **Rust unit tests** pin the transcriptions: spectrum moments and reactivities
+  at 1/10/20 keV recomputed independently from the published coefficients, the
+  Miller closed forms (torus limit, the $\delta = 0$ area and volume identities,
+  finite-difference agreement of the Jacobian at general $\delta$), profile
+  definitions and pedestal continuity, sampler determinism, and a pinned
+  four-particle stream for the RNG.
+- **`validation/plasma_source_vs_openmc.py`** rebuilds every quantity from a
+  second, independent in-script transcription of the published formulas.
+  Always-on checks cover ring geometry and azimuth moments, Ballabio moments
+  (< 1e-12 relative), pinned-seed determinism, the `SDEF` round trip, the
+  tabulation tail drift against the $\pm 4\sigma$ tail mass, sampled
+  flat-profile moments against the $\delta = 0$ closed forms
+  ($\langle r^2\rangle = a^2/2$, $\langle z\rangle = 0$, and the outboard
+  volume bias $\langle R\rangle = R_0 + a^2/(4R_0)$), the reactivity
+  transcription (< 1e-12), and H-mode sampled birth moments against independent
+  fine quadrature of $S\,R\,|J|$.
+- **Container-only cross-checks** against the MIT-licensed
+  `openmc-plasma-source` package and NeSST (Ballabio helpers, sampled D-D and
+  ring moments, the Miller map, L/H profiles, reactivities to ~5e-9 — the
+  published coefficients' own precision — and end-to-end parametric moments).
+  When the packages are unavailable these checks are reported as SKIP with the
+  reason, never silently.
+- **`tests/test_plasma_source.py`** replays the user-facing Python surface.
+
+## Related work beyond Nucleide
+
+Adjacent capabilities Nucleide does not implement: the Eriksson et al.
+generalization to arbitrary (non-Maxwellian or non-equimolar) reactant
+distributions, which covers beam-target and mixed-fuel spectra (the documented
+"not yet supported" boundary above)<Citation id="eriksson-2016" />; adaptive
+Monte Carlo source iteration in the spirit of KDSource (GPL-licensed, not
+integrated); OpenMC's arbitrary mesh- and CAD-based spatial sources — OpenMC's
+fusion-specific sources themselves ship in the separate `openmc-plasma-source`
+package, which the validation harness cross-checks against at runtime; and
+synthetic diagnostic responses beyond the source description itself, the
+territory of NeSST.

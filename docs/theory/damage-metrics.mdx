@@ -1,0 +1,440 @@
+---
+title: Damage Metrics
+description: NRT-dpa and arc-dpa displacement functions, the Lindhard damage-energy partition,
+  He/H gas production in appm, spectral folding conventions, and uncertainty propagation
+  through the folds.
+sidebar:
+  order: 9
+references:
+  - id: nrt-1975
+    title: "A proposed method of calculating displacement dose rates"
+    url: https://doi.org/10.1016/0029-5493(75)90035-7
+    authors: ["M. J. Norgett", "M. T. Robinson", "I. M. Torrens"]
+    source: Nuclear Engineering and Design
+    journal: Nuclear Engineering and Design
+    volume: "33"
+    pages: "50–54"
+    date: "1975"
+    type: article
+    doi: "10.1016/0029-5493(75)90035-7"
+  - id: lindhard-1963
+    title: "Integral equations governing radiation effects (Notes on Atomic Collisions, III)"
+    url: http://publ.royalacademy.dk/books/181/1227
+    authors: ["J. Lindhard", "V. Nielsen", "M. Scharff", "P. V. Thomsen"]
+    source: Kgl. Danske Videnskabernes Selskab, Matematisk-fysiske Meddelelser
+    journal: Kgl. Danske Videnskabernes Selskab, Matematisk-fysiske Meddelelser
+    volume: "33"
+    pages: "1–42"
+    date: "1963"
+    type: article
+  - id: griffin-sand2016
+    title: "Detailed Description of the Derivation of the Silicon Damage Response Function"
+    url: https://nds.iaea.org/CRPdpa/Si/Griffin_SAND2016-2269.pdf
+    authors: ["P. J. Griffin"]
+    source: Sandia National Laboratories report SAND2016-2269
+    date: "2016"
+    type: techreport
+  - id: nordlund-2018
+    title: "Improving atomic displacement and replacement calculations with physically realistic damage models"
+    url: https://doi.org/10.1038/s41467-018-03415-5
+    authors: ["K. Nordlund", "S. J. Zinkle", "A. E. Sand", "F. Granberg", "R. S. Averback",
+      "R. Stoller", "T. Suzudo", "L. Malerba", "F. Banhart", "W. J. Weber", "F. Willaime",
+      "S. L. Dudarev", "D. Simeone"]
+    source: Nature Communications
+    journal: Nature Communications
+    volume: "9"
+    pages: "1084"
+    date: "2018"
+    type: article
+    doi: "10.1038/s41467-018-03415-5"
+  - id: specter-1985
+    title: "SPECTER: neutron damage calculations for materials irradiations"
+    url: https://www.osti.gov/biblio/6022143
+    authors: ["L. R. Greenwood", "R. K. Smither"]
+    source: Argonne National Laboratory report ANL/FPP/TM-197
+    date: "1985"
+    type: techreport
+    doi: "10.2172/6022143"
+---
+
+Nucleide computes activation inventories and gamma sources; the matching first-wall
+question — how many displacements, and how much gas, a neutron spectrum produces in a
+material — is answered by the `nucleide.damage` kernel. This page pins the equation
+set: the Lindhard damage-energy partition, the NRT-dpa standard of Norgett, Robinson &
+Torrens<Citation id="nrt-1975" />, the arc-dpa efficiency correction of Nordlund et
+al.<Citation id="nordlund-2018" />, and the spectral-folding conventions that turn
+caller-condensed cross sections into displacements per atom (dpa), atomic parts per
+million (appm) of helium or hydrogen, and He/dpa ratios — plus the uncertainty
+propagation hooked over the folds. Every material constant is caller data; nothing is
+fitted or vendored here.
+
+## Overview
+
+A neutron spectrum folded with a material's damage response cross sections gives the
+displacement dose in dpa; folded with gas-production cross sections it gives the
+helium/hydrogen inventory in appm; the ratio of the two tracks embrittlement-relevant
+helium per unit damage. The crate has two layers of pure functions over caller
+inputs:
+
+- closed-form primary-damage physics — the Lindhard partition (Robinson fit), the
+  NRT displacement function, and the arc-dpa correction;
+- spectral folds — `nrt_dpa` / `arc_dpa` / `gas_appm` / `he_dpa_ratio` over
+  `(flux, response, bounds)` slices with piecewise-constant-per-group semantics.
+
+A third module, `fold_uq`, propagates caller-block uncertainty through the folds by
+reusing the shared seeded-sampler machinery documented on the UQ-lite page — no new
+sampling code.
+
+<Callout type="info" title="Code shape">
+  The crate mirrors the kinetics layout: `physics.rs` (the closed-form damage
+  functions with validating inputs), `fold.rs` (the multigroup folds with documented
+  conventions), `uq.rs` (MVN uncertainty propagation), and `error.rs` (a
+  `#[non_exhaustive]` error enum whose every variant names its cause — out-of-scope
+  capabilities report "not yet supported", never a silent fallback).
+</Callout>
+
+## Mathematical details
+
+### The Lindhard partition and damage energy
+
+A recoiling lattice atom loses part of its energy to electronic excitation before it
+can displace further atoms. The Lindhard partition divides the primary knock-on atom
+(PKA) energy `T` between that ionizing part and the displacement (damage) energy
+`T_dam`<Citation id="lindhard-1963" />; Nucleide uses Robinson's analytic fit to the
+partition, with constants as documented by Griffin (SAND2016-2269 §3.2)<Citation
+id="griffin-sand2016" />:
+
+$$
+P(\varepsilon) = \frac{1}{1 + k_L\, g(\varepsilon)},
+\qquad
+T_{dam} = T\, P(\varepsilon)
+\tag{P1}
+$$
+
+$$
+k_L = 0.0793\,
+\frac{Z_R^{2/3}\, Z_L^{1/2}\, (A_R + A_L)^{3/2}}
+     {(Z_R^{2/3} + Z_L^{2/3})^{3/4}\, A_R^{3/2}\, A_L^{1/2}}
+\tag{P2}
+$$
+
+$$
+E_L = 30.724\ \mathrm{eV} \cdot
+Z_R Z_L\, (Z_R^{2/3} + Z_L^{2/3})^{1/2}\, \frac{A_R + A_L}{A_L},
+\qquad
+\varepsilon = T / E_L
+\tag{P3}
+$$
+
+$$
+g(\varepsilon) = \varepsilon + 3.4008\, \varepsilon^{1/6}
++ 0.40244\, \varepsilon^{3/4}
+\tag{P4}
+$$
+
+with `Z_R, A_R` the recoil nuclide and `Z_L, A_L` the lattice nuclide (damage physics
+sees only `Z` and `A` — the metastable state index of a nuclide key is ignored).
+
+- `P → 1` as `T → 0` (only logarithmically — the `ε^{1/6}` term still costs ~0.6% at
+  1 µeV for iron) and `P → 0` as `T → ∞`; the damage energy saturates at `E_L/k_L`
+  and never exceeds `T`.
+- The constants follow Griffin §3.2, which also documents the NJOY manual's `k_L`
+  exponent typo: the combined mass term in the numerator of (P2) carries exponent
+  3/2, not 2/3. Nucleide uses the corrected 3/2.
+- Energies are electron-volts throughout the damage functions; the spectral folds use
+  MeV group bounds because neutron group structures are tabulated in MeV.
+- Damage energy follows the SPECTER/NJOY lower-integration-bound-zero convention
+  (Griffin §2.5)<Citation id="griffin-sand2016" />: recoil energy below `E_d` still
+  counts toward damage energy — it just does not displace.
+
+### The NRT displacement function
+
+The Norgett–Robinson–Torrens standard<Citation id="nrt-1975" /> modifies the
+Kinchin–Pease count with a displacement efficiency `κ = 0.8` and the Lindhard damage
+energy:
+
+$$
+N_d(T) =
+\begin{cases}
+0 & T < E_d \\
+1 & E_d \le T < 2E_d/\kappa \\
+\kappa\, T_{dam}(T) / (2E_d) & T \ge 2E_d/\kappa
+\end{cases}
+\qquad \kappa = 0.8
+\tag{N1}
+$$
+
+Nucleide evaluates (N1) for a self-recoil target, or for an arbitrary recoil/lattice
+pair (a transmutation recoil stopped in a host lattice). The piecewise boundaries sit
+on the PKA energy `T` — at `E_d` and `2E_d/κ` — while the high branch evaluates
+`κ·T_dam/(2E_d)` on the damage energy. That boundary convention follows SPECTER/NJOY
+(Griffin §2.5)<Citation id="griffin-sand2016" />, not the arc-dpa paper verbatim
+(its Eqs. (1) and (5) write both boundaries on the damage energy `T_d`). Two
+consequences are pinned as known artifacts of the convention, not bugs: the `N_d = 1`
+plateau covers PKA energies whose damage energy is still below `E_d` (a
+damage-energy boundary would return 0 there), and the small downward step at the
+junction `T = 2E_d/κ` is the known NRT construction.
+
+### The arc-dpa correction
+
+Molecular-dynamics (MD) cascades show the NRT count overestimates surviving defects
+because recombination inside the cascade is ignored. Nordlund et al. (2018, CC BY
+4.0) repair this with an efficiency function fitted to MD data — Nucleide implements
+Eqs. (5)–(7) of that paper<Citation id="nordlund-2018" />:
+
+$$
+\xi(T_d) = (1 - c_{arc}) \left( \frac{T_d}{2E_d/\kappa} \right)^{b_{arc}} + c_{arc}
+\tag{A1}
+$$
+
+By construction `ξ(2E_d/κ) = 1` (junction with the plateau), `ξ → c_arc` as
+`T_d → ∞` (the MD saturation value), and `b_arc < 0` makes `ξ` monotone decreasing.
+`b_arc` and `c_arc` are material constants the caller supplies from MD or experiment;
+the constructor enforces the fitted domain — `b_arc` finite and negative, `c_arc`
+finite in `(0, 1)` — and the crate ships no fitted table. The corrected count is the
+NRT piecewise form with the high branch multiplied by `ξ(T_dam(T))`:
+
+$$
+N_{d,arc}(T) =
+\begin{cases}
+0 & T < E_d \\
+1 & E_d \le T < 2E_d/\kappa \\
+\kappa\, T_{dam}(T)\, \xi(T_{dam}(T)) / (2E_d) & T \ge 2E_d/\kappa
+\end{cases}
+\tag{A2}
+$$
+
+One artifact of the PKA-energy boundary convention carries over: at `T = 2E_d/κ` the
+efficiency overshoots 1 because `T_dam < T` there (the paper's damage-energy form
+stays at or below 1). `ξ(0)` diverges — zero to a negative power — and raises a clear
+error, never `inf`.
+
+### Spectral folds
+
+The closed forms above are what a nuclear-data pipeline would tabulate into per-group
+response cross sections; the crate itself folds a caller-supplied multigroup flux with
+caller-supplied responses under fixed conventions:
+
+- `bounds` holds `G + 1` group boundaries in MeV, strictly increasing. Group `g`
+  spans `[bounds[g], bounds[g+1])`. Bounds are validated and document the grid; the
+  fold is piecewise-constant per group, so a group's width never enters the sum.
+- `flux[g]` is the per-group integrated flux (n/cm²/s through group `g`), i.e.
+  `∫_group φ(E) dE` — not a per-lethargy or per-unit-energy density.
+- `response[g]` is the group response cross section in barns, condensed by the caller
+  consistently with the flux spectrum — a SPECTER/NJOY-class pipeline for
+  displacement cross sections, an activation library for gas production. The kernel
+  multiplies; it never re-weights within a group.
+
+$$
+m = s \sum_g \phi_g\, r_g,
+\qquad
+s =
+\begin{cases}
+10^{-24}\, t_{exp} & \text{dpa} \\
+10^{-18}\, t_{exp} & \text{gas appm}
+\end{cases}
+\tag{F1}
+$$
+
+`10⁻²⁴` converts barns to cm² (per target atom); the gas scale adds the
+per-atom → parts-per-million factor `10⁶`. `t_exp` is the exposure time at the
+tabulated flux; pass `1.0` with a fluence parked in `flux` for a fluence fold.
+`nrt_dpa` and `arc_dpa` share (F1) — they differ only in which displacement function
+built the response. `gas_appm` counts whichever gas (He or H) the caller's response
+counts, one nuclide's production per target atom. `he_dpa_ratio` folds the He and
+damage responses over the same flux and divides; a damage fold of exactly zero raises
+a clear error, never `inf`.
+
+### Uncertainty propagation
+
+`fold_uq` perturbs the stacked `[flux, response]` vector (dimension `2G`) with seeded
+draws from a multivariate normal (MVN) distribution — the shared `nucleide-linalg`
+sampler the UQ-lite page documents — using relative-unit perturbations applied as
+`nominal·(1 + δ)` (the SANDY convention), then refolds each draw. For the three
+linear folds the expectation under the Gaussian block is exact, and the standard
+deviation is available to first order:
+
+$$
+E[m] = m_0 + s \sum_g f_g r_g
+\left( \mu_{f,g} + \mu_{r,g} + \mu_{f,g}\, \mu_{r,g} + C_{g,G+g} \right)
+\tag{U1}
+$$
+
+$$
+\mathrm{std}[m] = s\,\sqrt{J C J^{T}},
+\qquad
+J = \left[\, (f \odot r) \odot (1 + \mu_r) \;\middle|\; (f \odot r) \odot (1 + \mu_f) \,\right]
+\tag{U2}
+$$
+
+with `μ` the block mean, `C` the `(2G)×(2G)` covariance, and `⊙` the elementwise
+product. For small relative blocks the quartic term neglected by (U2) sits orders of
+magnitude inside the check width (in-crate tests size it at ~3×10⁻⁴ of the linear
+term). The returned summary carries the nominal value, the sample mean and standard
+deviation over the draws, the exact expectation (U1), the first-order propagation
+(U2), and honest `k`-standard-error checks: the sample mean against the expectation
+within `k·std/√n`, and the sample standard deviation against (U2) within
+`k·std/√(2(n−1))`. A draw that leaves the physical domain (negative flux or response)
+raises the fold's named error, never a silent clip — callers keep covariance blocks
+in the small-perturbation regime. The He/dpa ratio is a nonlinear statistic: its UQ
+is not yet supported and raises a clear named error.
+
+## Algorithm
+
+The physics layer is pure functions: validate (finite non-negative `T`, `E_d > 0`,
+valid nuclide keys, arc constants in the fitted domain), then evaluate (P1)–(A2) —
+the partition at the PKA energy, the piecewise branches against PKA-energy
+thresholds. The fold layer validates shape, finiteness, sign, and monotonicity first
+— empty input, mismatched lengths, non-finite values, negative flux or response,
+non-increasing bounds, and non-positive exposure each raise a named error — then
+accumulates `Σ f·r` in one pass with the metric scale. There is no division anywhere
+in the fold, so a zero-flux group contributes exactly `0.0` and cannot produce
+`NaN`/`inf`; the ratio computes two folds and checks the denominator. The UQ layer
+draws once (Cholesky factorization primary, eigenvalue-clip fallback), perturbs and
+refolds per draw, and compares unbiased sample moments against (U1)–(U2).
+
+Correctness checks: in-crate tests and the `damage_vs_specter.py` harness replay the
+synthetic checks labeled G1–G5 — G1 the partition and NRT branches against an
+independent in-script transcription of the published Robinson-fit constants
+(tolerance 10⁻¹²), G2 the arc construction (junction value exactly 1, saturation at
+`c_arc`, monotone decrease, high branch = NRT × ξ), G3 the folds against hand sums,
+G4 the invariants (zero-flux groups exact; the zero-dpa ratio and malformed inputs
+raising named errors), and G5 the pinned-seed UQ checks including bit-identical
+reruns. The external SPECTER cross-check is described under Related work.
+
+## Worked example: Fe-56 anchors and a three-group fold
+
+All inputs below are synthetic: an Fe-56 self-recoil with an assumed average
+threshold displacement energy `E_d = 40 eV`, assumed arc constants `b_arc = −0.55`,
+`c_arc = 0.3`, and a hand-written three-group flux — the crate ships no material data.
+
+```python
+import nucleide.damage as dmg
+
+ED = 40.0  # eV, assumed average threshold displacement energy
+B_ARC, C_ARC = -0.55, 0.3  # assumed MD-style arc constants (fitted domain: b < 0, 0 < c < 1)
+
+# (N1), (A1), (A2): piecewise displacement functions, Fe-56 self-recoil
+print(dmg.nrt_displacements(20.0, ED, "Fe56"))  # 0.0  (T < E_d)
+print(dmg.nrt_displacements(40.0, ED, "Fe56"))  # 1.0  (T = E_d)
+print(dmg.nrt_displacements(100.0 * (1 - 1e-12), ED, "Fe56"))  # 1.0 (2*E_d/0.8 = 100 eV)
+t_dam = dmg.damage_energy(1.0e5, "Fe56", "Fe56")
+print(t_dam)  # 61865.089085593674 eV
+print(dmg.nrt_displacements(1.0e5, ED, "Fe56"))  # 618.6508908559368
+print(dmg.arc_efficiency(100.0, ED, B_ARC, C_ARC))  # 1.0 exactly (A1 junction)
+print(dmg.arc_displacements(1.0e5, ED, "Fe56", B_ARC, C_ARC))  # 198.22076705250228
+
+# (F1): three-group fold; hand sum 1e12*100 + 2e12*200 + 4e12*50 = 7e14
+bounds = [0.0, 0.1, 1.0, 20.0]
+flux = [1.0e12, 2.0e12, 4.0e12]
+resp = [100.0, 200.0, 50.0]
+print(dmg.nrt_dpa(flux, resp, bounds, 2.0))  # 2*1e-24*7e14 = 1.4e-9
+print(dmg.gas_appm(flux, resp, bounds, 2.0))  # 2*1e-18*7e14 = 1.4e-3
+print(dmg.he_dpa_ratio(flux, resp, resp, bounds, 2.0))  # 1.4e-3 / 1.4e-9 = 1.0e6
+print(dmg.nrt_dpa(flux, resp, [0.0, 5.0, 10.0, 20.0], 2.0))  # 1.4e-9 (bounds never enter)
+dead = [0.0, 2.0e12, 0.0]
+print(dmg.nrt_dpa(dead, resp, bounds, 1.0))  # 3.9999999999999996e-10
+print(dmg.nrt_dpa(dead, resp, bounds, 1.0) == 1e-24 * (2e12 * 200.0))  # True
+
+# (U1), (U2): seeded MVN over the stacked [flux, response] block, 1% std per group
+mean = [0.0] * 6
+cov = [[1e-4 if i == j else 0.0 for j in range(6)] for i in range(6)]
+out = dmg.fold_uq("nrt_dpa", flux, resp, bounds, 2.0, mean, cov, n=4000, seed=20260915, k=5.0)
+print(out["expected"], out["analytic_std"], out["passed"])
+```
+
+Output (verified against the built extension):
+
+```text
+0.0
+1.0
+1.0
+61865.089085593674
+618.6508908559368
+1.0
+198.22076705250228
+1.4e-09
+0.0014000000000000002
+1000000.0000000002
+1.4e-09
+3.9999999999999996e-10
+True
+1.4e-09 1.296148139681572e-11 True
+```
+
+Hand verification:
+
+- The anchors follow from (N1) alone: `2E_d/κ = 2×40/0.8 = 100 eV`, so 20 eV is below
+  threshold, 40 eV displaces exactly once, and the plateau holds right up to the
+  junction.
+- At `T = 10⁵ eV` the partition gives `T_dam = 61865.089 eV` (≈ 0.62 of the PKA
+  energy survives electronic losses), and the high branch is
+  `0.8 × 61865.089 / (2×40) = 618.6508909` — here `κ/(2E_d) = 1/(100 eV)`, so the
+  value is just `T_dam` in units of 100 eV. An independent transcription of the
+  published constants — `E_L = 30.724·26²·(2·26^{2/3})^{1/2}·2 = 174031.25 eV`,
+  `k_L = 0.0793·2^{3/4}·26^{2/3}/56^{1/2} = 0.156411` — reproduces the partition
+  `P(10 keV) = 1/(1 + k_L·g(0.057461)) = 0.7424990` to all printed digits.
+- For the arc count, `ξ(T_dam) = 0.7×(618.65089)^{−0.55} + 0.3 = 0.3204081` and
+  `618.6508909 × 0.3204081 = 198.2208`; at the junction `ξ(100 eV) = 1` exactly.
+- The fold hand sum is `7×10¹⁴` barns·n/cm²/s, giving
+  `dpa = 2×10⁻²⁴×7×10¹⁴ = 1.4×10⁻⁹` and `appm = 2×10⁻¹⁸×7×10¹⁴ = 1.4×10⁻³`; the
+  ratio is exactly the per-atom→ppm factor, `1.0×10⁶ appm/dpa`. Regridding the bounds
+  changes nothing — the bounds document the grid and never enter the sum. With the
+  first and third groups dead, the fold equals the literal hand product
+  `1e-24 * (2e12 * 200.0)` exactly (`True` on the equality check).
+- For the UQ block, (U1) with zero means gives `E[m] = m₀ = 1.4×10⁻⁹` exactly, and
+  (U2) gives `std = 2×10⁻²⁴ × √((10¹⁴)² + (4×10¹⁴)² + (2×10¹⁴)²) × √(2×10⁻⁴) =
+  1.2961×10⁻¹¹` — matching the reported `analytic_std` to all printed digits, with
+  both `k`-standard-error checks passing.
+
+## Assumptions and limitations
+
+- **PKA-energy boundary convention**: the piecewise boundaries sit on the PKA energy
+  (`E_d`, `2E_d/κ`) with the high branch evaluated on the damage energy — the
+  SPECTER/NJOY convention, not the arc-dpa paper's damage-energy boundaries. Pinned
+  artifacts: the `N_d = 1` plateau covers PKA energies whose damage energy is below
+  `E_d`, and the arc efficiency slightly exceeds 1 just above the junction (because
+  `T_dam < T` there). The small downward step at `T = 2E_d/κ` is the known NRT
+  construction.
+- **Units**: the damage functions take electron-volts; group bounds are MeV.
+- **Caller-supplied constants**: `E_d`, `b_arc`, `c_arc`, and every response table
+  are caller data; arc constants are validated against the MD-fitted domain
+  (`b_arc < 0`, `0 < c_arc < 1`) and no fitted parameter table ships. The partition
+  needs only `Z` and `A` of recoil and lattice.
+- **Piecewise-constant folds**: the kernel never re-weights within a group, and
+  `bounds` document the grid without entering the sum; responses must be condensed
+  consistently with the flux spectrum by the caller's own pipeline.
+- **Zero and sign handling**: zero-flux groups contribute exactly `0.0`; the He/dpa
+  ratio at zero damage raises a clear error — never infinity; the arc efficiency at
+  zero damage energy diverges by construction and raises a clear error — never
+  infinity; negative flux or response raises a clear error, never clamped.
+- **Uncertainty scope**: UQ covers the three linear folds. The He/dpa ratio is a
+  nonlinear statistic and its UQ is not yet supported (a clear named error). MVN
+  draws that leave the physical domain surface as the fold's named error, never a
+  silent clip — keep covariance blocks small (the first-order (U2) neglects a
+  quartic term ~3×10⁻⁴ of the linear term at the in-crate sizing).
+- **Out of scope**: PKA-spectrum solving, displacement-table vendoring, transport
+  solving, and evaluated-data consumption (TENDL/JEFF/EAF/IRDFF) — callers bring
+  their own response tables. ASTM E693/E521 are paywalled standards referenced by
+  designation string only.
+- **Thin facades**: `nucleide.damage` (Python) exposes the crate one-to-one; no
+  physics beyond the folds above.
+
+## Related work beyond Nucleide
+
+**SPECTER** (Greenwood & Smither, ANL/FPP/TM-197, 1985 — a US-government work, public
+domain)<Citation id="specter-1985" /> is the fusion-community damage calculator whose
+printed HFIR-CTR32 results (Tables V/VI, total fluence 4.78373×10²² n/cm²) serve as
+the external correctness check for the folds in the repo validation harness: a
+handful of transcribed spectrum-averaged dpa and gas-production cross sections are
+folded one-group at report print precision (five significant digits, 10⁻⁴ relative
+tolerance) and matched against the report's printed dpa, GAS(APPM), and Fe He/dpa
+values. SPECTER is a correctness-check source only — no SPECTER table is implemented
+in or vendored by Nucleide, and when the report text is unavailable the check is
+recorded as skipped, never a silent pass. ASTM E693/E521 are the paywalled
+displacement-dose standards of record, referenced by designation only.
+
+Adjacent capabilities Nucleide does not implement: PKA-spectrum solving (the
+GPL-licensed fispact-org PKA evaluator was never read), transport solving, and
+displacement-table vendoring — building per-group responses from an evaluated
+library with an NJOY/SPECTER-class pipeline remains the caller's job.

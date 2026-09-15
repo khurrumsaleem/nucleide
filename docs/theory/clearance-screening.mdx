@@ -1,0 +1,269 @@
+---
+title: Clearance Screening
+description: The clearance index CI = sum of A_i/CL_i fractions, the sum-of-fractions release
+  rule, classification against the vendored EU Annex VII default table, and the inventory
+  readers that feed them.
+sidebar:
+  order: 12
+references:
+  - id: eu-2013-59-euratom
+    title: "Council Directive 2013/59/Euratom of 5 December 2013, Annex VII Table A"
+    url: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32013L0059
+    source: "Official Journal of the European Union, L 13, 17.1.2014, p. 1 (EUR-Lex CELEX:32013L0059)"
+    date: "2013"
+    type: misc
+  - id: sublet-2017
+    title: "FISPACT-II: An Advanced Simulation System for Activation, Transmutation and Material Modelling"
+    url: https://doi.org/10.1016/j.nds.2017.01.002
+    authors: ["J.-Ch. Sublet", "J. W. Eastwood", "J. G. Morgan", "M. R. Gilbert", "M. Fleming", "W. Arter"]
+    source: Nuclear Data Sheets
+    journal: Nuclear Data Sheets
+    volume: "139"
+    pages: "77–137"
+    date: "2017"
+    type: article
+    doi: "10.1016/j.nds.2017.01.002"
+  - id: pypact
+    title: "pypact: a FISPACT-II output reader"
+    url: https://pypi.org/project/pypact/
+    source: "PyPI, Apache-2.0"
+    type: misc
+---
+
+Activation codes such as ALARA and FISPACT-II answer "how radioactive is this
+material after irradiation and cooling?". Clearance screening asks the
+follow-up regulatory question: "is it low enough to be released from
+regulatory control?". Nucleide implements the screening arithmetic — the
+**clearance index** and the **sum-of-fractions rule** — as pure arithmetic
+over parsed activation inventories, with the EU clearance table vendored as an
+attributed default. This is screening arithmetic, never a compliance
+decision: real clearance requires the governing regulatory table, material
+bookkeeping, and the national transposition of the underlying directive.
+
+## Overview
+
+A clearance table lists, per radionuclide, an activity concentration below
+which material may be cleared from regulatory control. Given an inventory of
+per-nuclide activities `A_i` and matching per-nuclide clearance levels
+`CL_i`, each nuclide contributes the fraction `A_i / CL_i` of its limit, and
+the material satisfies the screening criterion when the sum of those
+fractions does not exceed 1 — the **sum-of-fractions rule** of IAEA Safety
+Standards Series No. RS-G-1.7 §5, referenced here by designation only (the
+IAEA tables themselves are never vendored). The methodology follows Sublet
+et al.<Citation id="sublet-2017" />
+
+Nucleide keeps the arithmetic table-driven and the inputs pluggable:
+
+- **Limit tables** are caller-supplied key/value maps, or the vendored EU
+  2013/59/Euratom Annex VII Table A transcription used as the attributed
+  default<Citation id="eu-2013-59-euratom" />.
+- **Inventories** come from parsed activation output — ALARA response-frame
+  rows (Rust `inventory_from_frame`), or any other source supplying the same
+  `(nuclide, activity)` pairs — and from the FISPACT-II wide inventory table
+  printed with the `HAZARDS` + `CLEAR` keywords, whose per-nuclide clearance
+  index column Nucleide can read back verbatim.
+- **Classification** returns the fraction sum, a satisfied/exceeded class,
+  and the dominant contributor — the single nuclide carrying the largest
+  fraction.
+
+<Callout type="info" title="Code shape">
+  The screening arithmetic lives in two `clearance` modules: `nucleide-alara-io`
+  (the limit table, the screening functions, and inventory extraction from
+  parsed response frames) and `nucleide-fispact-io` (the reader for the wide
+  FISPACT-II inventory table). The Python surface is thin: `nucleide.alara`
+  re-exports the clearance helpers (`alara_clearance_index`,
+  `alara_sum_of_fractions`, `alara_clearance_eu_table`) and `nucleide.fispact`
+  re-exports the clearance-block reader (`fispact_parse_clearance`).
+</Callout>
+
+## Mathematical details
+
+### Clearance index
+
+For an inventory of `N` nuclides with activities `A_i` and clearance levels
+`CL_i` on a common unit basis, the per-nuclide fraction and the clearance
+index are
+
+$$
+f_i = \frac{A_i}{CL_i}, \qquad
+\mathrm{CI} = \sum_{i=1}^{N} f_i = \sum_{i=1}^{N} \frac{A_i}{CL_i}.
+\tag{CI}
+$$
+
+### Sum-of-fractions rule
+
+The screening classification places the boundary at `CI = 1`, boundary
+included — matching the exemption/clearance wording "does not exceed":
+
+$$
+\mathrm{CI} \le 1 \;\Longleftrightarrow\; \text{screening satisfied},
+\qquad
+\mathrm{CI} > 1 \;\Longleftrightarrow\; \text{screening exceeded}.
+\tag{SOF}
+$$
+
+The same pass reports the dominant contributor, the nuclide whose `f_i` is
+the largest single fraction (useful for finding what to wait out or clean
+up); an empty inventory gives `CI = 0` with no dominant nuclide.
+
+### The vendored EU default table
+
+`ClearanceTable::eu_annex_vii` (Rust) / `alara_clearance_eu_table` (Python)
+returns a transcription of Council Directive 2013/59/Euratom Annex VII
+Table A — "activity concentrations and activities per unit mass of
+radionuclides … for solid materials" — in Bq/g (numerically identical to the
+directive's kBq/kg)<Citation id="eu-2013-59-euratom" />. The transcription
+holds 260 entries: Part 1 radionuclide names verbatim (minus equilibrium
+footnote markers, isomer letter kept), plus the Part 2 U-238/Th-232 decay
+chains transcribed at the parent level with K-40, since the chain values
+apply to each member (directive Annex VII 2(b)–(d)). It was transcribed from
+the official legal text (EUR-Lex CELEX:32013L0059, OJ L 13, 17.1.2014,
+accessed 2026-09-15) and is reusable with attribution per Commission
+Implementing Decision (EU) 2011/833. Spot values used by the correctness
+checks:
+
+| Nuclide | CL (Bq/g) |
+| --- | --- |
+| H-3 | 100 |
+| C-14 | 1 |
+| Co-60 | 0.1 |
+| Cs-137 | 0.1 |
+| Sr-90 | 1 |
+| Pu-239 | 0.1 |
+| U-238 | 1 |
+| Th-232 | 1 |
+| K-40 | 10 |
+
+### The FISPACT-II clearance column
+
+In the wide `HAZARDS` + `CLEAR` inventory table, FISPACT-II prints a
+per-nuclide clearance-index column computed code-side as the activity divided
+by the code's own internal clearance-library value — not against the EU
+table. Nucleide's reader carries that column verbatim (and can total it), so
+code-printed and Nucleide-recomputed indices stay distinguishable; the
+screening functions themselves always recompute `f_i` against the caller's
+table.
+
+## Algorithm
+
+- **Table construction.** `ClearanceTable` is a canonical-`NuclideId`-keyed
+  map. `insert` validates that each limit is finite and strictly positive and
+  raises a clear error otherwise. The EU default is embedded as a TSV at
+  build time, parsed lazily on first call, and its invariants are checked at
+  load — since it is committed data, a corrupt transcription fails loudly
+  rather than returning a partial table. Nuclide keys resolve through the
+  shared dialect machinery, so `Co60`, `Co-60`, and `co-60` are one key, not
+  three.
+- **Screening accumulation.** One pass over the inventory: validate each
+  activity (finite, `>= 0`), require a table entry for every inventory
+  nuclide (a missing limit raises a clear error — never a silent skip),
+  accumulate `f_i` into the sum, and track the running maximum fraction and
+  its nuclide. The class falls out of (SOF) with the boundary included.
+- **ALARA frame inventories.** `inventory_from_frame` keeps the
+  `SpecificActivity` rows at one cooling time and drops the `total`
+  aggregate row, yielding `(nuclide, activity)` pairs in the frame's own
+  activity unit (ALARA prints Bq/cm³, FISPACT-II prints Bq) — the caller
+  pairs them with a table on the matching basis.
+- **FISPACT-II wide-table reader.** `parse_clearance` recognizes
+  `TIME INTERVAL <n>` headers with their `TIME IS` / `COOLING TIME IS` step
+  tags (the first `<value> <unit>` pair gives the step time in seconds, with
+  `s m h d w y` names accepted and `y = 365 d`), then the two-line
+  `NUCLIDE … CLEARANCE … HALF LIFE` column header, then data rows of
+  `<symbol> <mass>[isomer] [flags] <11 floats> <half-life|Stable>`. Flags
+  (`#` stable, `>` present before irradiation, `&` gamma spectrum
+  approximate, `?` convergence not reached) are kept verbatim, `Stable` is
+  stored as `-1.0` seconds (matching the ALARA output convention), and
+  nuclide names are normalized to the shared dialect spelling (`V 55` →
+  `V-55`, `Rb 90m` → `Rb-86m`). The table ends at `TOTAL NUMBER OF NUCLIDES
+  PRINTED IN INVENTORY` or the first non-data line; blank input and every
+  malformed row or header raise a clear, line-numbered parse error, while a
+  file with no clearance table at all yields an empty scan for the caller to
+  judge.
+
+## Worked example
+
+**Hand arithmetic.** Take the vendored EU defaults, `CL_Co = 0.1 Bq/g` and
+`CL_H = 100 Bq/g`, and a massic inventory `A_Co = 0.05 Bq/g`,
+`A_H = 25 Bq/g`. Then `f_Co = 0.05/0.1 = 0.5`, `f_H = 25/100 = 0.25`, and
+`CI = 0.75 ≤ 1` — satisfied, with Co-60 the dominant contributor at half the
+limit on its own.
+
+**Real API, end to end.** The same screen over a parsed FISPACT-II clearance
+table (the synthetic fixture `fixtures/fispact/clearance.out`, interval 1:
+stable V-55 and Fe-56 at zero activity, Co-60 at 4.0e6 Bq, Rb-86m at
+8.0e9 Bq) against caller limits `{V-55: 1, Fe-56: 1, Co-60: 4.0e6, Rb-86m:
+8.0e9}` gives `f = 0 + 0 + 1 + 1 = 2.0 > 1` — exceeded:
+
+```python
+from pathlib import Path
+
+import nucleide.alara as alara
+import nucleide.fispact as fispact
+
+# Two-nuclide inventory against the vendored EU default table (Bq/g).
+out = alara.alara_sum_of_fractions({"Co-60": 0.05, "H-3": 25.0})
+print(out)
+
+# Same screen over a parsed FISPACT-II clearance table.
+rows = fispact.fispact_parse_clearance(Path("fixtures/fispact/clearance.out").read_text())
+step1 = {r["nuclide"]: r["activity_bq"] for r in rows if r["interval"] == 1}
+print(alara.alara_sum_of_fractions(step1, {"V-55": 1.0, "Fe-56": 1.0,
+                                           "Co-60": 4.0e6, "Rb-86m": 8.0e9}))
+```
+
+```text
+{'class': 'satisfied', 'max_fraction': 0.5, 'max_nuclide': 'Co-60', 'sum': 0.75}
+{'class': 'exceeded', 'max_fraction': 1.0, 'max_nuclide': 'Co-60', 'sum': 2.0}
+```
+
+Both vectors are hand-computable exactly, and the sum-of-fractions boundary
+is probed on both sides in the test suite: `CI = 1` classifies as satisfied,
+one float-ulp above as exceeded.
+
+## Assumptions and limitations
+
+- **Screening arithmetic, not a compliance decision.** Clearance in practice
+  requires the governing regulatory table, complete material bookkeeping,
+  and the national transposition of the underlying directive.
+- **Unit basis is the caller's discipline.** `A_i` and `CL_i` must share one
+  basis. The vendored EU table is an activity-*concentration* table (Bq/g),
+  so inventories screened against it must be massic activities (Bq/g), not
+  total activities (Bq). Frame extraction returns activities in the frame's
+  own unit (ALARA Bq/cm³ vs FISPACT-II Bq), so the table basis must be
+  chosen to match.
+- **Complete tables, valid values.** Every inventory nuclide must have a
+  table entry; a missing limit raises a clear error. Negative or non-finite
+  activities, and non-positive or non-finite limits, raise a clear error —
+  nothing is skipped silently. Zero activities contribute nothing.
+- **Duplicate nuclides** in a caller-built inventory (Rust slice input) sum
+  like any other pair — deduplication is the caller's job; Python dict keys
+  are unique by construction.
+- **The FISPACT-II clearance column is code-side.** Its per-row values are
+  the code's internal library ratios, not EU-table fractions, and are read
+  back as printed; Nucleide screening always recomputes against the caller's
+  table.
+- **Further indices stay recorded, not implemented.** Sublet et al.'s wider
+  radiological indices (dose rate, ingestion, inhalation, Bq/A2) appear as
+  columns in the wide table and are parsed where present, but only the
+  clearance screen is implemented as a metric<Citation id="sublet-2017" />.
+- **Time and stability conventions.** FISPACT-II step times convert with
+  `y = 365 d`; `Stable` half-lives store as `-1.0`.
+- **Correctness checks.** The arithmetic is pinned by hand-computed vectors
+  at exact equality (CI values, boundary probes both sides, EU spot values)
+  and by an end-to-end parse of the synthetic fixture in the real
+  FISPACT-II grammar, in `tests/test_clearance.py` and
+  `validation/clearance_vs_pypact.py`.
+
+## Related work beyond Nucleide
+
+The independent comparison for the reader is **pypact**, the upstream
+Apache-2.0 FISPACT-II output reader on PyPI<Citation id="pypact" />: this
+repository's validation harness re-parses the synthetic clearance fixture
+with `pypact`'s `InventoryReader` and compares the overlapping per-nuclide
+columns (atoms, activity, clearance index) — agreement is exact (zero
+relative error) over the fixture's seven nuclide-steps, and the check
+reports a clearly-stated skip when pypact is not installed. Adjacent
+capabilities Nucleide does not implement: the rest of Sublet et al.'s
+radiological index suite as first-class metrics, and any vending of the IAEA
+clearance/exemption tables (RS-G-1.7, GSG-17), which stay designation-only
+references.

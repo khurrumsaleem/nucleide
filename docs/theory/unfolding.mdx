@@ -1,0 +1,286 @@
+---
+title: Neutron Spectrum Unfolding
+description: "SAND-II unfolding of activation-foil rates: fold, update, and underdetermined behavior."
+sidebar:
+  order: 11
+references:
+  - id: mcelroy-1967
+    title: "A Computer-Automated Iterative Method for Neutron Flux Spectra Determination by Foil Activation"
+    url: https://www.osti.gov/biblio/4171125
+    authors: ["W. N. McElroy", "S. Berg", "T. Crockett", "R. G. Hawkins"]
+    source: Air Force Weapons Laboratory Report AFWL-TR-67-41
+    date: "1967"
+    type: techreport
+  - id: trkov-2020
+    title: "IRDFF-II: A New Neutron Metrology Library"
+    url: https://arxiv.org/abs/1909.03336
+    authors:
+      [
+        "A. Trkov",
+        "P. J. Griffin",
+        "S. P. Simakov",
+        "L. R. Greenwood",
+        "K. I. Zolotarev",
+        "R. Capote",
+        "D. L. Aldama",
+        "V. Chechev",
+        "C. Destouches",
+        "A. C. Kahler",
+        "C. Konno",
+        "M. Koštál",
+        "M. Majerle",
+        "E. Malambu",
+        "M. Ohta",
+        "V. G. Pronyaev",
+        "V. Radulović",
+        "S. Sato",
+        "M. Schulc",
+        "E. Šimečková",
+        "I. Vavtar",
+        "J. Wagemans",
+        "M. White",
+        "H. Yashima",
+      ]
+    source: Nuclear Data Sheets
+    journal: Nuclear Data Sheets
+    volume: "163"
+    pages: "1–108"
+    date: "2020"
+    type: article
+    doi: "10.1016/j.nds.2019.12.001"
+---
+
+Nucleide implements neutron spectrum unfolding from activation-type
+measurements: a caller-supplied guess spectrum is adjusted until folding it
+through a caller-supplied response matrix reproduces the measured
+detector/reaction rates. The landed method is SAND-II (Spectrum Analysis by
+Neutron Detectors II; McElroy et al., AFWL-TR-67-41, 1967)<Citation id="mcelroy-1967" />,
+written clean-room from the public-domain report — the adjustment form
+reproduced across the open unfolding literature. Every response value,
+measured rate, guess entry, and energy-group bound is caller-supplied data:
+evaluated libraries such as IRDFF are IAEA-copyright and are never vendored.
+The IRDFF-II analytical benchmark-field shapes used in the correctness checks
+below are re-derived from their published closed forms<Citation id="trkov-2020" /> —
+the library's tabulated group spectra are never read. The S1–S3 labels are
+the crate's pinned equation labels; U1–U8 label its correctness checks.
+
+## Overview
+
+Foil-activation spectrometry — the JET/ITER diagnostics workhorse — measures a
+handful of detector/reaction rates and asks for the neutron spectrum behind
+them, one value per energy group. The forward problem is a matrix
+multiplication (the *fold*); the inverse problem has no unique answer whenever
+there are fewer detectors than energy groups, which is the normal case.
+Unfolding therefore does not invent the unseen part: it iteratively adjusts a
+caller-supplied guess until the fold reproduces the measurements, moving only
+the components the detectors can see. It is inverse-problem iteration, not a
+transport solve.
+
+The Python surface `nucleide.unfold` (a thin facade over the crate) exposes
+two entry points: `sandii(...)`, which runs the adjustment and returns the
+converged spectrum with diagnostics, and `forward_fold(...)`, the shared
+forward operator.
+
+<Callout type="info" title="Code shape">
+  The crate mirrors the other solver crates: `sandii.rs` holds the SAND-II
+  adjustment iterator and the `unfold` driver, `lib.rs` holds the shared
+  forward operator (`forward_fold`) and the input validation, and `error.rs`
+  is a named error set (a `#[non_exhaustive]` enum with a `Result` alias).
+</Callout>
+
+## Mathematical details
+
+Definitions: a response matrix `R` with one row per detector/reaction (entry
+`R_ij ≥ 0` per energy group `j`), measured rates `N_i ≥ 0`, and a guess
+spectrum `φ_j > 0` (strictly positive — the update is multiplicative).
+
+### S1 — Forward fold
+
+$$
+c_i = \sum_j R_{ij}\,\phi_j
+\tag{S1}
+$$
+
+The calculated rate `c_i` of detector `i`. This same map is how the
+correctness checks synthesize measured rates from a known spectrum.
+
+### S2 — Detector rate-share weights
+
+$$
+W_{ji} = R_{ij}\,\phi_j / c_i
+\tag{S2}
+$$
+
+The share of detector `i`'s calculated rate contributed by group `j`; the
+shares sum to one over `j` for each detector with a nonzero fold.
+
+### S3 — Multiplicative adjustment
+
+$$
+\phi_j \leftarrow \phi_j \cdot
+\exp\!\left( \frac{\sum_i W_{ji}\,\ln(N_i / c_i)}{\sum_i W_{ji}} \right)
+\tag{S3}
+$$
+
+One adjustment per iteration: the new spectrum is the old one times a weighted
+geometric mean of the per-detector correction factors `N_i / c_i`, weighted
+by the S2 rate shares. Three properties follow directly:
+
+- **Positivity**: a strictly positive guess stays strictly positive.
+- **Fixed point**: a guess that already reproduces the rates is unchanged
+  (every correction factor is 1).
+- **Unseen groups keep the guess**: a group no detector responds to has
+  `Σ_i W_ji = 0`; its adjustment factor is exactly 1.
+
+`W_ji` is the canonical base SAND-II weight. The original implementation's
+optional per-detector statistics factor (`N_i²/σ_i`) is not applied, so
+adjustments are not weighted by detector uncertainty<Citation id="mcelroy-1967" />.
+
+### Underdetermined systems
+
+With fewer detectors than energy groups the system has infinitely many
+solutions. The adjustment moves only the components the response matrix can
+see: the part of the guess error lying in directions no detector responds to
+— in linear-algebra terms, the response matrix's *null space* — survives
+iteration exactly. In the U4 check (6 detectors, 24 groups) the rates are
+reproduced to `1e-6` and the total guess error is cut by more than half
+(measured at about 2.5x): the recoverable bias converges while the unseen
+bias keeps the guess.
+
+### Convergence and diagnostics
+
+After each adjustment the largest per-group relative change
+`max_j |φ_new − φ_old| / φ_old` is compared against the tolerance; the run
+converges when it drops strictly below it. The defaults are `1e-3` and `200`
+iterations — library defaults, not values from the report. Each adjustment
+also reports the refolded rates and the per-detector rate factors
+`N_i / c_i`: all ones at a fixed point, and `0.0` for a *pinned* detector (a
+zero measurement folding to zero — the `0/0` factor spelled as `0.0`, never
+`NaN`).
+
+## Algorithm
+
+Construction validates the whole input set once, naming the offending input
+on every rejection: the response matrix must be non-empty, rectangular,
+finite, and non-negative; rates finite and non-negative, one per detector;
+the guess strictly positive, one value per group; the tolerance finite and
+positive; the iteration cap at least 1.
+
+Each iterator step folds the working spectrum (S1), applies the S2/S3
+adjustment group by group, and yields the post-adjustment spectrum, refolded
+rates, rate factors, and the largest relative change. The weighting has
+named, deliberate zero-handling:
+
+- A detector folding to zero contributes no weight (it is skipped).
+- A zero response entry `R_ij = 0` skips detector `i` for group `j` — this
+  also avoids the `0 · ln 0 = NaN` hazard.
+- With no active weight a group keeps the guess (factor 1, exactly).
+
+Zero measurements pin their groups to zero (their adjustment factor is 0). A
+positive rate against a zero response row is rejected up front; if pinning
+zeroes out the entire support of another detector with a nonzero rate, the
+run stops mid-iteration with the same clear error naming that detector. The
+`unfold` driver iterates to convergence and returns the solution with its
+diagnostics — a halted or non-converged run raises a clear error, never a
+silent partial spectrum.
+
+## Worked example: one detector, three groups
+
+A single detector responds to only one of three energy groups:
+
+```python
+import nucleide.unfold as unfold
+
+response = [[1.0, 0.0, 0.0]]  # one detector; it responds only to group 0
+rates = [4.0]  # its measured rate
+guess = [2.0, 7.0, 3.0]  # strictly positive starting spectrum
+
+out = unfold.sandii(response, rates, guess)
+out["spectrum"]  # [4.0, 7.0, 3.0]
+out["iterations"]  # 2
+unfold.forward_fold(response, out["spectrum"])  # [4.0]
+```
+
+The first adjustment, by hand: the fold is `c = 1·2 + 0·7 + 0·3 = 2`. Group 0
+carries weight `W = R·φ/c = 1·2/2 = 1` from detector 0 only, so its
+correction factor is `N/c = 4/2 = 2` and its new value is
+`2 · exp(1 · ln 2 / 1) = 4`. Groups 1 and 2 receive no weight, so their
+factor is exactly 1 and they keep the guess values `7.0` and `3.0`
+bit-for-bit. The largest relative change is `|4 − 2| / 2 = 1.0`, not below
+the default `1e-3` tolerance, so a second adjustment runs: the fold is now 4,
+the factor is `exp(ln(4/4)) = 1`, the change is `0.0`, and the run converges
+with `spectrum = [4.0, 7.0, 3.0]` and `rate_factors = [1.0]`.
+
+This is the underdetermined behavior in miniature: one equation, three
+unknowns. The seen group moves to its measured value; the unseen groups keep
+the guess — SAND-II cannot and does not invent information no detector
+recorded.
+
+## Assumptions and limitations
+
+- **Caller-supplied data only**. Response matrix, measured rates, guess, and
+  energy-group bounds are all inputs. Evaluated libraries (IRDFF and other
+  IAEA-copyright data) are never vendored, and the IRDFF-II tabulated group
+  spectra are never used — the benchmark shapes below are re-derived from
+  published closed forms with citation<Citation id="trkov-2020" />. A
+  runtime-download data pack stays a later decision.
+- **Strictly positive guess required**; response entries and rates must be
+  non-negative and finite. Every malformed input raises a clear error naming
+  the cause.
+- **No detector-uncertainty weighting**: the original code's optional
+  per-detector statistics factor is not applied (see S3).
+- **Underdetermination is real**. With fewer detectors than groups the result
+  is not unique: the unseen component of the guess survives unchanged, so
+  the unfolded spectrum depends on the guess there. Iteration reduces the
+  error; it does not remove it.
+- **Zero measurements pin their groups to zero**, and a positive rate whose
+  support is pinned away fails with a clear error, up front or
+  mid-iteration.
+- **Non-convergence is a hard error**: exhausting the iteration cap raises
+  (a `ValueError` from Python), never returning a partial spectrum.
+- **No outlier-foil rejection** (the original code's σ-discard feature) and
+  no cover-material corrections — recorded as out of scope.
+- **SAND-II only**, one method per cycle, behind the same iterator shape.
+
+## Validation
+
+The crate and `validation/unfold_vs_analytic.py` replay eight pinned checks,
+U1–U8, all on synthetic forward-fold-then-recover round-trips — the response
+matrices are hand-built Gaussian bumps over log-spaced energy groups, never
+evaluated data:
+
+- **U1**: the forward fold matches a hand-written matrix-vector product to
+  `1e-12`.
+- **U2**: an exact guess is a fixed point — one confirming no-op adjustment
+  with a change of exactly `0.0`.
+- **U3**: a determined 6-detector, 6-group system is recovered from a
+  uniformly 3x-biased guess to `1e-6`.
+- **U4**: the underdetermined case — 6 detectors, 24 groups. Rates
+  reproduced to `1e-6`; spectrum error cut by more than half, with the
+  recoverable bias converging and the unseen bias keeping the guess.
+- **U5**: the IRDFF-II analytical benchmark-field shapes named in
+  Trkov et al.<Citation id="trkov-2020" /> — a thermal Maxwellian at 293.6 K,
+  `φ(E) ∝ E·e^(−E/kT)` with `kT = 8.617333262·10⁻⁵ eV/K × 293.6 K ≈ 0.0253 eV`;
+  a pure `1/E` field, `φ(E) ∝ 1/E`; and a Maxwellian at 25 keV,
+  `φ(E) ∝ √E·e^(−E/kT)` with `kT = 25 keV` — re-derived from the published
+  closed forms and recovered to `1e-5` in a determined probe. The
+  IAEA-copyright tabulated spectra are deliberately not used.
+- **U6**: exhausting the iteration cap raises a clear error.
+- **U7**: unconstrained groups keep the guess bit-for-bit.
+- **U8**: malformed inputs raise clear errors naming the cause.
+
+No external reference implementation exists — PyNE and OpenMC ship no
+SAND-II counterpart — so these analytic checks are the whole correctness
+story: they always run, and none can be skipped.
+
+## Related work beyond Nucleide
+
+Adjacent methods recorded for later cycles, each to land in its own module
+behind the same iterator and diagnostics shape: STAYSL-class least-squares
+adjustment (Perey, ORNL/TM-6062, 1977) on the shared `nucleide-linalg`
+least-squares kernel; GRAVEL (Matzke, PTB-N-19, 1994), the SAND-II update
+with measurement-error weights; and MAXED (Reginatto & Goldhagen, Health
+Phys. 77 (1999) 579) maximum entropy. A vendored response library (a
+runtime-download pack) also stays a later decision. Because no external
+SAND-II counterpart exists in PyNE or OpenMC, cross-code comparison is not
+available for this capability.

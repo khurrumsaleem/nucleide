@@ -28,24 +28,24 @@ need.
   </defs>
   <rect x="110" y="20" width="500" height="44" rx="10" class="cm-bar"/>
   <text x="360" y="47" text-anchor="middle" class="cm-t">Python API (nucleide) &#xb7; WASM interactive tutorials</text>
-  <line x1="185" y1="92" x2="185" y2="70" class="cm-edge" marker-end="url(#cm-arrow)"/>
-  <line x1="475" y1="92" x2="475" y2="70" class="cm-edge" marker-end="url(#cm-arrow)"/>
-  <rect x="60" y="96" width="260" height="130" rx="10" class="cm-box"/>
+  <line x1="190" y1="92" x2="190" y2="70" class="cm-edge" marker-end="url(#cm-arrow)"/>
+  <line x1="530" y1="92" x2="530" y2="70" class="cm-edge" marker-end="url(#cm-arrow)"/>
+  <rect x="40" y="96" width="300" height="130" rx="10" class="cm-box"/>
   <text x="190" y="124" text-anchor="middle" class="cm-t">Code I/O</text>
   <text x="190" y="148" text-anchor="middle" class="cm-i">MCNP &#xb7; Serpent &#xb7; FLUKA</text>
   <text x="190" y="168" text-anchor="middle" class="cm-i">ALARA &#xb7; CCCC &#xb7; MCPL</text>
   <text x="190" y="188" text-anchor="middle" class="cm-i">FISPACT-II &#xb7; ORIGEN</text>
   <text x="190" y="210" text-anchor="middle" class="cm-s">readers, writers, emitters, translation</text>
-  <rect x="400" y="96" width="260" height="130" rx="10" class="cm-box"/>
-  <text x="530" y="124" text-anchor="middle" class="cm-t">Solvers and analysis</text>
-  <text x="530" y="146" text-anchor="middle" class="cm-i">Depletion (CRAM) &#xb7; Point kinetics</text>
-  <text x="530" y="161" text-anchor="middle" class="cm-i">Enrichment &#xb7; Spectroscopy</text>
-  <text x="530" y="176" text-anchor="middle" class="cm-i">Variance reduction &#xb7; UQ sampling</text>
-  <text x="530" y="191" text-anchor="middle" class="cm-i">Tritium transport &#xb7; Fusion sources</text>
-  <text x="530" y="206" text-anchor="middle" class="cm-i">Spectrum unfolding &#xb7; Clearance screening</text>
-  <text x="530" y="219" text-anchor="middle" class="cm-s">Damage metrics (dpa/appm) &#xb7; plus the R2S workflow glue</text>
-  <line x1="185" y1="252" x2="185" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
-  <line x1="475" y1="252" x2="475" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
+  <rect x="380" y="96" width="300" height="130" rx="10" class="cm-box"/>
+  <text x="530" y="122" text-anchor="middle" class="cm-t">Solvers and analysis</text>
+  <text x="530" y="144" text-anchor="middle" class="cm-i">Depletion (CRAM) &#xb7; Point kinetics</text>
+  <text x="530" y="160" text-anchor="middle" class="cm-i">Enrichment &#xb7; Spectroscopy &#xb7; UQ sampling</text>
+  <text x="530" y="176" text-anchor="middle" class="cm-i">Variance reduction &#xb7; Tritium transport</text>
+  <text x="530" y="192" text-anchor="middle" class="cm-i">Fusion sources &#xb7; Spectrum unfolding</text>
+  <text x="530" y="208" text-anchor="middle" class="cm-i">Damage metrics (dpa/appm) &#xb7; Clearance screening</text>
+  <text x="530" y="221" text-anchor="middle" class="cm-s">plus the R2S workflow glue</text>
+  <line x1="190" y1="252" x2="190" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
+  <line x1="530" y1="252" x2="530" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
   <rect x="110" y="256" width="500" height="40" rx="10" class="cm-bar"/>
   <text x="360" y="281" text-anchor="middle" class="cm-t">Nuclear data (nuclei) &#xb7; Materials (material)</text>
 </svg>
