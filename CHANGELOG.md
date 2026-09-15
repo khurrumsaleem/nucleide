@@ -15,6 +15,22 @@ workspace crates from tags.
 
 ### Added
 
+- GDML (Geant4) emission direction for `nucleide-csg-xlate`: scoped MCNP
+  CSG decks now translate to GDML documents (`deck_csg_to_gdml` in Rust,
+  `nucleide.mcnp.parse_csg_to_gdml` / `read_csg_to_gdml` on the Python side)
+  alongside the OpenMC/Serpent/PHITS directions, over the same v3 scope
+  (surfaces, cells, nested universes, rectangular `LAT=1` lattices,
+  material stub). Cells become named boolean solids inside a `world`
+  volume, universes become assemblies, lattices expand to one placement per
+  element, and infinite half-spaces are bounded by a per-deck cutoff
+  recorded in the drift report (new actions `halfspace-bounded`,
+  `lattice-expanded`, `material-stub`). Emitted documents pin the GDML
+  schema version 3.1.7 (Geant4 `v11.4.2` tag); the validation harness
+  validates them against the runtime-fetched, SHA-256-pinned XSD wherever
+  `lxml` is available. Reflecting and periodic boundaries stay loud errors
+  in this direction (Geant4 expresses boundaries through wrapper code, not
+  geometry markup). New `fixtures/mcnp/inp/deck_csg_cylinders.txt` extends
+  the `deck_csg_*` family.
 - Parametric tokamak plasma source in `nucleide-plasma-source` (Cycle 01
   second landing, exposed through `nucleide.plasma_source` with
   `kind="parametric"`): Miller-geometry flux surfaces (Fausser et al., Fus.

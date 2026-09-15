@@ -4,11 +4,14 @@ Oracles (run inside the validation container):
 - Serpent `*.m` files: serpentTools (pip-installed; see Containerfile).
 - MCNP files: `pyne.mcnp` (Xsdir, SurfSrc, PtracReader; Wwinp/Meshtal need
   PyMOAB, which the nomoab PyNE build lacks — those probes skip loudly).
+- GDML: the Geant4 XSD itself (schema version pinned per `GDML_SCHEMA_TAG`,
+  runtime-fetched into the git-ignored cache and SHA-256 verified).
 - FLUKA: `pyne.fluka.Usrbin` reads only binary USRBIN and needs PyMOAB; no
   working oracle exists for our ASCII `.lis` fixtures, so FLUKA is skipped.
 
-Inputs are our own committed fixtures under `fixtures/`; no third-party files.
-Every skip is printed and recorded in the report prose.
+Inputs are our own committed fixtures under `fixtures/`; no third-party files
+(the GDML schema is a format definition, not a fixture, and never enters the
+repository). Every skip is printed and recorded in the report prose.
 """
 
 from __future__ import annotations
@@ -29,11 +32,34 @@ MCNP_DIR = REPO_ROOT / "fixtures" / "mcnp"
 FLUKA_DIR = REPO_ROOT / "fixtures" / "fluka"
 CSG_DIR = MCNP_DIR / "inp"
 
+# GDML schema (Geant4 v11.4.2 tag, schema version 3.1.7) for the GDML XSD
+# validation leg: downloaded once into the git-ignored cache and pinned to
+# SHA-256, mirroring the CASL-chain / FGR-15 / SPECTER download contracts.
+GDML_SCHEMA_VERSION = "3.1.7"
+GDML_SCHEMA_TAG = "v11.4.2"
+GDML_SCHEMA_BASE = (
+    "https://raw.githubusercontent.com/Geant4/geant4/"
+    f"{GDML_SCHEMA_TAG}/source/persistency/gdml/schema"
+)
+GDML_SCHEMA_FILES = {
+    # filename -> sha256 of the file content at the pinned tag
+    "gdml.xsd": "84b9dd02062cb338482b8ace3db7662ea9db31c4ac7e9f70f507490bf3c90765",
+    "gdml_core.xsd": "6e82fc8f1edc4d0b3c09d65c31556bbecd228932519645987a4c095df431ad51",
+    "gdml_define.xsd": "78f54b8f528c1a849752bf7e958af9989c0c70b986386f6dccb950ddea4bcff1",
+    "gdml_materials.xsd": "9a42c96d1ef40c7e48b228210dbcd2ddb85d832504b1f2895e063050d946a500",
+    "gdml_solids.xsd": "0c42cb25244d939e3b583a4c410eef30375d7ad1db57598536d023ad527c767e",
+    "gdml_replicas.xsd": "3a5b9a734b673a14a970fafd08f605e4eb297f4cc3ffa1651609db44062828e2",
+    "gdml_parameterised.xsd": "fc3890b9f850e588e8737ca20b088be9fbc3e82dc4fbc6f0330ecaeeecf5c2dd",
+    "gdml_extensions.xsd": "005d3c918cdb8ca518451e82f8736eb120e5d566c885765f65e8c83a5f99a6f8",
+}
+GDML_SCHEMA_DIR = REPO_ROOT / "validation" / ".cache" / f"gdml-schema-{GDML_SCHEMA_TAG}"
+
 # Scoped CSG fixtures: GO decks translate, reject decks raise ValueError.
 CSG_GO_FIXTURES = [
     "deck_csg_sphere_box.txt",
     "deck_csg_rpp.txt",
     "deck_csg_rcc.txt",
+    "deck_csg_cylinders.txt",
     "deck_csg_complement.txt",
     "deck_csg_universe_fill.txt",
     "deck_csg_universe_data.txt",
@@ -469,8 +495,8 @@ def fluka_section(report: Report) -> None:
 
 
 def csg_section(report: Report) -> None:
-    """MCNP CSG translation fixtures vs OpenMC (scoped v3: + rectangular lattices)."""
-    report.heading("CSG translation vs OpenMC")
+    """MCNP CSG translation fixtures vs OpenMC and the pinned GDML schema."""
+    report.heading("CSG translation vs OpenMC + GDML schema")
     report.prose(
         "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed"
         "\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped"
@@ -489,6 +515,25 @@ def csg_section(report: Report) -> None:
         "\nelement centroid lies inside the universe's cells as positioned by the"
         "\ndeck surfaces, and `pitch * dimension` spans the lattice cell's RPP bounds."
         "\nReject decks must raise `ValueError`."
+    )
+    report.prose(
+        "The same decks translate through `nucleide.mcnp.parse_csg_to_gdml` to Geant4"
+        "\nGDML (schema version "
+        + GDML_SCHEMA_VERSION
+        + ", pinned from the Geant4 "
+        + GDML_SCHEMA_TAG
+        + " tag; the format is described by the CHEP 2005 paper, CERN-CDS-1023367)."
+        "\nGDML is solid-based: every cell becomes a named boolean solid plus a"
+        "\n`<volume>`, every universe an `<assembly>`, rectangular `LAT=1` lattices"
+        "\nexpand to one `<physvol>` per element at the element center (checked against"
+        "\nthe deck bounds), and infinite half-spaces are bounded by the per-deck"
+        "\ncutoff recorded in the drift report. The structural probe verifies that"
+        "\nevery reference (`solidref`, boolean `first`/`second`, `volumeref`,"
+        "\n`materialref`, `world`) resolves and that the document carries the pinned"
+        "\nschema version. Wherever `lxml` is importable (validation container), every"
+        "\ntranslated document is additionally validated against the runtime-fetched,"
+        "\nSHA-256-pinned XSD; a Geant4 load gate stays OUT (disproportionate"
+        "\ndependency for an emitter), and a missing validator degrades to a loud SKIP."
     )
     rows, skips = compare_csg()
     if rows:
@@ -697,6 +742,153 @@ def _openmc_lattice_probe(root) -> tuple[str, str]:
     )
 
 
+def ensure_gdml_schema() -> Path | None:
+    """Return the cached GDML schema directory, downloading it once.
+
+    Every file is verified against the SHA-256 pin for the Geant4 tag; any
+    mismatch or download failure returns ``None`` so the caller records a
+    loud SKIP (the structural probes still ran).
+    """
+    import hashlib
+    import urllib.request
+
+    if GDML_SCHEMA_DIR.is_dir() and all(
+        (GDML_SCHEMA_DIR / name).is_file() for name in GDML_SCHEMA_FILES
+    ):
+        return GDML_SCHEMA_DIR
+    GDML_SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        for name, want in GDML_SCHEMA_FILES.items():
+            dest = GDML_SCHEMA_DIR / name
+            url = f"{GDML_SCHEMA_BASE}/{name}"
+            req = urllib.request.Request(url, headers={"User-Agent": "nucleide-validation"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                payload = resp.read()
+            got = hashlib.sha256(payload).hexdigest()
+            if got != want:
+                raise ValueError(f"{name}: sha256 {got} != pinned {want}")
+            dest.write_bytes(payload)
+    except Exception as exc:  # noqa: BLE001 - any failure degrades to a loud skip
+        print(_note(f"GDML schema fetch failed ({exc}); XSD validation SKIPPED"))
+        return None
+    return GDML_SCHEMA_DIR
+
+
+def _gdml_structure_probe(xml_text: str, deck: Any) -> tuple[str, str]:
+    """Structural probe over one translated GDML document.
+
+    Returns (values compared, status). Checks the pinned schema-version
+    attribute, required sections, that every reference (solidref, boolean
+    first/second, volumeref, materialref, world) resolves to a defined name,
+    that every volume carries materialref + solidref, and — for decks with a
+    matrix FILL — that the lattice cell volume holds one placement per FILL
+    element at the element center derived from the deck bounds.
+    """
+    import math
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(xml_text)
+    bad = 0
+    n_vals = 0
+    bad += root.tag != "gdml"
+    bad += root.get("version") != GDML_SCHEMA_VERSION
+    n_vals += 2
+    sections = {child.tag for child in root}
+    for needed in ("define", "materials", "solids", "structure", "setup"):
+        bad += needed not in sections
+        n_vals += 1
+    solids_sec = root.find("solids")
+    structure = root.find("structure")
+    materials_sec = root.find("materials")
+    if solids_sec is None or structure is None or materials_sec is None:
+        return ("sections", "MISSING SECTIONS")
+    solid_names = {s.get("name") for s in solids_sec}
+    mat_names = {m.get("name") for m in materials_sec}
+    volumes = structure.findall("volume")
+    assemblies = structure.findall("assembly")
+    vol_names = {v.get("name") for v in volumes} | {a.get("name") for a in assemblies}
+    bad += not solid_names or "bigbox" not in solid_names
+    n_vals += 1 + len(solid_names)
+    n_refs = 0
+    for ref in solids_sec.iter("first"):
+        n_refs += 1
+        bad += ref.get("ref") not in solid_names
+    for ref in solids_sec.iter("second"):
+        n_refs += 1
+        bad += ref.get("ref") not in solid_names
+    for ref in root.iter("solidref"):
+        n_refs += 1
+        bad += ref.get("ref") not in solid_names
+    for ref in root.iter("materialref"):
+        n_refs += 1
+        bad += ref.get("ref") not in mat_names
+    for ref in root.iter("volumeref"):
+        n_refs += 1
+        bad += ref.get("ref") not in vol_names
+    for ref in root.iter("world"):
+        n_refs += 1
+        bad += ref.get("ref") not in vol_names
+    n_vals += n_refs
+    n_vols = 0
+    for vol in volumes:
+        n_vols += 1
+        n_vals += 2
+        bad += vol.find("materialref") is None
+        bad += vol.find("solidref") is None
+    # Lattice expansion: one placement per FILL element at the element center.
+    n_placed = 0
+    for fill in deck.fills:
+        if fill["kind"] != "matrix":
+            continue
+        lat_cell = next((c for c in deck.cells if int(c["num"]) == int(fill["cell"])), None)
+        if lat_cell is None:
+            bad += 1
+            continue
+        vol = next((v for v in volumes if v.get("name") == f"vol{fill['cell']}"), None)
+        if vol is None:
+            bad += 1
+            continue
+        mins = [int(v) for v in fill["min_index"].split()]
+        maxs = [int(v) for v in fill["max_index"].split()]
+        counts = [hi - lo + 1 for lo, hi in zip(mins, maxs, strict=True)]
+        bounds = _deck_lattice_bounds(deck, int(fill["cell"]))
+        pitch = [(bounds[2 * a + 1] - bounds[2 * a]) / counts[a] for a in range(3)]
+        puts = vol.findall("physvol")
+        n_placed += len(puts)
+        bad += len(puts) != math.prod(counts)
+        want = set()
+        for k in range(counts[2]):
+            for j in range(counts[1]):
+                for i in range(counts[0]):
+                    want.add(
+                        tuple(
+                            bounds[2 * a] + (idx + 0.5) * pitch[a]
+                            for a, idx in (enumerate((i, j, k)))
+                        )
+                    )
+        got = set()
+        for put in puts:
+            pos = put.find("position")
+            if pos is None:
+                bad += 1
+                continue
+            try:
+                got.add(tuple(float(pos.get(axis, "nan")) for axis in ("x", "y", "z")))
+            except ValueError:
+                bad += 1
+        n_vals += len(puts) + len(want)
+        bad += len(want) != len(got) or any(
+            any(abs(a - b) > 1.0e-9 for a, b in zip(want_pos, got_pos, strict=True))
+            for want_pos, got_pos in zip(sorted(want), sorted(got), strict=False)
+        )
+    if bad:
+        _track(1.0)
+    compared = f"{len(solid_names)} solids, {n_vols} volumes, {n_refs} refs" + (
+        f", {n_placed} placements" if n_placed else ""
+    )
+    return (compared, "OK" if not bad else f"{bad} MISMATCHES")
+
+
 def compare_csg() -> tuple[list[list[str]], list[str]]:
     """Translate the CSG fixtures and probe the resulting geometry XML."""
     import re
@@ -705,6 +897,7 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
     rows: list[list[str]] = []
     skips: list[str] = []
     parsed: dict[str, ET.Element] = {}
+    parsed_gdml: dict[str, str] = {}
     for name in CSG_GO_FIXTURES:
         path = CSG_DIR / name
         try:
@@ -767,6 +960,15 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
             rows.append([name, "phits structure", "—", f"ERROR: {exc}"])
             continue
         rows.append([name, "phits structure", *_phits_probe(phits_text)])
+        try:
+            gdml_text, _ = nucleide.mcnp.read_csg_to_gdml(str(path))
+            deck = nucleide.mcnp.read_deck(str(path))
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "gdml structure", "—", f"ERROR: {exc}"])
+            continue
+        rows.append([name, "gdml structure", *_gdml_structure_probe(gdml_text, deck)])
+        parsed_gdml[name] = gdml_text
     for name in CSG_REJECT_FIXTURES:
         try:
             nucleide.mcnp.read_csg_to_openmc(str(CSG_DIR / name))
@@ -778,6 +980,7 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
         else:
             _track(1.0)
             rows.append([name, "reject", "1", "MISSING ERROR"])
+    rows.extend(_gdml_xsd_rows(parsed_gdml, skips))
     try:
         import openmc
     except ImportError as exc:
@@ -825,6 +1028,54 @@ def compare_csg() -> tuple[list[list[str]], list[str]]:
             continue
         rows.append([name, "openmc lattice geometry", compared, status])
     return rows, skips
+
+
+def _gdml_xsd_rows(parsed_gdml: dict[str, str], skips: list[str]) -> list[list[str]]:
+    """Validate every translated GDML document against the pinned XSD.
+
+    Runs wherever `lxml` is importable (it is preinstalled in the validation
+    container) against the runtime hash-pinned schema cache; a missing
+    validator or unreachable schema degrades to a loud SKIP — the structural
+    probes above already ran. A Geant4 load gate stays OUT: it would need a
+    new dependency layer in the Containerfile, disproportionate for an
+    emitter.
+    """
+    rows: list[list[str]] = []
+    try:
+        from lxml import etree
+    except ImportError as exc:
+        skips.append(_note(f"SKIPPED gdml XSD validation: lxml unavailable ({exc})"))
+        return rows
+    schema_dir = ensure_gdml_schema()
+    if schema_dir is None:
+        skips.append(
+            _note(
+                "SKIPPED gdml XSD validation: the Geant4 schema could not be "
+                f"fetched and verified (expected at {GDML_SCHEMA_DIR})"
+            )
+        )
+        return rows
+    try:
+        schema = etree.XMLSchema(etree.parse(str(schema_dir / "gdml.xsd")))
+    except Exception as exc:
+        _track(1.0)
+        rows.append(["gdml.xsd", "xsd load", "—", f"ERROR: {exc}"])
+        return rows
+    for name, text in sorted(parsed_gdml.items()):
+        try:
+            doc = etree.fromstring(text.encode("utf-8"))
+            ok = schema.validate(doc)
+        except Exception as exc:
+            _track(1.0)
+            rows.append([name, "gdml xsd", "—", f"ERROR: {exc}"])
+            continue
+        if not ok:
+            _track(1.0)
+            detail = "; ".join(str(e) for e in schema.error_log[:2])
+            rows.append([name, "gdml xsd", "1", f"INVALID: {detail}"])
+        else:
+            rows.append([name, "gdml xsd", "1", "OK"])
+    return rows
 
 
 def _openmc_surface(openmc: Any, elem: Any) -> Any:

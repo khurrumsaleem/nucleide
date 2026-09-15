@@ -133,6 +133,17 @@ container's `pdftotext` (poppler-utils) to anchor a handful of transcribed
 output spots against the report text; the 41-isotope displacement tables are
 never vendored — SPECTER stays an oracle, not a data source.
 
+`parsers_vs_refs.py` additionally downloads the GDML schema (Geant4
+`v11.4.2` tag, schema version 3.1.7 — the Geant4 Software License is
+BSD-style) from the Geant4 source mirror at
+`https://raw.githubusercontent.com/Geant4/geant4/v11.4.2/source/persistency/gdml/schema/`,
+cached at `validation/.cache/gdml-schema-v11.4.2/` on first use and
+re-downloaded only if absent. Each of the eight schema files is pinned to a
+SHA-256 hash recorded in the script (retrieved 2026-09-15); a hash mismatch
+fails loudly. The schema is a format definition used only to validate
+Nucleide's emitted GDML documents — never vendored into the repository. The
+GDML format is described by the CHEP 2005 paper (CERN-CDS-1023367).
+
 The 0.3.0 oracle additions need no new downloads: `nuclear_data_vs_refs.py`
 reads PyNE's bundled `nuc_data.h5` (`/neutron/simple_xs` via
 `pyne.xs.data_source.SimpleDataSource`) in place, checks scattering lengths
