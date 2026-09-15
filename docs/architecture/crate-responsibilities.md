@@ -290,23 +290,18 @@ When publishing to crates.io, publish in dependency order:
 10. `nucleide-depletion`
 11. `nucleide-kinetics`
 12. `nucleide-spectroscopy`
-<<<<<<< HEAD
-13. `nucleide-tritium`
-14. `nucleide-plasma-source`
-15. `nucleide-damage`
-=======
 13. `nucleide-unfold`
 14. `nucleide-tritium`
 15. `nucleide-plasma-source`
->>>>>>> cycle-03
-16. `nucleide-vr-tools`
-17. `nucleide-alara-io`
-18. `nucleide-cccc-io`
-19. `nucleide-fispact-io`
-20. `nucleide-origen-io`
-21. `nucleide-r2s`
-22. `nucleide-emit`
-23. `nucleide-bindings`
+16. `nucleide-damage`
+17. `nucleide-vr-tools`
+18. `nucleide-alara-io`
+19. `nucleide-cccc-io`
+20. `nucleide-fispact-io`
+21. `nucleide-origen-io`
+22. `nucleide-r2s`
+23. `nucleide-emit`
+24. `nucleide-bindings`
 
 (`nucleide-wasm` is cdylib-only and never published; keep this list in
 sync with the publish list in `.github/workflows/release.yml`.)

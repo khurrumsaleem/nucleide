@@ -86,13 +86,9 @@ nucleide/
 │   ├── depletion/     # CRAM + chain files
 │   ├── kinetics/      # prescribed-reactivity point kinetics + inhour
 │   ├── tritium/       # 1D diffusion-trapping kernel + permeation checks
-<<<<<<< HEAD
 │   ├── plasma-source/ # tokamak ring/point/parametric-plasma fusion sources + SDEF/Serpent cards
 │   ├── damage/        # NRT/arc-dpa + He/H appm + He/dpa spectral folds + UQ
-=======
-│   ├── plasma-source/ # tokamak ring/point fusion neutron sources + SDEF/Serpent cards
 │   ├── unfold/        # SAND-II neutron spectrum unfolding (activation rates)
->>>>>>> cycle-03
 │   ├── spectroscopy/  # smoothing, counting, calibration, X-ray, SPE
 │   ├── emit/          # five-dialect card emission + mass-drift reports
 │   └── linalg/        # isolation facade over the linear-algebra backend

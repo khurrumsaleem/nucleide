@@ -173,11 +173,7 @@ High-level layout; see the Child NAD Index below for domain-specific details.
   `nuclei`, `material`, `mcnp-io`, `mcpl-io`, `serpent-io`, `fluka-io`,
   `alara-io`, `cccc-io`, `fispact-io`, `origen-io`, `r2s`, `vr-tools`,
   `enrichment`, `depletion`, `linalg`, `emit`, `kinetics`, `spectroscopy`,
-<<<<<<< HEAD
-  `plasma-source`, `damage`.
-=======
-  `plasma-source`, `unfold`.
->>>>>>> cycle-03
+  `plasma-source`, `damage`, `unfold`.
 - `bindings/python/` — PyO3 crate exposing `nucleide._internal`; thin facade,
   no business logic.
 - `bindings/wasm/` — `wasm-bindgen` crate that lets tutorials run Nucleide in
