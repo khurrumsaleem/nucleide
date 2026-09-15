@@ -79,13 +79,16 @@ Depends on `nucleide-mcnp-io` for the SSW header/track types.
 
 Scoped MCNP CSG translation (v3 scope: surfaces, cells, simple nested
 universes, and rectangular `LAT=1` lattices with a full matrix `FILL`) to
-OpenMC `geometry.xml`, Serpent input, and PHITS input, with a
+OpenMC `geometry.xml`, Serpent input, PHITS input, and GDML (Geant4
+geometry, schema version 3.1.7 pinned from the Geant4 `v11.4.2` tag), with a
 per-cell/per-surface drift report in the `emit` drift pattern. Maps axis
 planes, spheres, on-axis cylinders, `SPH`, `RPP`, and axis-aligned `RCC`
 (half-space expansion in the OpenMC direction; native spellings in the
-Serpent/PHITS directions); cones, quadrics, tori, general planes, other
-macrobodies, complements beyond flat intersections, reflecting/periodic
-conflicts, transforms, hexagonal lattices, matrix fills without `LAT=1`,
+Serpent/PHITS directions; named boolean solids in GDML, where infinite
+half-spaces are bounded by a per-deck cutoff recorded as drift); cones,
+quadrics, tori, general planes, other macrobodies, complements beyond flat
+intersections, reflecting/periodic boundaries (GDML has no boundary
+spelling), transforms, hexagonal lattices, matrix fills without `LAT=1`,
 tallies, and sources are loud errors. Depends on `nucleide-mcnp-io` only
 among workspace crates; never the reverse, never on bindings.
 

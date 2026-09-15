@@ -79,9 +79,10 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
 - Tritium 1D diffusion-trapping kernel (`tritium`): T1–T2 mobile/trap
   transport with the full surface taxonomy; recombination ends closed in
   steady state and transient (G5/G6).
-- Scoped MCNP→OpenMC/Serpent/PHITS CSG translation (`csg-xlate`): surfaces,
+- Scoped MCNP→OpenMC/Serpent/PHITS/GDML CSG translation (`csg-xlate`): surfaces,
   cells, nested universes, and rectangular `LAT=1` lattices with per-item
-  drift reports.
+  drift reports (GDML lattices expand to per-element placements).
+
 - Gaussian KDE source resampling (`vr-tools`): `KdeSampler` fits over caller
   particle vectors with deterministic draw/pdf.
 - Typed legacy SDEF fixed-source reader (`mcnp-io`): keyword and discrete

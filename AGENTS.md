@@ -303,8 +303,9 @@ Use `scripts/bump-version.sh X.Y.Z` to bump the workspace version and stamp
 
 ## Child NAD Index
 
-- `crates/csg-xlate/AGENTS.md` — MCNP→OpenMC CSG translation (surfaces,
-  cells, nested universes) + drift-report contracts.
+- `crates/csg-xlate/AGENTS.md` — MCNP→OpenMC/Serpent/PHITS/GDML CSG
+  translation (surfaces, cells, nested universes, rectangular `LAT=1`
+  lattices) + drift-report contracts.
 - `crates/r2s/AGENTS.md` — R2S orchestration (workflows, snapshot bridge,
   sweep expansion, flow accounting).
 - `crates/vr-tools/AGENTS.md` — variance reduction (MAGIC, alias sampling,

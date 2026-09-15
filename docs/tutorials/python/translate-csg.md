@@ -5,8 +5,9 @@ sidebar:
 ---
 
 Nucleide translates a scoped subset of MCNP constructive-solid-geometry decks
-to OpenMC `geometry.xml`, Serpent `surf`/`cell` cards, or PHITS
-`[Surface]`/`[Cell]` sections with the `nucleide-csg-xlate` crate. The scope
+to OpenMC `geometry.xml`, Serpent `surf`/`cell` cards, PHITS
+`[Surface]`/`[Cell]` sections, or a GDML (Geant4) document with the
+`nucleide-csg-xlate` crate. The scope
 is deliberately narrow — everything inside it translates; everything outside
 it raises a `ValueError` instead of guessing. Each call returns the emitted
 text plus a drift report: a list of every approximation the translator made
@@ -57,6 +58,11 @@ assert "cell 10 0 fill 21 -100" in text.splitlines()  # cuboidal lat 21 behind t
 
 text, _ = mcnp.parse_csg_to_phits(deck)
 assert "10  0  -100  LAT=1  FILL=0:0 0:1 0:0 1 2" in text.splitlines()  # matrix FILL verbatim
+
+xml, _ = mcnp.parse_csg_to_gdml(deck)
+gdml = ET.fromstring(xml)
+vol10 = next(v for v in gdml.find("structure") if v.get("name") == "vol10")
+assert len(vol10.findall("physvol")) == 2  # one placement per lattice element
 ```
 
 ## What translates
@@ -70,7 +76,11 @@ lower-left come only from its cell's `RPP` or axis-plane box bounds.
 Macrobodies expand (`RPP` to six planes, `RCC` to a cylinder plus caps), `#n`
 complements inline as the negated region, and filled cells emit without a
 material. Materials stay a stub: cell cards carry `material="1"` /
-`m<n>` / `1` names and you supply the actual cross-section data yourself.
+`m<n>` / `1` / `mat_<n>` names and you supply the actual definitions
+yourself. The GDML direction renders cells as named boolean solids inside a
+`world` volume, universes as assemblies, and lattices as one placement per
+element; because Geant4 has no infinite solids, infinite half-spaces are
+bounded by a per-deck cutoff recorded in the drift report.
 
 ## The drift report
 
@@ -87,14 +97,16 @@ for entry in drift:
 Actions you will meet: `macrobody-expansion` (RPP/RCC broken into primitive
 surfaces), `complement-expansion` (`#n` inlined), `universe-assigned` and
 `fill-applied` (universe plumbing), `lattice-emitted` (the matrix `FILL`
-became a lattice element), `reflective-applied` / `periodic-link` (boundary
-mapping), and `dropped-cell-param` / `dropped-data-card` (tokens with no
-target-code spelling — listed in the report instead of vanishing silently).
+became a lattice element), `lattice-expanded` (GDML per-element placements),
+`halfspace-bounded` and `material-stub` (GDML cutoff and placeholder
+materials), `reflective-applied` / `periodic-link` (boundary mapping), and
+`dropped-cell-param` / `dropped-data-card` (tokens with no target-code
+spelling — listed in the report instead of vanishing silently).
 
 ## What is not translated
 
 Out-of-scope geometry fails with a `ValueError` that names the offending
-cell, in all three directions. Hexagonal `LAT=2` lattices, lattice `FILL`
+cell, in all four directions. Hexagonal `LAT=2` lattices, lattice `FILL`
 matrices with `0` holes, and lattice cells whose bounds are not an `RPP`
 interior or an axis-plane box are all rejected:
 
@@ -121,7 +133,9 @@ The same funnel rejects cones, quadrics, and tori, `U=-n`, transformed fills,
 matrix fills without `LAT=1`, tallies, source cards, and `READ` includes.
 Serpent and PHITS add their own direction-specific unsupported cases —
 reflecting and periodic boundaries have no verified Serpent mapping, and
-periodic pointers have no PHITS spelling — and each raises a clear error.
+periodic pointers have no PHITS spelling — the GDML direction rejects both
+boundary kinds (Geant4 expresses boundaries through wrapper code, not
+geometry markup) — and each raises a clear error.
 
 ## See also
 

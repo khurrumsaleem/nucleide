@@ -1,10 +1,14 @@
 #![warn(missing_docs)]
-//! MCNP CSG to OpenMC `geometry.xml` translation (scoped v1).
+//! MCNP CSG translation (scoped v3) to OpenMC `geometry.xml`, Serpent
+//! input (`surf`/`cell` cards), PHITS input (`[Surface]`/`[Cell]` sections),
+//! and GDML (Geant4 Geometry Description Markup Language).
 //!
 //! [`deck_csg_to_openmc_xml`] maps a parsed [`DeckProblem`] to an OpenMC
-//! geometry document plus a [`DriftTable`] drift report. Only surface/cell
-//! CSG plus a material stub (`material="void"` or the MCNP material number)
-//! is translated; everything else is a loud [`Error`], never a silent skip.
+//! geometry document plus a [`DriftTable`] drift report; the other entry
+//! points emit the same scope in Serpent, PHITS, and GDML spellings. Only
+//! surface/cell CSG plus a material stub (`material="void"` or the MCNP
+//! material number; `mat_<n>` in GDML) is translated; everything else is a
+//! loud [`Error`], never a silent skip.
 //!
 //! # GO scope (v1 maps, everything else errors)
 //!
@@ -59,7 +63,7 @@
 //! # GO scope (v3 adds rectangular lattices)
 //!
 //! A `LAT=1` cell with a full matrix `FILL` (every entry `Some(u)`, no
-//! transform, no `*FILL` degrees) translates in all three directions behind
+//! transform, no `*FILL` degrees) translates in all four directions behind
 //! the same scope-check funnel, with a `lattice-emitted` drift note per
 //! lattice cell. Pitch and lower-left derive ONLY from the lattice cell's
 //! bounds: an `RPP` interior (`-N`) or an intersection of six
@@ -81,9 +85,14 @@
 //! - PHITS: the lattice cell keeps `LAT=1` with a matrix `FILL`
 //!   (`FILL=imin:imax jmin:jmax kmin:kmax <universes...>`); the PHITS order
 //!   is the MCNP order verbatim (`(-1,-1,0),(0,-1,0),...`, `x` fastest).
+//! - GDML: the lattice cell volume gains one `<physvol>` placement of the
+//!   element-universe `<assembly>` per element (at the element center);
+//!   exact for identity fills, recorded as `lattice-expanded` drift.
 //!
 //! Lattice ids are allocated above every cell and universe number, outside
-//! both id spaces. Still loud: `LAT=2` hexagonal lattices, `0`-holes,
+//! both id spaces (they identify the lattice cell's fill in the
+//! universe-based directions; the GDML direction names no lattice solids).
+//! Still loud: `LAT=2` hexagonal lattices, `0`-holes,
 //! `FILL` transforms, `*FILL` degrees, `TRCL` on lattice cells,
 //! single-universe fills of lattice type, and matrix fills without `LAT=1`.
 //!
@@ -110,8 +119,12 @@ use nucleide_mcnp_io::problem::DeckProblem;
 use nucleide_mcnp_io::semantic::split_card_name;
 use nucleide_mcnp_io::surf::{SurfCard, SurfKind};
 
+mod gdml;
+
 /// Crate-local result alias.
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub use gdml::deck_csg_to_gdml;
 
 /// Errors raised while translating MCNP CSG to OpenMC XML.
 #[derive(Debug, thiserror::Error)]
@@ -213,6 +226,15 @@ pub enum Error {
         /// Surface carrying the periodic pointer.
         surf: u32,
         /// Why the PHITS direction refuses it.
+        detail: String,
+    },
+    /// A reflecting or periodic boundary has no GDML spelling (Geant4
+    /// expresses boundaries through wrapper code, not geometry markup).
+    #[error("surface {surf} boundary has no gdml spelling: {detail}")]
+    GdmlBoundaryOutOfScope {
+        /// Surface carrying the boundary marker.
+        surf: u32,
+        /// Why the GDML direction refuses it.
         detail: String,
     },
     /// A tally or source card needs translation.
@@ -486,19 +508,19 @@ impl Resolved {
 }
 
 /// Translation working state shared by surface and cell passes.
-struct Ctx<'a> {
+pub(crate) struct Ctx<'a> {
     /// Deck cells by number.
-    cells: BTreeMap<u32, &'a CellCard>,
+    pub(crate) cells: BTreeMap<u32, &'a CellCard>,
     /// Deck surfaces by number.
-    surfs: BTreeMap<u32, &'a SurfCard>,
+    pub(crate) surfs: BTreeMap<u32, &'a SurfCard>,
     /// Macrobody surface number to expansion facet data.
-    macros: BTreeMap<u32, MacroExpansion>,
+    pub(crate) macros: BTreeMap<u32, MacroExpansion>,
     /// Next synthetic surface id (above every deck surface number).
-    next_id: u32,
+    pub(crate) next_id: u32,
     /// Surfaces forced reflective by cell-level `*n` markers.
-    forced_reflective: BTreeSet<u32>,
+    pub(crate) forced_reflective: BTreeSet<u32>,
     /// Drift entries.
-    drift: DriftTable,
+    pub(crate) drift: DriftTable,
 }
 
 /// Half-space expansion of one macrobody surface.
@@ -656,7 +678,7 @@ fn expand_rcc(
 
 /// True when an expression is a single half-space or an intersection of
 /// half-spaces (the only complement targets v1 inlines).
-fn is_flat(expr: &GeomExpr) -> bool {
+pub(crate) fn is_flat(expr: &GeomExpr) -> bool {
     match expr {
         GeomExpr::HalfSpace(_) => true,
         GeomExpr::Intersect(parts) => parts.iter().all(is_flat),
@@ -807,7 +829,7 @@ struct OutCell {
 /// `U=k` and single-universe `FILL n` are honored later via the semantic
 /// universe/fill views (see [`resolve_universes`]); this pass only notes
 /// them in drift and rejects what v2 cannot carry.
-fn check_cell_params(ctx: &mut Ctx<'_>, cell: &CellCard) -> Result<()> {
+pub(crate) fn check_cell_params(ctx: &mut Ctx<'_>, cell: &CellCard) -> Result<()> {
     for param in &cell.params {
         let Some((key, _)) = param.split_once('=') else {
             // Bare keywords (`vol`, `pwt`, ...) carry no geometry.
@@ -870,7 +892,7 @@ fn check_cell_params(ctx: &mut Ctx<'_>, cell: &CellCard) -> Result<()> {
 const TALLY_PREFIXES: [&str; 9] = ["F", "FM", "FC", "E", "DE", "DF", "FT", "FU", "FQ"];
 
 /// Reject out-of-scope data cards and note dropped ones.
-fn check_data_cards(ctx: &mut Ctx<'_>, deck: &DeckProblem) -> Result<()> {
+pub(crate) fn check_data_cards(ctx: &mut Ctx<'_>, deck: &DeckProblem) -> Result<()> {
     for card in &deck.data {
         if card.name.is_empty() {
             continue; // Comment/blank passthrough.
@@ -924,24 +946,24 @@ fn check_data_cards(ctx: &mut Ctx<'_>, deck: &DeckProblem) -> Result<()> {
 
 /// One rectangular (`LAT=1`) lattice ready for emission in all three directions.
 #[derive(Debug, Clone, PartialEq)]
-struct LatticeEmit {
+pub(crate) struct LatticeEmit {
     /// MCNP cell number carrying `LAT=1` plus a full matrix `FILL`.
-    cell: u32,
+    pub(crate) cell: u32,
     /// Emitted lattice id, allocated above every cell and universe number
     /// so it collides with neither id space.
-    id: u32,
+    pub(crate) id: u32,
     /// Matrix minimum indices `[i, j, k]`.
-    min_index: [i32; 3],
+    pub(crate) min_index: [i32; 3],
     /// Matrix maximum indices `[i, j, k]`.
-    max_index: [i32; 3],
+    pub(crate) max_index: [i32; 3],
     /// Element counts `[nx, ny, nz]`.
-    counts: [usize; 3],
+    pub(crate) counts: [usize; 3],
     /// Element universes in MCNP `k, j, i` order (`i` fastest).
-    universes: Vec<u32>,
+    pub(crate) universes: Vec<u32>,
     /// Lower-left corner `[xmin, ymin, zmin]` from the lattice cell bounds.
-    lower: [f64; 3],
+    pub(crate) lower: [f64; 3],
     /// Element pitch `[px, py, pz]` (bounds span divided by the counts).
-    pitch: [f64; 3],
+    pub(crate) pitch: [f64; 3],
 }
 
 impl LatticeEmit {
@@ -1068,7 +1090,10 @@ type ResolvedUniverses = (
 /// non-RPP-bounded lattice cells, and `U=-n` flags ([`Error::TransformOutOfScope`]
 /// for `FILL` transforms, `*FILL` degrees, and `TRCL`, which
 /// [`check_cell_params`] rejects even earlier).
-fn resolve_universes(ctx: &mut Ctx<'_>, deck: &DeckProblem) -> Result<ResolvedUniverses> {
+pub(crate) fn resolve_universes(
+    ctx: &mut Ctx<'_>,
+    deck: &DeckProblem,
+) -> Result<ResolvedUniverses> {
     use nucleide_mcnp_io::semantic::FillTarget;
     let lattice_by_cell: BTreeMap<u32, u8> = deck
         .lattices()?

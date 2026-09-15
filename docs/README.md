@@ -92,7 +92,7 @@ status, and license.
 | [UQ sampling](tutorials/python/uq-sampling.md) | Draw seeded MVN, log-normal, and LHS samples over caller-supplied covariance blocks and perturb decay and fission-yield data |
 | [VR and MAGIC](tutorials/python/vr-magic.md) | Derive weight-window lower bounds with MAGIC, emit them for OpenMC or Serpent, and sample birth voxels through alias tables |
 | [Reaction names](tutorials/python/rxname.md) | Resolve reaction names/ids/MT numbers and walk the parent/daughter reaction graph |
-| [Translate CSG](tutorials/python/translate-csg.md) | Translate scoped MCNP CSG decks to OpenMC, Serpent, or PHITS geometry, with a drift report listing every approximation the translator made |
+| [Translate CSG](tutorials/python/translate-csg.md) | Translate scoped MCNP CSG decks to OpenMC, Serpent, PHITS, or GDML (Geant4) geometry, with a drift report listing every approximation the translator made |
 | [Run tritium](tutorials/python/run-tritium.md) | Solve steady-state and transient 1D tritium permeation with traps and recombination boundaries |
 | [Interactive tutorials](tutorials/interactive/index.mdx) | Run Nucleide in the browser through the WASM build |
 | [Interactive — nuclides](tutorials/interactive/nuclides.mdx) | Nuclide identifiers and nuclear data |

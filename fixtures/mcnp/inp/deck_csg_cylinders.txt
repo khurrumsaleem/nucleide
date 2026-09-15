@@ -1,0 +1,11 @@
+CSG cylinders message
+On-axis cylinders along x, y, and z
+1 1 -1.0 -1 2 -3 imp:n=1 $ inside the x cylinder, outside y, inside z
+2 0 #1 imp:n=0 $ everything else
+
+1 cx 2.0
+2 cy 3.0
+3 cz 4.0
+
+mode n
+m1 92235 1.0

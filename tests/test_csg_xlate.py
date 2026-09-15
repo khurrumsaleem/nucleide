@@ -1,4 +1,4 @@
-"""CSG translation tests: MCNP decks to OpenMC geometry XML (synthetic fixtures)."""
+"""CSG translation tests: MCNP decks to OpenMC/Serpent/PHITS/GDML (synthetic fixtures)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ GO_FIXTURES = [
     "deck_csg_sphere_box.txt",
     "deck_csg_rpp.txt",
     "deck_csg_rcc.txt",
+    "deck_csg_cylinders.txt",
     "deck_csg_complement.txt",
     "deck_csg_universe_fill.txt",
     "deck_csg_universe_data.txt",
@@ -190,6 +191,7 @@ class TestCsgLoudErrors:
                 nucleide.mcnp.parse_csg_to_openmc,
                 nucleide.mcnp.parse_csg_to_serpent,
                 nucleide.mcnp.parse_csg_to_phits,
+                nucleide.mcnp.parse_csg_to_gdml,
             ):
                 with pytest.raises(ValueError, match=match):
                     parse(deck)
@@ -367,4 +369,132 @@ class TestCsgPhits:
         with pytest.raises(ValueError, match="no v1 mapping"):
             nucleide.mcnp.parse_csg_to_phits(
                 "msg\ntitle\n1 1 -1.0 -1\n\n1 kz 0 0 0 1 1\n\nm1 1001 1.0\n"
+            )
+
+
+class TestCsgGdml:
+    def test_go_fixtures_emit_documents(self) -> None:
+        for name in GO_FIXTURES:
+            xml, drift = nucleide.mcnp.read_csg_to_gdml(str(FIXTURES / name))
+            root = ET.fromstring(xml)
+            assert root.tag == "gdml"
+            assert root.get("version") == "3.1.7"
+            for section in ("define", "materials", "solids", "structure", "setup"):
+                assert root.find(section) is not None, (name, section)
+            assert isinstance(drift, list)
+
+    def test_sphere_box_solids(self) -> None:
+        xml, drift = nucleide.mcnp.read_csg_to_gdml(str(FIXTURES / "deck_csg_sphere_box.txt"))
+        root = ET.fromstring(xml)
+        solids_sec = root.find("solids")
+        assert solids_sec is not None
+        solids = {s.get("name"): s for s in solids_sec}
+        # Sphere: origin-centered orb; planes: one cube per surface+sense.
+        assert solids["sl1"].tag == "orb"
+        assert solids["sl1"].get("r") == "5"
+        assert solids["sl2p"].tag == "box"
+        assert solids["sl2m"].tag == "box"
+        # Cell 2 = box minus sphere (its region lists the positive sphere).
+        names = [e.tag for e in solids_sec]
+        assert "intersection" in names and "subtraction" in names
+        actions = [d["action"] for d in drift]
+        assert "halfspace-bounded" in actions
+        assert "material-stub" in actions
+        structure = root.find("structure")
+        assert structure is not None
+        volumes = {v.get("name"): v for v in structure.findall("volume")}
+        vol1_solidref = volumes["vol1"].find("solidref")
+        world_solidref = volumes["world"].find("solidref")
+        assert vol1_solidref is not None and vol1_solidref.get("ref") == "sl1"
+        assert world_solidref is not None and world_solidref.get("ref") == "bigbox"
+
+    def test_rpp_is_native_box_without_expansion(self) -> None:
+        xml, drift = nucleide.mcnp.read_csg_to_gdml(str(FIXTURES / "deck_csg_rpp.txt"))
+        root = ET.fromstring(xml)
+        solids_sec = root.find("solids")
+        assert solids_sec is not None
+        solids = {s.get("name"): s for s in solids_sec}
+        assert solids["sl1"].tag == "box"
+        assert solids["sl1"].get("x") == "10"
+        assert not any(d["action"] == "macrobody-expansion" for d in drift)
+
+    def test_rcc_is_finite_tube_with_caps(self) -> None:
+        xml, drift = nucleide.mcnp.read_csg_to_gdml(str(FIXTURES / "deck_csg_rcc.txt"))
+        root = ET.fromstring(xml)
+        solids_sec = root.find("solids")
+        assert solids_sec is not None
+        solids = {s.get("name"): s for s in solids_sec}
+        tube = solids["sl1t"]
+        assert tube.tag == "tube"
+        assert tube.get("rmax") == "2"
+        assert tube.get("z") == "10"
+        assert any(d["action"] == "macrobody-expansion" for d in drift)
+
+    def test_cylinders_rotate_x_and_y_tubes(self) -> None:
+        xml, _ = nucleide.mcnp.read_csg_to_gdml(str(FIXTURES / "deck_csg_cylinders.txt"))
+        root = ET.fromstring(xml)
+        solids = root.find("solids")
+        assert solids is not None
+        rotations = [e for e in solids.iter() if e.tag == "firstrotation"]
+        angles = {(r.get("x"), r.get("y")) for r in rotations}
+        assert ("0", "1.5707963267948966") in angles
+        assert ("1.5707963267948966", "0") in angles
+
+    def test_complement_and_universe_fill(self) -> None:
+        xml, drift = nucleide.mcnp.read_csg_to_gdml(str(FIXTURES / "deck_csg_complement.txt"))
+        assert "subtraction" in xml
+        assert any(d["action"] == "complement-expansion" for d in drift)
+        xml, drift = nucleide.mcnp.read_csg_to_gdml(str(FIXTURES / "deck_csg_universe_fill.txt"))
+        assert '<assembly name="asm1">' in xml
+        assert any(d["action"] == "fill-applied" for d in drift)
+
+    def test_rect_lattice_expands_placements(self) -> None:
+        xml, drift = nucleide.mcnp.read_csg_to_gdml(str(FIXTURES / "deck_csg_lattice_rect.txt"))
+        root = ET.fromstring(xml)
+        structure = root.find("structure")
+        assert structure is not None
+        vol10 = next(v for v in structure.findall("volume") if v.get("name") == "vol10")
+        placements = vol10.findall("physvol")
+        assert len(placements) == 8
+        positions = set()
+        for put in placements:
+            pos = put.find("position")
+            assert pos is not None
+            positions.add((pos.get("x"), pos.get("y"), pos.get("z")))
+        assert positions == {
+            ("1", "1", "1"),
+            ("3", "1", "1"),
+            ("1", "3", "1"),
+            ("3", "3", "1"),
+            ("1", "1", "3"),
+            ("3", "1", "3"),
+            ("1", "3", "3"),
+            ("3", "3", "3"),
+        }
+        assert any(d["action"] == "lattice-expanded" and d["target"] == "10" for d in drift)
+
+    def test_parse_text_matches_file(self) -> None:
+        path = FIXTURES / "deck_csg_rpp.txt"
+        file_xml, _ = nucleide.mcnp.read_csg_to_gdml(str(path))
+        text_xml, _ = nucleide.mcnp.parse_csg_to_gdml(path.read_text())
+        assert text_xml == file_xml
+
+    def test_boundaries_rejected(self) -> None:
+        with pytest.raises(ValueError, match="no gdml spelling"):
+            nucleide.mcnp.parse_csg_to_gdml("msg\ntitle\n1 0 -1\n\n*1 so 10\n\n")
+        with pytest.raises(ValueError, match="no gdml spelling"):
+            nucleide.mcnp.parse_csg_to_gdml("msg\ntitle\n1 0 *-1\n\n1 so 10\n\n")
+        with pytest.raises(ValueError, match="no gdml spelling"):
+            nucleide.mcnp.parse_csg_to_gdml("msg\ntitle\n1 0 -1 2\n\n1 -2 pz 0\n2 pz 5\n\n")
+
+    def test_out_of_scope_shared(self) -> None:
+        with pytest.raises(ValueError, match="no v1 mapping"):
+            nucleide.mcnp.parse_csg_to_gdml(
+                "msg\ntitle\n1 1 -1.0 -1\n\n1 kz 0 0 0 1 1\n\nm1 1001 1.0\n"
+            )
+        with pytest.raises(ValueError, match="out of v1 scope"):
+            nucleide.mcnp.parse_csg_to_gdml("msg\ntitle\n1 0 -1 u=-1\n\n1 so 10\n\n")
+        with pytest.raises(ValueError, match="axis-aligned BOX"):
+            nucleide.mcnp.parse_csg_to_gdml(
+                "msg\ntitle\n1 1 -1.0 -1\n\n1 box 0 0 0 1 1 0 0 1 0 0 0 1\n\nm1 1001 1.0\n"
             )

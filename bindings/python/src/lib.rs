@@ -5664,6 +5664,54 @@ fn read_csg_to_phits(path: &str) -> PyResult<(String, Vec<BTreeMap<String, Strin
     csg_to_phits_inner(&deck)
 }
 
+/// Translate one deck's CSG to a GDML (Geant4) document.
+///
+/// Returns `(xml, drift)` with the same drift shape as
+/// [`csg_to_openmc_inner`]. Same v3 scope: surfaces, cells, nested
+/// universes (as `<assembly>` volumes), rectangular `LAT=1` lattices
+/// (expanded to per-element placements), and `mat_<n>` material stubs the
+/// caller replaces; reflecting and periodic boundaries raise `ValueError`
+/// (no GDML spelling).
+fn csg_to_gdml_inner(
+    deck: &nucleide_mcnp_io::problem::DeckProblem,
+) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let (xml, table) = nucleide_csg_xlate::deck_csg_to_gdml(deck)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok((
+        xml,
+        table
+            .entries
+            .into_iter()
+            .map(|e| {
+                let mut d = BTreeMap::new();
+                d.insert("scope".to_string(), e.scope.to_string());
+                d.insert("target".to_string(), e.target.to_string());
+                d.insert("action".to_string(), e.action);
+                d.insert("reason".to_string(), e.reason);
+                d
+            })
+            .collect(),
+    ))
+}
+
+/// Translate MCNP deck text to a GDML document plus drift report.
+/// See [`csg_to_gdml_inner`].
+#[pyfunction]
+fn parse_csg_to_gdml(text: &str) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let deck = nucleide_mcnp_io::problem::parse_deck(text)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    csg_to_gdml_inner(&deck)
+}
+
+/// Translate an MCNP deck file to a GDML document plus drift report.
+/// See [`csg_to_gdml_inner`].
+#[pyfunction]
+fn read_csg_to_gdml(path: &str) -> PyResult<(String, Vec<BTreeMap<String, String>>)> {
+    let deck = nucleide_mcnp_io::problem::parse_deck_file(path)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    csg_to_gdml_inner(&deck)
+}
+
 /// A unit-aware decay inventory over a depletion chain.
 #[pyclass(name = "Inventory")]
 struct PyInventory {
@@ -8941,6 +8989,8 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_csg_to_serpent, m)?)?;
     m.add_function(wrap_pyfunction!(parse_csg_to_phits, m)?)?;
     m.add_function(wrap_pyfunction!(read_csg_to_phits, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_csg_to_gdml, m)?)?;
+    m.add_function(wrap_pyfunction!(read_csg_to_gdml, m)?)?;
     m.add_function(wrap_pyfunction!(cumulative_decays, m)?)?;
     m.add_function(wrap_pyfunction!(progeny, m)?)?;
     m.add_function(wrap_pyfunction!(branching_fraction, m)?)?;
