@@ -785,6 +785,7 @@ dependencies = [
  "nucleide-serpent-io",
  "nucleide-spectroscopy",
  "nucleide-tritium",
+ "nucleide-unfold",
  "nucleide-vr-tools",
  "numpy",
  "pyo3",
@@ -978,6 +979,14 @@ version = "0.11.0"
 dependencies = [
  "nucleide-linalg",
  "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "nucleide-unfold"
+version = "0.11.0"
+dependencies = [
+ "nucleide-linalg",
  "thiserror 2.0.20",
 ]
 

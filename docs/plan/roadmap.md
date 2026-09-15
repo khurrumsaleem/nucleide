@@ -87,6 +87,7 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
 - Tokamak fusion neutron sources (`plasma-source`): ring/point D-D and D-T
   sources with ion-temperature-broadened spectra (Brysk 1973; Ballabio 1998),
   seeded sampling to particle vectors, and MCNP SDEF + Serpent source-card
+<<<<<<< HEAD
   emission with drift reports (MCPL projection stays caller-side).
 - Parametric tokamak plasma source (`plasma-source`): Miller-geometry flux
   surfaces (Fausser 2012) with caller-supplied L/H/A-mode profiles,
@@ -99,6 +100,17 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
   and UQ on the folds over caller MVN blocks; the SPECTER report
   (ANL/FPP/TM-197, US-gov PD) is the validation oracle, never vendored
   (ASTM E693/E521 stay designation-only; PKA-spectrum solving stays out).
+=======
+  emission with drift reports (parametric plasma profiles are the follow-up
+  landing; MCPL projection stays caller-side).
+- Neutron spectrum unfolding (`unfold`): SAND-II iterative spectral
+  adjustment (McElroy et al., AFWL-TR-67-41, 1967) of a caller-supplied guess
+  spectrum against measured activation rates over a caller-supplied response
+  matrix, with per-group relative-change convergence diagnostics and a hard
+  `NotConverged` past the explicit iteration cap (STAYSL-class on the shared
+  `lstsq` kernel, GRAVEL, and MAXED are recorded for later cycles; response
+  libraries such as IRDFF are caller-supplied, never vendored).
+>>>>>>> cycle-03
 
 ## Upcoming priorities
 

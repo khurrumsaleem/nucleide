@@ -35,4 +35,8 @@ nucleide-tritium.workspace = true
 nucleide-csg-xlate.workspace = true
 nucleide-linalg.workspace = true
 nucleide-plasma-source.workspace = true
+<<<<<<< HEAD
 nucleide-damage.workspace = true
+=======
+nucleide-unfold.workspace = true
+>>>>>>> cycle-03

@@ -3,8 +3,9 @@
 Nucleide is a modern Rust toolkit for nuclear-engineering data, measurement, and
  workflow glue: legacy transport-code I/O, nuclide identification, materials,
  CRAM depletion, enrichment analytics, point kinetics, gamma-ray spectroscopy,
- tritium transport, fusion neutron sources, variance reduction, UQ sampling,
- CSG translation, and code-card emission — exposed through a typed Python API.
+ tritium transport, fusion neutron sources, spectrum unfolding, variance
+ reduction, UQ sampling, CSG translation, and code-card emission — exposed
+ through a typed Python API.
 
 The project is a fresh Rust implementation of capabilities pioneered by
 [PyNE](https://github.com/pyne/pyne), focused on memory safety, fast builds,
@@ -48,6 +49,7 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | Fusion sources (`nucleide-plasma-source`) | Tokamak neutron sources — ring/point (D-D 2.45 MeV, D-T 14.1 MeV) and a parametric Miller-geometry plasma with caller-supplied L/H/A-mode profiles (Fausser 2012), reactivity-weighted emission (Bosch–Hale 1992), ion-temperature-broadened Gaussian spectra (Brysk/Ballabio), seeded sampling to particle vectors, MCNP SDEF + Serpent source-card emission with drift report |
 | Damage metrics (`nucleide-damage`) | NRT-dpa and arc-dpa displacement functions (NRT 1975; Nordlund 2018), He/H appm production and He/dpa ratios by spectral folding of caller flux with caller response functions, UQ on the folds over caller MVN blocks (SPECTER is the validation oracle, never vendored) |
 | Spectroscopy (`nucleide-spectroscopy`) | Spectrum smoothing, gross/net counting, energy/efficiency calibration, X-ray lines, SPE parsing, decay-line SDEF source cards (E9) fed from caller lists or the runtime decay-lines TSV interchange |
+| Spectrum unfolding (`nucleide-unfold`) | SAND-II iterative spectral adjustment of a guess neutron spectrum against measured activation rates (caller-supplied response matrix), with convergence diagnostics; non-convergence is a hard error |
 | Variance reduction (`nucleide-vr-tools`) | MAGIC weight-window generation, OpenMC/Serpent weight-window emission, mesh source sampling with alias tables |
 | UQ sampling (`nucleide-linalg`) | Seeded MVN + log-normal + LHS draws over caller-supplied covariance blocks, SANDY-compatible estimators, decay-data and fission-yield perturbation consumers |
 | CCCC I/O (`nucleide-cccc-io`) | ISOTXS/RTFLUX text-subset parsers + PARTISN deck writer (no solver) |
@@ -84,8 +86,13 @@ nucleide/
 │   ├── depletion/     # CRAM + chain files
 │   ├── kinetics/      # prescribed-reactivity point kinetics + inhour
 │   ├── tritium/       # 1D diffusion-trapping kernel + permeation checks
+<<<<<<< HEAD
 │   ├── plasma-source/ # tokamak ring/point/parametric-plasma fusion sources + SDEF/Serpent cards
 │   ├── damage/        # NRT/arc-dpa + He/H appm + He/dpa spectral folds + UQ
+=======
+│   ├── plasma-source/ # tokamak ring/point fusion neutron sources + SDEF/Serpent cards
+│   ├── unfold/        # SAND-II neutron spectrum unfolding (activation rates)
+>>>>>>> cycle-03
 │   ├── spectroscopy/  # smoothing, counting, calibration, X-ray, SPE
 │   ├── emit/          # five-dialect card emission + mass-drift reports
 │   └── linalg/        # isolation facade over the linear-algebra backend

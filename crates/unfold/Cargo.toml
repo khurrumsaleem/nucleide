@@ -1,0 +1,16 @@
+[package]
+name = "nucleide-unfold"
+description = "Neutron spectrum unfolding from activation-type measurements (SAND-II iterative adjustment)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+# Forward-declared workspace edge: the SAND-II iteration is self-contained dense
+# real arithmetic, but the crate sits on `linalg` by design — the STAYSL-class
+# least-squares method lands on the shared `lstsq` kernel next cycle, and any
+# least-squares inside this crate must route through it.
+nucleide-linalg.workspace = true

@@ -131,6 +131,33 @@ workspace crates from tags.
   concat order, precision promotion, and extract subsets; new always-run
   U1-U9 gates in `validation/mcpl_vs_refs.py` cover the same contracts.
 
+- Neutron spectrum unfolding in the new `nucleide-unfold` crate (exposed as
+  `nucleide.unfold`): the SAND-II iterative spectral adjustment (McElroy et
+  al., AFWL-TR-67-41, 1967 — US government work, clean-room from the report)
+  as an iterator over a caller-supplied response matrix, measured
+  activation rates, and guess spectrum, with per-group relative-change
+  convergence diagnostics (iteration count, final max change, per-detector
+  measured/folded rate factors). The guess is adjusted by a positivity-
+  preserving weighted geometric mean of per-detector correction factors
+  until the fold reproduces the rates; non-convergence past the explicit
+  iteration cap is a named hard `NotConverged` error — never a silent
+  partial spectrum (the `tritium` face-Newton precedent) — and unreachable
+  measurements (zero response rows or rates wiped by pinned-to-zero groups)
+  are a named `RatesUnreachable`. Every response value and energy-group
+  bound is caller-supplied: IRDFF and other IAEA-copyright libraries are
+  never vendored (a runtime-download pack stays a later decision under the
+  FGR-15 precedent). STAYSL-class least-squares adjustment (on the shared
+  `linalg::lstsq` kernel), GRAVEL, and MAXED are recorded for later
+  one-method-per-cycle landings. Gates are synthetic
+  forward-fold-then-recover round-trips at pinned tolerances plus the
+  IRDFF-II analytical benchmark-field shapes (Trkov et al., Nucl. Data
+  Sheets 163 (2020) 1 — published facts used with citation, not vendored
+  data); the new always-run `validation/unfold_vs_analytic.py` oracle
+  replays them (no external unfolding oracle exists, so no container
+  dependency is added). New-crate checklist applied (workspace/release
+  wiring, `gen-reference` entries, crate-responsibilities section, README
+  feature table).
+
 ## [0.11.0] - 2026-09-14
 
 ### Added

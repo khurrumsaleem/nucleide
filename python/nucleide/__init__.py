@@ -9,6 +9,8 @@ Functionality is grouped into domain submodules mirroring the Rust crates:
 `nucleide.fispact`, `nucleide.origen`, `nucleide.r2s`,
 `nucleide.plasma_source`, and `nucleide.damage`.
 `nucleide.mcpl` reads/writes MCPL particle lists.
+`nucleide.unfold` adjusts a guess neutron spectrum against measured
+activation rates (SAND-II).
 `nucleide.uq` is the seeded UQ-lite sampling kernel (caller-supplied blocks).
 `nucleide.data` fetches repo data files (compendium, sample chains) pinned
 to the installed release.
@@ -35,6 +37,7 @@ from nucleide import (
     serpent,
     spectroscopy,
     tritium,
+    unfold,
     uq,
     vr,
 )
@@ -65,4 +68,5 @@ __all__ = [
     "data",
     "plasma_source",
     "damage",
+    "unfold",
 ]
