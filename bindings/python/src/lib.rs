@@ -6724,6 +6724,207 @@ fn plasma_source_spectrum_moments(
 }
 
 // ---------------------------------------------------------------------------
+// Damage and gas-production metrics (thin glue over `nucleide-damage`)
+// ---------------------------------------------------------------------------
+
+/// Parse a nuclide key (int nucid or str name) into the core [`NuclideId`].
+fn parse_damage_nuclide(key: &Bound<'_, PyAny>) -> PyResult<NuclideId> {
+    if let Ok(nucid) = key.extract::<u32>() {
+        return NuclideId::try_from_nucid(nucid).map_err(wrap_nucid_err);
+    }
+    if let Ok(name) = key.extract::<&str>() {
+        return NuclideId::from_name(name).map_err(wrap_nucid_err);
+    }
+    Err(PyTypeError::new_err("expected int nucid or str name"))
+}
+
+/// NRT-dpa: fold caller dpa cross sections (barns) over the group flux.
+///
+/// `flux` is the per-group integrated flux (n/cm²/s), `bounds` the G+1 MeV
+/// group boundaries, `seconds` the exposure time. Piecewise-constant per
+/// group; zero-flux groups contribute exactly 0.
+#[pyfunction]
+#[pyo3(signature = (flux, response, bounds, seconds))]
+fn damage_nrt_dpa(
+    flux: Vec<f64>,
+    response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+) -> PyResult<f64> {
+    nucleide_damage::nrt_dpa(&flux, &response, &bounds, seconds)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// arc-dpa fold: same as `damage_nrt_dpa` with arc-corrected cross sections.
+#[pyfunction]
+#[pyo3(signature = (flux, response, bounds, seconds))]
+fn damage_arc_dpa(
+    flux: Vec<f64>,
+    response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+) -> PyResult<f64> {
+    nucleide_damage::arc_dpa(&flux, &response, &bounds, seconds)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Gas production in atomic parts per million (He or H, whichever gas the
+/// caller's `response` counts), by the same fold with the appm normalization.
+#[pyfunction]
+#[pyo3(signature = (flux, response, bounds, seconds))]
+fn damage_gas_appm(
+    flux: Vec<f64>,
+    response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+) -> PyResult<f64> {
+    nucleide_damage::gas_appm(&flux, &response, &bounds, seconds)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// He/dpa ratio (appm per dpa) from one fold of the He production and
+/// damage cross sections over the same flux. Zero dpa is a loud error,
+/// never `inf`.
+#[pyfunction]
+#[pyo3(signature = (flux, he_response, damage_response, bounds, seconds))]
+fn damage_he_dpa_ratio(
+    flux: Vec<f64>,
+    he_response: Vec<f64>,
+    damage_response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+) -> PyResult<f64> {
+    nucleide_damage::he_dpa_ratio(&flux, &he_response, &damage_response, &bounds, seconds)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Lindhard partition fraction `P(ε) = 1/(1 + k_L·g(ε))` for a recoil of
+/// energy `t_ev` (eV) stopped in a lattice; nuclides accept an int nucid or
+/// a name string.
+#[pyfunction]
+#[pyo3(signature = (t_ev, recoil, lattice))]
+fn damage_lindhard_partition(
+    t_ev: f64,
+    recoil: &Bound<'_, PyAny>,
+    lattice: &Bound<'_, PyAny>,
+) -> PyResult<f64> {
+    let recoil = parse_damage_nuclide(recoil)?;
+    let lattice = parse_damage_nuclide(lattice)?;
+    nucleide_damage::lindhard_partition(t_ev, &recoil, &lattice)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Lindhard damage energy `T_dam = T·P(ε)` in eV.
+#[pyfunction]
+#[pyo3(signature = (t_ev, recoil, lattice))]
+fn damage_damage_energy(
+    t_ev: f64,
+    recoil: &Bound<'_, PyAny>,
+    lattice: &Bound<'_, PyAny>,
+) -> PyResult<f64> {
+    let recoil = parse_damage_nuclide(recoil)?;
+    let lattice = parse_damage_nuclide(lattice)?;
+    nucleide_damage::damage_energy(t_ev, &recoil, &lattice)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// NRT displacement function `N_d(T)` for a self-recoil `target` (int nucid
+/// or name) with average threshold displacement energy `ed_ev` (eV).
+#[pyfunction]
+#[pyo3(signature = (t_ev, ed_ev, target))]
+fn damage_nrt_displacements(t_ev: f64, ed_ev: f64, target: &Bound<'_, PyAny>) -> PyResult<f64> {
+    let target = parse_damage_nuclide(target)?;
+    nucleide_damage::nrt_displacements(t_ev, ed_ev, &target)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// arc-dpa efficiency `ξ(T_d)` (Nordlund 2018 Eq. (7)) at damage energy
+/// `t_dam_ev` for threshold `ed_ev` and constants `b_arc`/`c_arc`.
+#[pyfunction]
+#[pyo3(signature = (t_dam_ev, ed_ev, b_arc, c_arc))]
+fn damage_arc_efficiency(t_dam_ev: f64, ed_ev: f64, b_arc: f64, c_arc: f64) -> PyResult<f64> {
+    let params = nucleide_damage::ArcParams::new(b_arc, c_arc)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    nucleide_damage::arc_efficiency(t_dam_ev, ed_ev, &params)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// arc-dpa displacement function for a self-recoil `target` with threshold
+/// `ed_ev` (eV) and arc constants `b_arc`/`c_arc`.
+#[pyfunction]
+#[pyo3(signature = (t_ev, ed_ev, target, b_arc, c_arc))]
+fn damage_arc_displacements(
+    t_ev: f64,
+    ed_ev: f64,
+    target: &Bound<'_, PyAny>,
+    b_arc: f64,
+    c_arc: f64,
+) -> PyResult<f64> {
+    let target = parse_damage_nuclide(target)?;
+    let params = nucleide_damage::ArcParams::new(b_arc, c_arc)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    nucleide_damage::arc_displacements(t_ev, ed_ev, &target, &params)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// UQ sweep over the fold: seeded MVN draws over the caller's relative
+/// `[flux, response]` block, refolded per draw, gated at `k` standard
+/// errors against the exact expectation and the first-order propagated
+/// standard deviation (the landed U1–U4/U7 pattern). `metric` is one of
+/// `"nrt_dpa"`, `"arc_dpa"`, `"gas_appm"` (`"he_dpa_ratio"` is a loud
+/// named-open). Returns the sample/analytic moments plus the gate verdict.
+#[pyfunction]
+#[pyo3(signature = (metric, flux, response, bounds, seconds, mean, cov, n, seed, k))]
+#[allow(clippy::too_many_arguments)] // mirrors the core fold_uq signature plus the PyO3 py handle
+fn damage_fold_uq(
+    py: Python<'_>,
+    metric: &str,
+    flux: Vec<f64>,
+    response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+    mean: Vec<f64>,
+    cov: Vec<Vec<f64>>,
+    n: usize,
+    seed: u64,
+    k: f64,
+) -> PyResult<Py<PyAny>> {
+    use nucleide_damage::FoldMetric as M;
+    let metric = match metric
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_")
+        .as_str()
+    {
+        "nrt_dpa" => M::NrtDpa,
+        "arc_dpa" => M::ArcDpa,
+        "gas_appm" => M::GasAppm,
+        "he_dpa_ratio" => M::HeDpaRatio,
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown fold metric `{other}` (supported: nrt_dpa, arc_dpa, gas_appm)"
+            )))
+        }
+    };
+    let s = nucleide_damage::fold_uq(
+        metric, &flux, &response, &bounds, seconds, &mean, &cov, n, seed, k,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    use pyo3::types::PyDict;
+    let out = PyDict::new(py);
+    out.set_item("metric", s.metric.name())?;
+    out.set_item("nominal", s.nominal)?;
+    out.set_item("mean", s.mean)?;
+    out.set_item("std", s.std)?;
+    out.set_item("expected", s.expected)?;
+    out.set_item("analytic_std", s.analytic_std)?;
+    out.set_item("k", s.k)?;
+    out.set_item("n", s.n)?;
+    out.set_item("seed", s.seed)?;
+    out.set_item("passed", s.passed)?;
+    Ok(out.into_any().unbind())
+}
+
+// ---------------------------------------------------------------------------
 // Tritium transport (thin glue over `nucleide-tritium`; solver stays in core)
 // ---------------------------------------------------------------------------
 
@@ -8299,6 +8500,16 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(plasma_source_particles, m)?)?;
     m.add_function(wrap_pyfunction!(plasma_source_emit_cards, m)?)?;
     m.add_function(wrap_pyfunction!(plasma_source_spectrum_moments, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_nrt_dpa, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_arc_dpa, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_gas_appm, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_he_dpa_ratio, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_lindhard_partition, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_damage_energy, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_nrt_displacements, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_arc_efficiency, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_arc_displacements, m)?)?;
+    m.add_function(wrap_pyfunction!(damage_fold_uq, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_steady, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_transient, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_time_lag, m)?)?;

@@ -767,6 +767,7 @@ dependencies = [
  "nucleide-alara-io",
  "nucleide-cccc-io",
  "nucleide-csg-xlate",
+ "nucleide-damage",
  "nucleide-depletion",
  "nucleide-emit",
  "nucleide-enrichment",
@@ -804,6 +805,15 @@ version = "0.11.0"
 dependencies = [
  "nucleide-mcnp-io",
  "quick-xml",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "nucleide-damage"
+version = "0.11.0"
+dependencies = [
+ "nucleide-linalg",
+ "nucleide-nuclei",
  "thiserror 2.0.20",
 ]
 

@@ -89,6 +89,12 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
   seeded sampling to particle vectors, and MCNP SDEF + Serpent source-card
   emission with drift reports (parametric plasma profiles are the follow-up
   landing; MCPL projection stays caller-side).
+- Damage and gas-production metrics (`damage`): NRT-dpa and arc-dpa
+  displacement functions (NRT 1975; Nordlund 2018), He/H appm and He/dpa
+  ratios by spectral folding of caller flux with caller response functions,
+  and UQ on the folds over caller MVN blocks; the SPECTER report
+  (ANL/FPP/TM-197, US-gov PD) is the validation oracle, never vendored
+  (ASTM E693/E521 stay designation-only; PKA-spectrum solving stays out).
 
 ## Upcoming priorities
 

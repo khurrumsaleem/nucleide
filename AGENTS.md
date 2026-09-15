@@ -173,7 +173,7 @@ High-level layout; see the Child NAD Index below for domain-specific details.
   `nuclei`, `material`, `mcnp-io`, `mcpl-io`, `serpent-io`, `fluka-io`,
   `alara-io`, `cccc-io`, `fispact-io`, `origen-io`, `r2s`, `vr-tools`,
   `enrichment`, `depletion`, `linalg`, `emit`, `kinetics`, `spectroscopy`,
-  `plasma-source`.
+  `plasma-source`, `damage`.
 - `bindings/python/` — PyO3 crate exposing `nucleide._internal`; thin facade,
   no business logic.
 - `bindings/wasm/` — `wasm-bindgen` crate that lets tutorials run Nucleide in
@@ -317,6 +317,8 @@ Use `scripts/bump-version.sh X.Y.Z` to bump the workspace version and stamp
 - `crates/plasma-source/AGENTS.md` — tokamak fusion neutron sources
   (ring/point, Brysk–Ballabio spectra, SDEF/Serpent card emission;
   provenance stance, MCPL-caller-side rule, two-part oracle pattern).
+- `crates/damage/AGENTS.md` — damage/gas metrics (NRT/arc-dpa closed forms,
+  fold conventions, SPECTER-oracle-only stance, UQ over caller blocks).
 - `crates/spectroscopy/AGENTS.md` — spectroscopy toolkit (smoothing, counting, calibration, X-ray, SPE readers).
 - `crates/nuclei/AGENTS.md` — EPA FGR 15 external-dosimetry tables
   (runtime hash-pinned download, strict parser gates, synthetic-only tests).

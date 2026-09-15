@@ -58,6 +58,34 @@ workspace crates from tags.
   reader — and always-run structural probes extend the existing `magic`
   validation report (container OpenMC load cross-check; Serpent load is a
   loud SKIP, proprietary and not installed).
+
+- Damage and gas-production metrics in the new `nucleide-damage` crate
+  (exposed as `nucleide.damage`): NRT-dpa (Norgett, Robinson & Torrens,
+  Nucl. Eng. Des. 33 (1975) 50–54 — modified Kinchin–Pease with the
+  Lindhard damage-energy partition via the Robinson fit) and arc-dpa
+  (Nordlund et al., Nat. Commun. 9 (2018) 1084, CC BY 4.0 — piecewise
+  efficiency ξ(T_d)) as closed forms over caller-supplied material
+  constants (`E_d`, `b_arc`, `c_arc`; no fitted table is vendored); He/H
+  production in appm and He/dpa ratios by piecewise-constant-per-group
+  spectral folding of caller `(flux, response, bounds)` slices
+  (`nrt_dpa` / `arc_dpa` / `gas_appm` / `he_dpa_ratio`). Zero-flux groups
+  contribute exactly 0; negative inputs, non-increasing bounds, and the
+  He/dpa ratio at zero dpa are loud named errors — never `inf` (the
+  `ZeroMaxFlux` precedent). `fold_uq` propagates caller-block uncertainty
+  through the landed `linalg` MVN machinery (pinned seed, `k`-standard-
+  error gates against the exact bilinear expectation and the first-order
+  propagated standard deviation; UQ on the ratio is a named-open).
+  SPECTER (Greenwood & Smither, ANL/FPP/TM-197, US-gov PD) is the
+  validation oracle only — `validation/damage_vs_specter.py` folds
+  report-transcribed HFIR-CTR32 spots (Fe/Ti/Cu dpa; C12/Li7/B10/N14 gas)
+  against the runtime hash-pinned PDF at report print precision, loud
+  SKIP outside the container; no SPECTER table is vendored and ASTM
+  E693/E521 stay designation-only. PKA-spectra solving stays out (the
+  fispact-org PKA evaluator is GPL-3.0, never read). New-crate checklist
+  applied (workspace/release wiring, `gen-reference` entries,
+  crate-responsibilities section, README feature table); the
+  `Containerfile` gains `poppler-utils` for the oracle's PDF text
+  extraction.
 - MCPL particle-list utilities in `nucleide-mcpl-io` (exposed as
   `nucleide.mcpl.merge_mcpl` / `extract_mcpl` / `mcpl_stats` /
   `repair_mcpl`, all file-based and `.gz`-transparent): `merge_mcpl`

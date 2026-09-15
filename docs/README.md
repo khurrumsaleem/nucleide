@@ -4,8 +4,8 @@ Welcome! Nucleide is a Rust toolkit for nuclear-engineering workflow glue,
 exposed through a typed Python API: parse legacy code output (MCNP, Serpent,
 FLUKA, ALARA, and friends), build materials, and run solvers for depletion,
 point kinetics, enrichment cascades, spectroscopy, tritium transport, fusion
-neutron sources, and variance reduction, plus uncertainty-quantification
-sampling.
+neutron sources, and variance reduction — plus damage/gas metrics (dpa,
+appm) and uncertainty-quantification sampling.
 These docs are organized by audience, so you can jump straight to what you
 need.
 
@@ -41,7 +41,7 @@ need.
   <text x="530" y="166" text-anchor="middle" class="cm-i">Enrichment cascades &#xb7; Spectroscopy</text>
   <text x="530" y="184" text-anchor="middle" class="cm-i">Variance reduction &#xb7; UQ sampling</text>
   <text x="530" y="202" text-anchor="middle" class="cm-i">Tritium transport &#xb7; Fusion sources</text>
-  <text x="530" y="216" text-anchor="middle" class="cm-s">plus the R2S workflow glue</text>
+  <text x="530" y="216" text-anchor="middle" class="cm-s">Damage metrics (dpa/appm) &#xb7; plus the R2S workflow glue</text>
   <line x1="185" y1="252" x2="185" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
   <line x1="475" y1="252" x2="475" y2="232" class="cm-edge" marker-end="url(#cm-arrow)"/>
   <rect x="110" y="256" width="500" height="40" rx="10" class="cm-bar"/>

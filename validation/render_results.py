@@ -21,6 +21,7 @@ SECTION_ORDER = [
     "magic",
     "kinetics",
     "plasma_source",
+    "damage",
     "spectroscopy",
     "nuclear_data",
     "library",
