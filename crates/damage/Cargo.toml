@@ -1,0 +1,13 @@
+[package]
+name = "nucleide-damage"
+description = "Damage and gas-production metrics (NRT-dpa, arc-dpa, He/H appm, He/dpa) by spectral folding of caller flux with caller damage/gas response functions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+nucleide-linalg.workspace = true
+nucleide-nuclei.workspace = true

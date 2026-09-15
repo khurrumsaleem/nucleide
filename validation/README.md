@@ -121,6 +121,17 @@ revised the file. As a U.S. federal government work the FGR 15 tables carry
 no copyright, but they are still not vendored — users and the harness fetch
 from EPA directly.
 
+`damage_vs_specter.py` additionally downloads the SPECTER manual (Greenwood
+& Smither, ANL/FPP/TM-197, January 1985 — a U.S. government work, public
+domain) from OSTI at `https://www.osti.gov/servlets/purl/6022143`, cached at
+`validation/.cache/specter_anl_fpp_tm_197.pdf` on first use and re-downloaded
+only if absent. The download is pinned to SHA-256
+`489bca1482ffb33c160329283c0bbb2245841d2808458749ff431caf8d89ce44`
+(retrieved 2026-09-15); a hash mismatch fails loudly. The oracle uses the
+container's `pdftotext` (poppler-utils) to anchor a handful of transcribed
+output spots against the report text; the 41-isotope displacement tables are
+never vendored — SPECTER stays an oracle, not a data source.
+
 The 0.3.0 oracle additions need no new downloads: `nuclear_data_vs_refs.py`
 reads PyNE's bundled `nuc_data.h5` (`/neutron/simple_xs` via
 `pyne.xs.data_source.SimpleDataSource`) in place, checks scattering lengths

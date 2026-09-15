@@ -93,6 +93,12 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
   reactivity-weighted emission (Bosch–Hale 1992), Miller-Jacobian volume
   gates, and marginal-histogram source cards with joint-correlation drift
   (fuel mixtures and sectors stay loud errors).
+- Damage and gas-production metrics (`damage`): NRT-dpa and arc-dpa
+  displacement functions (NRT 1975; Nordlund 2018), He/H appm and He/dpa
+  ratios by spectral folding of caller flux with caller response functions,
+  and UQ on the folds over caller MVN blocks; the SPECTER report
+  (ANL/FPP/TM-197, US-gov PD) is the validation oracle, never vendored
+  (ASTM E693/E521 stay designation-only; PKA-spectrum solving stays out).
 
 ## Upcoming priorities
 

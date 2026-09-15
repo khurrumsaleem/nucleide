@@ -213,6 +213,23 @@ proton branch. MCPL projection stays caller-side (`vr-tools` KDE layering
 rule). Depends on `nucleide-mcnp-io` and `nucleide-nuclei`; never on
 `mcpl-io`, never on bindings.
 
+### `nucleide-damage`
+
+Damage and gas-production metrics by spectral folding: the NRT-dpa
+displacement function (Norgett–Robinson–Torrens 1975, modified
+Kinchin–Pease with the Lindhard damage-energy partition via the Robinson
+fit) and the arc-dpa efficiency correction (Nordlund et al. 2018,
+CC BY 4.0) as closed forms over caller-supplied material constants; He/H
+production in appm and He/dpa ratios from piecewise-constant-per-group
+folds of caller `(flux, response, bounds)` slices; UQ on the folds over
+caller MVN blocks through `linalg::sample` (pinned-seed, k-SE gates).
+Zero-flux groups contribute exactly 0; the He/dpa ratio at zero dpa is a
+named error, never `inf`. No displacement tables are vendored: ASTM
+E693/E521 are designation-only, SPECTER (ANL/FPP/TM-197, US-gov PD) is the
+validation oracle only, and PKA-spectra solving stays out (the fispact-org
+PKA evaluator is GPL-3.0, never read). Depends on `nucleide-linalg` and
+`nucleide-nuclei`; bindings depend on it, never the reverse.
+
 ### `nucleide-emit`
 
 Single-material emission to MCNP/Serpent/FLUKA/ALARA/PARTISN cards plus a
@@ -260,14 +277,15 @@ When publishing to crates.io, publish in dependency order:
 12. `nucleide-spectroscopy`
 13. `nucleide-tritium`
 14. `nucleide-plasma-source`
-15. `nucleide-vr-tools`
-16. `nucleide-alara-io`
-17. `nucleide-cccc-io`
-18. `nucleide-fispact-io`
-19. `nucleide-origen-io`
-20. `nucleide-r2s`
-21. `nucleide-emit`
-22. `nucleide-bindings`
+15. `nucleide-damage`
+16. `nucleide-vr-tools`
+17. `nucleide-alara-io`
+18. `nucleide-cccc-io`
+19. `nucleide-fispact-io`
+20. `nucleide-origen-io`
+21. `nucleide-r2s`
+22. `nucleide-emit`
+23. `nucleide-bindings`
 
 (`nucleide-wasm` is cdylib-only and never published; keep this list in
 sync with the publish list in `.github/workflows/release.yml`.)

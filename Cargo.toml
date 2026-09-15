@@ -22,6 +22,7 @@ members = [
     "crates/csg-xlate",
     "crates/tritium",
     "crates/plasma-source",
+    "crates/damage",
     "bindings/python",
     "bindings/wasm",
 ]
@@ -56,6 +57,7 @@ nucleide-mcpl-io = { path = "crates/mcpl-io", version = "0.11.0" }
 nucleide-csg-xlate = { path = "crates/csg-xlate", version = "0.11.0" }
 nucleide-tritium = { path = "crates/tritium", version = "0.11.0" }
 nucleide-plasma-source = { path = "crates/plasma-source", version = "0.11.0" }
+nucleide-damage = { path = "crates/damage", version = "0.11.0" }
 
 # --- shared stack (crates opt in per feature as they land) ---
 # abi3-py310: one wheel per platform serves all Python >= 3.10
