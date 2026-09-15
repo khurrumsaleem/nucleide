@@ -22,6 +22,7 @@ SECTION_ORDER = [
     "kinetics",
     "plasma_source",
     "damage",
+    "clearance",
     "unfold",
     "spectroscopy",
     "nuclear_data",

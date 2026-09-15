@@ -3721,6 +3721,100 @@ fn fispact_parse_output(
     Ok(rows.iter().map(|r| fispact_row_to_map(py, r)).collect())
 }
 
+/// Parse the FISPACT-II clearance block (wide `HAZARDS` + `CLEAR` inventory
+/// table) into a list of row dicts.
+///
+/// Each row carries: `interval` (int), `time_s`, `time_label`, `cooling`
+/// (bool), `nuclide` (dialect spelling, e.g. `"Co-60"`, `"Rb-86m"`), `flags`
+/// (str), `activity_bq`, `clearance_index`, `half_life_s` (`-1.0` for
+/// `Stable`). The grammar is the real FISPACT-II main-output inventory
+/// section (see the `fispact-io` `clearance` module docs for the citable
+/// on-disk source). Raises `ValueError` on malformed headers/rows.
+#[pyfunction]
+fn fispact_parse_clearance(
+    py: Python<'_>,
+    text: &str,
+) -> PyResult<Vec<BTreeMap<String, Py<PyAny>>>> {
+    let owned_text = text.to_owned();
+    let scan = py
+        .detach(move || nucleide_fispact_io::parse_clearance(&owned_text))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(scan
+        .rows
+        .iter()
+        .map(|row| {
+            let mut d = BTreeMap::new();
+            d.insert(
+                "interval".to_string(),
+                row.interval.into_pyobject(py).unwrap().unbind().into_any(),
+            );
+            d.insert(
+                "time_s".to_string(),
+                row.time_s.into_pyobject(py).unwrap().unbind().into_any(),
+            );
+            d.insert(
+                "time_label".to_string(),
+                row.time_label
+                    .clone()
+                    .into_pyobject(py)
+                    .unwrap()
+                    .unbind()
+                    .into_any(),
+            );
+            d.insert(
+                "cooling".to_string(),
+                pyo3::types::PyBool::new(py, row.cooling)
+                    .to_owned()
+                    .into_any()
+                    .unbind(),
+            );
+            d.insert(
+                "nuclide".to_string(),
+                row.nuclide
+                    .clone()
+                    .into_pyobject(py)
+                    .unwrap()
+                    .unbind()
+                    .into_any(),
+            );
+            d.insert(
+                "flags".to_string(),
+                row.flags
+                    .clone()
+                    .into_pyobject(py)
+                    .unwrap()
+                    .unbind()
+                    .into_any(),
+            );
+            d.insert(
+                "activity_bq".to_string(),
+                row.activity_bq
+                    .into_pyobject(py)
+                    .unwrap()
+                    .unbind()
+                    .into_any(),
+            );
+            d.insert(
+                "clearance_index".to_string(),
+                row.clearance_index
+                    .into_pyobject(py)
+                    .unwrap()
+                    .unbind()
+                    .into_any(),
+            );
+            d.insert(
+                "half_life_s".to_string(),
+                row.half_life_s
+                    .into_pyobject(py)
+                    .unwrap()
+                    .unbind()
+                    .into_any(),
+            );
+            d
+        })
+        .collect())
+}
+
 // ---------------------------------------------------------------------------
 // ORIGEN TAPE readers (thin glue over `origen-io`; scoped TAPE5/6/9)
 // ---------------------------------------------------------------------------
@@ -8239,6 +8333,127 @@ fn alara_schedule_total_time(deck_text: &str, top: Option<&str>) -> PyResult<f64
     Ok(nucleide_alara_io::schedule::total_time(&steps))
 }
 
+/// Vendored EU 2013/59/Euratom Annex VII Table A clearance levels.
+///
+/// Returns a dict mapping nuclide names (GNDS spelling, e.g. `"H-3"`,
+/// `"Co-60"`) to activity-concentration clearance levels in Bq/g (numerically
+/// identical to the directive's kBq/kg). Official legal text transcribed from
+/// EUR-Lex CELEX:32013L0059 (Annex VII Table A, accessed 2026-09-15),
+/// reusable with attribution per Decision (EU) 2011/833. Screening default
+/// only — see `nucleide-alara-io` `clearance` for the unit-basis contract.
+#[pyfunction]
+fn alara_clearance_eu_table() -> BTreeMap<String, f64> {
+    nucleide_alara_io::ClearanceTable::eu_annex_vii()
+        .iter()
+        .map(|(nuc, limit)| (nucleide_nuclei::dialects::serpent(nuc), limit))
+        .collect()
+}
+
+/// Resolve a caller-supplied inventory/limits dict key to a `NuclideId`.
+fn clearance_key(key: &str) -> PyResult<NuclideId> {
+    nucleide_nuclei::dialects::normalize_nuclide_name(key)
+        .map_err(|e| PyValueError::new_err(format!("bad nuclide name `{key}`: {e}")))
+}
+
+/// Build `(NuclideId, f64)` pairs from a `{name: value}` dict.
+fn clearance_pairs(map: &BTreeMap<String, f64>, what: &str) -> PyResult<Vec<(NuclideId, f64)>> {
+    map.iter()
+        .map(|(name, value)| Ok((clearance_key(name)?, *value)))
+        .collect::<PyResult<_>>()
+        .map_err(|e| PyValueError::new_err(format!("{what}: {e}")))
+}
+
+/// Build a caller-supplied clearance table from a `{name: limit_Bq_per_g}` dict.
+fn clearance_table_from(
+    map: &BTreeMap<String, f64>,
+) -> PyResult<nucleide_alara_io::ClearanceTable> {
+    let mut table = nucleide_alara_io::ClearanceTable::new();
+    for (nuc, limit) in clearance_pairs(map, "limits")? {
+        table
+            .insert(nuc, limit)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    }
+    Ok(table)
+}
+
+/// Clearance index CI = sum_i A_i / CL_i over a parsed inventory.
+///
+/// `inventory` maps nuclide names to activities; `limits` maps nuclide names
+/// to clearance levels (a dict, or None for the vendored EU 2013/59/Euratom
+/// Annex VII Table A default in Bq/g). Activities and limits must share one
+/// unit basis (Bq/g against the default table). Every inventory nuclide must
+/// have a limit entry; negative/non-finite activities raise `ValueError`.
+#[pyfunction]
+#[pyo3(signature = (inventory, limits=None))]
+fn alara_clearance_index(
+    inventory: BTreeMap<String, f64>,
+    limits: Option<BTreeMap<String, f64>>,
+) -> PyResult<f64> {
+    let table = match limits {
+        Some(map) => clearance_table_from(&map)?,
+        None => nucleide_alara_io::ClearanceTable::eu_annex_vii(),
+    };
+    let pairs = clearance_pairs(&inventory, "inventory")?;
+    nucleide_alara_io::clearance_index(&pairs, &table)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Sum-of-fractions screening over a parsed inventory.
+///
+/// Same inputs as `alara_clearance_index`. Returns a dict with `sum`
+/// (sum_i A_i / CL_i), `class` ("satisfied" when the sum does not exceed 1,
+/// boundary included; "exceeded" otherwise), `max_fraction`, and
+/// `max_nuclide` (dominant contributor, or None for an empty inventory).
+/// RS-G-1.7 §5 rule referenced by
+/// designation; screening arithmetic, not a compliance decision.
+#[pyfunction]
+#[pyo3(signature = (inventory, limits=None))]
+fn alara_sum_of_fractions(
+    py: Python<'_>,
+    inventory: BTreeMap<String, f64>,
+    limits: Option<BTreeMap<String, f64>>,
+) -> PyResult<BTreeMap<String, Py<PyAny>>> {
+    let table = match limits {
+        Some(map) => clearance_table_from(&map)?,
+        None => nucleide_alara_io::ClearanceTable::eu_annex_vii(),
+    };
+    let pairs = clearance_pairs(&inventory, "inventory")?;
+    let out = nucleide_alara_io::sum_of_fractions(&pairs, &table)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let mut d = BTreeMap::new();
+    d.insert(
+        "sum".to_string(),
+        out.sum.into_pyobject(py).unwrap().unbind().into_any(),
+    );
+    d.insert(
+        "class".to_string(),
+        out.class
+            .to_string()
+            .into_pyobject(py)
+            .unwrap()
+            .unbind()
+            .into_any(),
+    );
+    d.insert(
+        "max_fraction".to_string(),
+        out.max_fraction
+            .into_pyobject(py)
+            .unwrap()
+            .unbind()
+            .into_any(),
+    );
+    d.insert(
+        "max_nuclide".to_string(),
+        out.max_nuclide
+            .map(nucleide_nuclei::dialects::serpent)
+            .into_pyobject(py)
+            .unwrap()
+            .unbind()
+            .into_any(),
+    );
+    Ok(d)
+}
+
 /// Find a TAPE6 record by nuclide name, or None.
 #[pyfunction]
 fn origen_tape6_find(py: Python<'_>, text: &str, nuclide: &str) -> PyResult<Option<Py<PyAny>>> {
@@ -8627,6 +8842,9 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(alara_output_total_activity, m)?)?;
     m.add_function(wrap_pyfunction!(alara_photon_total_strength, m)?)?;
     m.add_function(wrap_pyfunction!(alara_schedule_total_time, m)?)?;
+    m.add_function(wrap_pyfunction!(alara_clearance_eu_table, m)?)?;
+    m.add_function(wrap_pyfunction!(alara_clearance_index, m)?)?;
+    m.add_function(wrap_pyfunction!(alara_sum_of_fractions, m)?)?;
     m.add_function(wrap_pyfunction!(isotxs_parse, m)?)?;
     m.add_function(wrap_pyfunction!(rtflux_parse, m)?)?;
     m.add_function(wrap_pyfunction!(cccc_rtflux_npoints, m)?)?;
@@ -8637,6 +8855,7 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(partisn_render, m)?)?;
     m.add_function(wrap_pyfunction!(partisn_validate, m)?)?;
     m.add_function(wrap_pyfunction!(fispact_parse_output, m)?)?;
+    m.add_function(wrap_pyfunction!(fispact_parse_clearance, m)?)?;
     m.add_function(wrap_pyfunction!(fispact_is_output, m)?)?;
     m.add_function(wrap_pyfunction!(origen_parse_tape5, m)?)?;
     m.add_function(wrap_pyfunction!(origen_parse_tape6, m)?)?;

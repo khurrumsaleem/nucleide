@@ -102,7 +102,10 @@ Depends on `nucleide-nuclei`.
 ### `nucleide-alara-io`
 
 ALARA activation-code interop: input-deck, group-flux, material/element/WDR
-library, activation-output, photon-source, and schedule-expansion glue. Depends
+library, activation-output, photon-source, and schedule-expansion glue, plus
+clearance / waste-classification analytics (clearance index and the
+sum-of-fractions rule over parsed inventories, with the EU 2013/59/Euratom
+Annex VII Table A vendored as the default limit table). Depends
 on `nucleide-nuclei` only among workspace crates; the solver stays inside ALARA.
 
 ### `nucleide-enrichment`
@@ -170,7 +173,8 @@ scope.
 ### `nucleide-fispact-io`
 
 FISPACT-II inventory-output parser producing ALARA-compatible response
-frames (`nucleide-alara-io` `ResponseFrame` rows). Depends on `nucleide-alara-io` and `nucleide-nuclei`;
+frames (`nucleide-alara-io` `ResponseFrame` rows), plus the clearance-bearing
+wide inventory table printed with the `HAZARDS` + `CLEAR` keywords. Depends on `nucleide-alara-io` and `nucleide-nuclei`;
 activation solving stays inside FISPACT-II.
 
 ### `nucleide-origen-io`

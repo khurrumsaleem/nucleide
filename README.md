@@ -41,7 +41,7 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | MCPL I/O (`nucleide-mcpl-io`) | Monte Carlo Particle List interchange reader/writer (format versions 2/3, single/double precision, gzip-transparent) plus SSW↔MCPL conversion and the merge/extract/stats/repair particle-list utilities |
 | Serpent I/O (`nucleide-serpent-io`) | `_res.m`, `_dep.m`, `_det.m` readers producing structured records |
 | FLUKA I/O (`nucleide-fluka-io`) | USRBIN tally reader, material/compound card generation |
-| ALARA I/O (`nucleide-alara-io`) | Deck/flux/matlib-elelib-WDR/output/photon/schedule-expansion glue; solver out of scope |
+| ALARA I/O (`nucleide-alara-io`) | Deck/flux/matlib-elelib-WDR/output/photon/schedule-expansion glue; solver out of scope. Clearance / waste-classification analytics: clearance index CI = Σ Aᵢ/CLᵢ and the sum-of-fractions screening rule over parsed inventories, caller-supplied limit tables plus the EU 2013/59/Euratom Annex VII Table A vendored default (screening arithmetic, never a compliance decision) |
 | Depletion (`nucleide-depletion`) | CRAM (orders 16/48) matrix exponential, analytic Bateman fast path (`method=` selector with CRAM-48 fallback), depletion-chain XML parsing, Predictor/CECM/CF4 time-series integrators with activity/decay-heat observables, unit-aware decay inventories, cumulative decays and chain-lineage queries |
 | Enrichment (`nucleide-enrichment`) | Multicomponent cascade solver (numeric), SWU closed-form helpers |
 | Point kinetics (`nucleide-kinetics`) | Prescribed-reactivity PKE solver, inhour roots, prompt-jump factor |
@@ -53,7 +53,7 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | Variance reduction (`nucleide-vr-tools`) | MAGIC weight-window generation, OpenMC/Serpent weight-window emission, mesh source sampling with alias tables |
 | UQ sampling (`nucleide-linalg`) | Seeded MVN + log-normal + LHS draws over caller-supplied covariance blocks, SANDY-compatible estimators, decay-data and fission-yield perturbation consumers |
 | CCCC I/O (`nucleide-cccc-io`) | ISOTXS/RTFLUX text-subset parsers + PARTISN deck writer (no solver) |
-| FISPACT I/O (`nucleide-fispact-io`) | FISPACT-II inventory output parser reusing the ALARA response frame (output-only) |
+| FISPACT I/O (`nucleide-fispact-io`) | FISPACT-II inventory output parser reusing the ALARA response frame, plus the clearance-bearing wide inventory table printed with the `HAZARDS` + `CLEAR` keywords (output-only) |
 | ORIGEN I/O (`nucleide-origen-io`) | Scoped ORIGEN 2.2 TAPE5 input-echo, TAPE6 inventory, and TAPE9 decay readers |
 | R2S (`nucleide-r2s`) | Scoped R2S workflow builder: zone-to-flux linking, schedule expansion, photon assembly (uniform-split placeholder plus per-voxel source tags and `.photonSrc` group spectra), ARMI database-snapshot adapter |
 | Emit (`nucleide-emit`) | Single-material emission to MCNP/Serpent/FLUKA/ALARA/PARTISN cards with mass-drift report, plus an ARMI blueprint-key bridge |
@@ -76,9 +76,9 @@ nucleide/
 │   ├── mcpl-io/       # MCPL interchange read/write + SSW conversion + merge/extract/stats/repair
 │   ├── serpent-io/    # res/dep/det readers
 │   ├── fluka-io/      # usrbin reader, material cards
-│   ├── alara-io/      # ALARA deck/flux/libs/output/photon/schedule glue (no solver)
+│   ├── alara-io/      # ALARA deck/flux/libs/output/photon/schedule glue + clearance analytics (no solver)
 │   ├── cccc-io/       # ISOTXS/RTFLUX text-subset parsers + PARTISN writer (no solver)
-│   ├── fispact-io/    # FISPACT-II inventory output parser (output-only)
+│   ├── fispact-io/    # FISPACT-II inventory output + CLEAR-keyword clearance table (output-only)
 │   ├── origen-io/     # scoped ORIGEN TAPE5/6/9 readers
 │   ├── r2s/           # scoped R2S workflow builder (photon tags + spectra)
 │   ├── vr-tools/      # MAGIC weight windows + OpenMC/Serpent emission, source sampling

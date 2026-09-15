@@ -96,3 +96,12 @@ RUN pip install --no-cache-dir "sandy==1.1.0" \
 # is missing (e.g. local runs without this layer).
 RUN pip install --no-cache-dir --no-deps "openmc-plasma-source==0.7.0" "NeSST==1.1.5" \
  && python -c "import openmc_plasma_source; print('openmc-plasma-source oracle available')"
+
+# pypact: upstream Apache-2.0 FISPACT-II output reader for
+# validation/clearance_vs_pypact.py (oracle cross-check of the overlapping
+# inventory columns: atoms, activity, clearance index, on the synthetic
+# clearance fixture in the real wide-table grammar). Pure Python; pinned for
+# reproducibility; the oracle leg SKIPs loudly when the import is missing
+# (e.g. local runs without this layer).
+RUN pip install --no-cache-dir "pypact==1.3.8" \
+ && python -c "import pypact.reader; print('pypact oracle available')"

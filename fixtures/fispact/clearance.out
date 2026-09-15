@@ -1,0 +1,41 @@
+# SYNTHETIC FISPACT-II-style inventory print with the CLEAR (clearance index) column.
+# Authored for nucleide in the real FISPACT-II wide-table grammar (HAZARDS + CLEAR
+# keywords); layout cross-checked against the fispact/workshops reference outputs
+# (Apache-2.0, 2020/exercises/files/basic/compressxs/ref/inventorywithcompress_ref.out)
+# but all numbers below are synthetic hand-picked round values, not copied output.
+#
+# Grammar mirrored (FISPACT-II main output inventory section, CLEAR keyword on):
+#   TIME INTERVAL header: `1 * * * TIME INTERVAL <n> * * * ... TIME IS <v> SECS ...`
+#     (irradiation) or `... COOLING TIME IS <v> SECS OR ...` (cooling steps).
+#   Two-line column header: `NUCLIDE ATOMS GRAMS Bq b-Energy a-Energy g-Energy
+#     DOSE RATE INGESTION INHALATION CLEARANCE Bq/A2 HALF LIFE` + units row.
+#   Data rows: `<sym> <mass>[<isomer>] [<flags>] <11 floats> <half-life|Stable>`.
+#   Flags (NB legend): `#` stable, `>` present before irradiation, `&` gamma
+#     spectrum approximately calculated, `?` convergence not reached.
+#   Table closes at `0 TOTAL NUMBER OF NUCLIDES PRINTED IN INVENTORY = ...`.
+1 * * * TIME INTERVAL   1 * * * * * * * TIME IS   0.0000E+00 SECS * * * ELAPSED TIME IS   0.000ps   * * * FLUX AMP IS  1.1000E+14 /cm^2/s * * * * * * * * * * * * * *
+  NUCLIDE        ATOMS         GRAMS        Bq       b-Energy    a-Energy   g-Energy    DOSE RATE   INGESTION  INHALATION   CLEARANCE     Bq/A2     HALF LIFE
+                                                        kW          kW         kW         Sv/hr      DOSE(Sv)    DOSE(Sv)     INDEX       Ratio      seconds
+
+  V  55     > 2.00000E+20   1.000E-01   0.000E+00   0.000E+00   0.00E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00     Stable
+  Fe 56    #> 1.00000E+20   1.000E-01   0.000E+00   0.000E+00   0.00E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00     Stable
+  Co 60     > 1.00000E+15   1.000E-07   4.000E+06   1.000E-06   0.00E+00   2.000E-06   1.000E+00   1.000E+00   1.000E+00   1.000E+06   1.000E+00   1.6636E+08
+  Rb 86m  &  2.00000E+10   2.000E-12   8.000E+09   4.000E-06   0.00E+00   8.000E-06   2.000E+00   2.000E+00   2.000E+00   4.000E+09   2.000E+00   6.100E+01
+0  TOTAL NUMBER OF NUCLIDES PRINTED IN INVENTORY =    4
+0  TOTAL ACTIVITY FOR ALL MATERIALS     1.20001E+10 Bq              TOTAL Bq/A2 RATIOS  3.00E+00  EFFECTIVE A2  4.00E+09 Bq
+   TOTAL ACTIVITY EXCLUDING TRITIUM     1.20001E+10 Bq
+0  INGESTION  HAZARD FOR ALL MATERIALS  3.00000E+00 Sv/kg
+   INHALATION HAZARD FOR ALL MATERIALS  3.00000E+00 Sv/kg
+                                   | NB: IN FOLLOWING TABLES                     |
+                                   |                         ? MEANS CONVERGENCE NOT REACHED FOR NUCLIDE         |
+                                   -------------------------------------------------------------------------------
+                                   V                                                                             V
+1 * * * TIME INTERVAL   2 * * * * * * * COOLING TIME IS   8.6400E+04 SECS OR  1.0000E+00 DAYS  * * * ELAPSED TIME IS   1.040 d   * * * FLUX AMP IS  0.0000E+00 /cm^2/s * * *
+  NUCLIDE        ATOMS         GRAMS        Bq       b-Energy    a-Energy   g-Energy    DOSE RATE   INGESTION  INHALATION   CLEARANCE     Bq/A2     HALF LIFE
+                                                        kW          kW         kW         Sv/hr      DOSE(Sv)    DOSE(Sv)     INDEX       Ratio      seconds
+
+  Fe 56    #> 1.00000E+20   1.000E-01   0.000E+00   0.000E+00   0.00E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00   0.000E+00     Stable
+  Co 60     > 9.50000E+14   9.500E-08   3.800E+06   9.500E-07   0.00E+00   1.900E-06   9.500E-01   9.500E-01   9.500E-01   9.500E+05   9.500E-01   1.6636E+08
+  Rb 86m    > 1.00000E+08   1.000E-14   4.000E+07   2.000E-08   0.00E+00   4.000E-08   1.000E-02   1.000E-02   1.000E-02   2.000E+07   1.000E-02   6.100E+01
+0  TOTAL NUMBER OF NUCLIDES PRINTED IN INVENTORY =    3
+0  TOTAL ACTIVITY FOR ALL MATERIALS     4.00038E+07 Bq              TOTAL Bq/A2 RATIOS  1.20E+01  EFFECTIVE A2  3.33E+06 Bq

@@ -3,10 +3,14 @@
 //!
 //! Reads FISPACT-II `.fis` inventory tables into
 //! [`nucleide_alara_io::output::ResponseFrame`] rows so ALARA and FISPACT-II results
-//! share one analysis shape. No activation solving is performed here.
+//! share one analysis shape, plus the wide clearance-bearing inventory table
+//! printed with the `HAZARDS` + `CLEAR` keywords ([`clearance`]). No
+//! activation solving is performed here.
 
+pub mod clearance;
 pub mod error;
 pub mod inventory;
 
+pub use clearance::{parse_clearance, ClearanceRow, ClearanceScan};
 pub use error::{Error, Result};
 pub use inventory::{is_fispact_output, parse_to_frame};

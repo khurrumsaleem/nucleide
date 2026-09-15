@@ -21,7 +21,11 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
 - Serpent `_res.m`, `_dep.m`, `_det.m` readers (`serpent-io`).
 - FLUKA USRBIN reader and material/compound card generation (`fluka-io`).
 - ALARA Phase 1 interop (`alara-io`): deck/flux/libs/output/photon/schedule
-  glue (solver out of scope).
+  glue (solver out of scope), plus clearance / waste-classification
+  analytics: clearance index CI = Σ Aᵢ/CLᵢ and sum-of-fractions screening
+  over parsed inventories, caller-supplied limit tables with the EU
+  2013/59/Euratom Annex VII Table A vendored default (screening arithmetic,
+  never a compliance decision).
 - CRAM depletion solver and chain XML parsing (`depletion`).
 - Multicomponent enrichment cascade solver (`enrichment`).
 - MAGIC weight windows with OpenMC (`settings.xml`) and Serpent (WWINP
@@ -29,7 +33,8 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
 - CCCC text-subset parsers + PARTISN writer (`cccc-io`): ISOTXS/RTFLUX
   readers and deck validation (no solver).
 - FISPACT-II inventory output parser (`fispact-io`): output-only, reusing the
-  ALARA response frame.
+  ALARA response frame, plus the clearance-bearing wide inventory table
+  printed with the `HAZARDS` + `CLEAR` keywords.
 - Scoped ORIGEN 2.2 TAPE5/6/9 readers (`origen-io`).
 - R2S orchestrator landed as a scoped workflow builder (`r2s`): zone-to-flux
   linking, schedule expansion, and uniform-split photon assembly (transport

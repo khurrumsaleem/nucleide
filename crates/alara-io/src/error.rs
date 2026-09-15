@@ -39,6 +39,24 @@ pub enum Error {
     /// An unrecognized or inconsistent physical unit.
     #[error("bad units: {0}")]
     BadUnits(String),
+    /// A clearance computation met an inventory nuclide absent from the
+    /// caller-supplied (or vendored) clearance limit table.
+    #[error("nuclide {nuclide} has no clearance limit (table holds {table_len} entries)")]
+    MissingClearanceLimit {
+        /// Name of the unmatched nuclide.
+        nuclide: String,
+        /// Number of entries in the clearance table consulted.
+        table_len: usize,
+    },
+    /// A clearance input value was rejected: negative or non-finite activity,
+    /// or a non-positive/non-finite limit.
+    #[error("bad clearance value for {nuclide}: {msg}")]
+    BadClearanceValue {
+        /// Name of the offending nuclide.
+        nuclide: String,
+        /// What was expected versus what was found.
+        msg: String,
+    },
 }
 
 #[cfg(test)]
@@ -64,6 +82,25 @@ mod tests {
 
         let error = Error::BadUnits("fortnight".to_string());
         assert!(error.to_string().contains("fortnight"));
+    }
+
+    #[test]
+    fn clearance_variants_display_key_context() {
+        let error = Error::MissingClearanceLimit {
+            nuclide: "Mn54".to_string(),
+            table_len: 3,
+        };
+        let text = error.to_string();
+        assert!(text.contains("Mn54"), "msg was `{text}`");
+        assert!(text.contains("3"), "msg was `{text}`");
+
+        let error = Error::BadClearanceValue {
+            nuclide: "Co60".to_string(),
+            msg: "activity must be finite and >= 0, got -1".to_string(),
+        };
+        let text = error.to_string();
+        assert!(text.contains("Co60"), "msg was `{text}`");
+        assert!(text.contains("-1"), "msg was `{text}`");
     }
 
     #[test]

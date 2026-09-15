@@ -1,15 +1,26 @@
 """ALARA activation-code interop (backed by the `nucleide-alara-io` crate).
 
 Thin glue over ALARA input decks, group-flux files, activation-output
-listings, photon sources, and schedule expansion. The solver itself stays out of scope.
+listings, photon sources, schedule expansion, and clearance / waste-
+classification analytics (clearance index + sum-of-fractions screening).
+The solver itself stays out of scope.
 
 Schedule-expansion choice: :func:`alara_expand_schedule` takes deck text
 (plus an optional top schedule name) instead of JSON schedule/history blobs,
 so callers reuse the already-parsed deck blocks without a parallel schema.
+
+Clearance screening choice: :func:`alara_clearance_index` and
+:func:`alara_sum_of_fractions` take plain ``{nuclide: activity}`` dicts plus
+an optional ``{nuclide: limit}`` dict (None = the vendored EU 2013/59/Euratom
+Annex VII Table A default, Bq/g). Nuclide names accept any shared-dialect
+spelling; activities and limits must share one unit basis. Screening
+arithmetic only, never a compliance decision.
 """
 
 from nucleide._internal import (
     alara_check_block,
+    alara_clearance_eu_table,
+    alara_clearance_index,
     alara_expand_schedule,
     alara_flux_len,
     alara_flux_total,
@@ -20,6 +31,7 @@ from nucleide._internal import (
     alara_parse_output,
     alara_photon_total_strength,
     alara_schedule_total_time,
+    alara_sum_of_fractions,
     alara_validate_deck,
 )
 
@@ -36,4 +48,7 @@ __all__ = [
     "alara_output_total_activity",
     "alara_photon_total_strength",
     "alara_schedule_total_time",
+    "alara_clearance_eu_table",
+    "alara_clearance_index",
+    "alara_sum_of_fractions",
 ]
