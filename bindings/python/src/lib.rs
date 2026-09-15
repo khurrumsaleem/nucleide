@@ -6440,6 +6440,54 @@ fn kinetics_prompt_jump(
 }
 
 // ---------------------------------------------------------------------------
+// Neutron spectrum unfolding (thin glue over `nucleide-unfold`; model stays in core)
+// ---------------------------------------------------------------------------
+
+/// SAND-II iterative spectral adjustment (McElroy et al., AFWL-TR-67-41, 1967).
+///
+/// Thin wrapper over `nucleide_unfold::sandii::unfold`: `response` holds one
+/// row per detector/reaction (all rows one value per energy group),
+/// `rates` the measured rate per detector, and `guess` one strictly positive
+/// value per energy group. `tolerance` is the largest per-group relative
+/// change between successive adjustments the run converges under (strictly
+/// below); `max_iterations` is the explicit adjustment cap — exhausting it
+/// raises a `ValueError` (non-convergence is a hard fail, never a silent
+/// partial spectrum). Returns a dict with `spectrum`, the folded `rates`,
+/// per-detector `rate_factors` (measured/folded), `iterations`, the echo of
+/// `tolerance`, and the final `max_rel_change`.
+#[pyfunction]
+#[pyo3(signature = (response, rates, guess, tolerance=1e-3, max_iterations=200))]
+fn unfold_sandii(
+    py: Python<'_>,
+    response: Vec<Vec<f64>>,
+    rates: Vec<f64>,
+    guess: Vec<f64>,
+    tolerance: f64,
+    max_iterations: usize,
+) -> PyResult<Py<PyAny>> {
+    let sol = nucleide_unfold::sandii::unfold(&response, &rates, &guess, tolerance, max_iterations)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    use pyo3::types::PyDict;
+    let out = PyDict::new(py);
+    out.set_item("spectrum", &sol.spectrum).ok();
+    out.set_item("rates", &sol.rates).ok();
+    out.set_item("rate_factors", &sol.rate_factors).ok();
+    out.set_item("iterations", sol.iterations).ok();
+    out.set_item("tolerance", sol.tolerance).ok();
+    out.set_item("max_rel_change", sol.max_rel_change).ok();
+    Ok(out.into_any().unbind())
+}
+
+/// Forward operator: fold a spectrum through a response matrix (one rate per
+/// detector row). This is the map the unfolding adjusts against — also the
+/// natural way to synthesize round-trip rates from a known spectrum.
+#[pyfunction]
+fn unfold_forward_fold(response: Vec<Vec<f64>>, spectrum: Vec<f64>) -> PyResult<Vec<f64>> {
+    nucleide_unfold::forward_fold(&response, &spectrum)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+// ---------------------------------------------------------------------------
 // Tokamak fusion sources (thin glue over `nucleide-plasma-source`; model stays in core)
 // ---------------------------------------------------------------------------
 
@@ -8296,6 +8344,8 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(kinetics_stable_period, m)?)?;
     m.add_function(wrap_pyfunction!(kinetics_prompt_jump, m)?)?;
     m.add_function(wrap_pyfunction!(kinetics_from_ifp, m)?)?;
+    m.add_function(wrap_pyfunction!(unfold_sandii, m)?)?;
+    m.add_function(wrap_pyfunction!(unfold_forward_fold, m)?)?;
     m.add_function(wrap_pyfunction!(plasma_source_particles, m)?)?;
     m.add_function(wrap_pyfunction!(plasma_source_emit_cards, m)?)?;
     m.add_function(wrap_pyfunction!(plasma_source_spectrum_moments, m)?)?;

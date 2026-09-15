@@ -89,6 +89,13 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
   seeded sampling to particle vectors, and MCNP SDEF + Serpent source-card
   emission with drift reports (parametric plasma profiles are the follow-up
   landing; MCPL projection stays caller-side).
+- Neutron spectrum unfolding (`unfold`): SAND-II iterative spectral
+  adjustment (McElroy et al., AFWL-TR-67-41, 1967) of a caller-supplied guess
+  spectrum against measured activation rates over a caller-supplied response
+  matrix, with per-group relative-change convergence diagnostics and a hard
+  `NotConverged` past the explicit iteration cap (STAYSL-class on the shared
+  `lstsq` kernel, GRAVEL, and MAXED are recorded for later cycles; response
+  libraries such as IRDFF are caller-supplied, never vendored).
 
 ## Upcoming priorities
 

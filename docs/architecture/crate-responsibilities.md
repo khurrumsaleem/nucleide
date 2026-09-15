@@ -137,6 +137,21 @@ and the dollar/plain `.spe` text readers with upstream quirks pinned. Peak
 search/fit, activities, and plotting stay out. Depends on
 `nucleide-linalg` and `nucleide-nuclei`.
 
+### `nucleide-unfold`
+
+Neutron spectrum unfolding from activation-type measurements: the SAND-II
+iterative spectral adjustment (McElroy et al., AFWL-TR-67-41, 1967 — US
+government work, clean-room from the report) as an iterator over the
+caller-supplied response matrix, measured rates, and guess spectrum, with
+per-group relative-change convergence diagnostics and a hard
+`NotConverged` past the explicit iteration cap (never a silent partial
+spectrum). STAYSL-class (on the shared `linalg::lstsq` kernel), GRAVEL, and
+MAXED are recorded for later one-method-per-cycle landings. Every response
+value and group bound is caller-supplied: IRDFF and other IAEA-copyright
+libraries are never vendored (a runtime-download pack stays a later
+decision under the FGR-15 precedent). Depends on `nucleide-linalg` only
+among workspace crates; bindings depend on it, never the reverse.
+
 ### `nucleide-vr-tools`
 
 MAGIC weight-window generation, OpenMC/Serpent weight-window emission over
@@ -250,16 +265,17 @@ When publishing to crates.io, publish in dependency order:
 10. `nucleide-depletion`
 11. `nucleide-kinetics`
 12. `nucleide-spectroscopy`
-13. `nucleide-tritium`
-14. `nucleide-plasma-source`
-15. `nucleide-vr-tools`
-16. `nucleide-alara-io`
-17. `nucleide-cccc-io`
-18. `nucleide-fispact-io`
-19. `nucleide-origen-io`
-20. `nucleide-r2s`
-21. `nucleide-emit`
-22. `nucleide-bindings`
+13. `nucleide-unfold`
+14. `nucleide-tritium`
+15. `nucleide-plasma-source`
+16. `nucleide-vr-tools`
+17. `nucleide-alara-io`
+18. `nucleide-cccc-io`
+19. `nucleide-fispact-io`
+20. `nucleide-origen-io`
+21. `nucleide-r2s`
+22. `nucleide-emit`
+23. `nucleide-bindings`
 
 (`nucleide-wasm` is cdylib-only and never published; keep this list in
 sync with the publish list in `.github/workflows/release.yml`.)
