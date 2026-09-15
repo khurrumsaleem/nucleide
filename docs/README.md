@@ -123,7 +123,7 @@ status, and license.
 | [Variance reduction](theory/variance-reduction.mdx) | MAGIC weight windows, OpenMC/Serpent weight-window emission, and alias-table source sampling |
 | [Nuclear data](theory/nuclear-data.mdx) | Nuclide IDs, name dialects, masses, half-lives, and screening data |
 | [Point kinetics](theory/kinetics.mdx) | Prescribed-reactivity PKE system, inhour relation, prompt jump, and the stiff-aware solver |
-| [Tritium transport](theory/tritium.mdx) | 1D diffusion-trapping equations, McNabb–Foster traps, surface taxonomy, and the closed-form permeation checks |
+| [Tritium transport](theory/tritium.mdx) | 1D diffusion-trapping equations, McNabb–Foster traps, surface taxonomy, multi-layer series stacks with Sieverts interfaces, and the closed-form permeation checks |
 | [Gamma-ray spectroscopy](theory/spectroscopy.mdx) | Smoothing, peak counting, energy/efficiency calibration, X-ray lines, and SPE readers |
 | [UQ-lite sampling](theory/uq-sampling.mdx) | Seeded MVN, log-normal, and LHS sampling over caller-supplied covariance blocks, SANDY-compatible estimators, and the decay perturbation consumer |
 

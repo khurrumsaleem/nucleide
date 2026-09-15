@@ -63,13 +63,17 @@ Tritium moves by Fickian diffusion with a caller-supplied diffusivity `D(T)`,
 parks in traps with temperature-dependent trapping/detrapping rates, and
 enters or leaves through surface laws (fixed concentration, Sieverts
 equilibrium, recombination flux, or symmetry). Temperature is a
-caller-supplied profile `T(x, t)`; there is no heat solve in v1.
+caller-supplied profile `T(x, t)`; there is no heat solve in v1. Series
+stacks of slabs — multi-layer walls such as W/Cu/CuCrZr first walls —
+extend the same equations layer-by-layer with Sieverts interface
+conditions (L1) and the series-resistance steady state (L2).
 
 <Callout type="info" title="Code shape">
   The crate mirrors the kinetics layout: `params.rs` (transport and
   trap data with validating constructors), `bc.rs` (the surface-law
   taxonomy), `solve.rs` (the implicit stepper plus closed-form gate
-  helpers), and `error.rs` (a `#[non_exhaustive]` error enum with the
+  helpers), `layers.rs` (multi-layer series stacks with Sieverts interface
+  conditions), and `error.rs` (a `#[non_exhaustive]` error enum with the
   crate `Result` alias).
 </Callout>
 
@@ -292,6 +296,92 @@ self-convergence — honestly weaker than the G1–G5 algebraic gates:
 Positivity under the face clamp (`cf ≥ 0`) is asserted for one- and
 two-recombination-end transients on a coarse grid.
 
+### Multi-layer series stacks
+
+A `LayerStack` chains `N ≥ 1` slabs — e.g. a W/Cu/CuCrZr first-wall stack —
+each carrying (T1–T2) with its own coefficients `D_k`, `K_{S,k}`, trap
+species, temperature, and source. Internal interfaces close through local
+equilibrium (v1: Sieverts only): the Sieverts potential `u = c_m / K_S`
+\[Pa¹ᐟ²\] and the flux `J = −D ∂c_m/∂x` are continuous,
+
+$$
+u\big|_{k^-} = u\big|_{k^+}, \qquad
+D_k\,\frac{\partial c_m}{\partial x}\bigg|_{k^-}
+= D_{k+1}\,\frac{\partial c_m}{\partial x}\bigg|_{k^+}.
+\tag{L1}
+$$
+
+The Henry and recombination interface laws exist in the taxonomy but are
+loud unsupported-interface errors in v1 — never a silent pass. The steady
+state is the series-resistance network over the per-layer permeabilities
+`Φ_k = D_k K_{S,k}`: `u(x)` is piecewise linear with constant flux
+
+$$
+J = \frac{u(0) - u(L)}{\sum_k L_k / \Phi_k}.
+\tag{L2}
+$$
+
+The discrete form keeps the mobile concentration as the unknown and writes
+every interior face flux as `J_f = (c_i/K_i − c_{i+1}/K_{i+1}) / R_f` with
+face resistance `R_f = dx_k/(2Φ_k) + dx_{k+1}/(2Φ_{k+1})` — linear in the
+neighbouring cell values, so the Sieverts condition folds directly into the
+tridiagonal θ-step matrix (the spike outcome: no interface Newton is needed,
+unlike the nonlinear recombination faces of G5/G6). Within one uniform
+layer it reduces to the landed arithmetic-mean face. Outer ends reuse the
+landed surface taxonomy unchanged, including recombination ends through the
+same face-response construction. A one-layer stack dispatches to the landed
+single-slab kernel and reproduces it exactly (the G7c anchor).
+
+### G7 — Multi-layer steady state
+
+The layered steady system is linear (for frozen recombination faces), so
+the algebraic gates carry over at G5-style tolerances:
+
+- **G7a (series resistance)**: a 2-layer stack with contrasting `D` and
+  `K_S` matches the (L2) closed form at `1e-12` relative on the fluxes, and
+  every interior face — including the material interface — carries the same
+  flux to roundoff (with a `1e-18` absolute floor, since the fluxes are
+  ~1e-7 and plain relative roundoff would be unmeetable); the discrete
+  profile is the exact piecewise-linear `u(x)` at the nodes.
+- **G7b (N-layer continuity)**: a 3-layer stack holds interface
+  flux continuity and the half-cell-corrected interface potentials to
+  roundoff against the closed form.
+- **G7c (single-layer recovery)**: a 1-layer stack reproduces the landed
+  kernel field-by-field, exactly (the layered entry dispatches to it).
+- **G7d (transparent interface)**: a 2-layer stack with identical `D` and
+  `K_S` in both layers is a plain slab; the layered path itself (not the
+  dispatch) matches the landed kernel to roundoff.
+- **G7e (recombination outer end)**: the layered face-response construction
+  closes a recombination outlet against the same series resistance; the
+  flux matches the closed form from `J = K_r (K_{S,n} u_L)^2` with
+  `u(0) − u(L) = J·R` at `1e-12` relative.
+
+### G8 — Multi-layer transient
+
+The transient reuses the landed θ-stepper with the interface fluxes inside
+the step matrix; recombination outer ends close per step through the
+face-response construction on the layered matrix. No algebraic transient
+oracle exists, so the gates mirror G6:
+
+- **G8a (self-convergence)**: `dt`-halving on the 2-layer stack shows the
+  θ-method order on two successive halvings — Crank–Nicolson in the band
+  1.5–2.5, backward Euler in 0.7–1.3 — measured in the same resolved band as
+  G6d (the stack's finest-mode scale and lag time set it; measured orders
+  sit at ≈2.0 and ≈1.0).
+- **G8b (long-time asymptote)**: the 2-layer transient from a clean slab
+  lands on the layered steady state at `t = 60·max_k(L_k²/6D_k)`, within
+  `1e-6` relative on the outlet flux and `1e-9` on the profile, for both a
+  Dirichlet and a recombination outlet.
+- **G8c (mass balance)**: with one θ-step per output interval the discrete
+  balance `Iᵏ − Iᵏ⁻¹ = dt·[θRᵏ + (1−θ)Rᵏ⁻¹]`, `R = −(F_L + F_R)`, closes
+  against the reported boundary fluxes to roundoff — internal interface
+  fluxes cancel in the sum, so the landed G6c identity carries over.
+
+Positivity is asserted on the layered transient with different trap species
+per layer (per-cell trap counts follow the owning layer), and the loud
+error surface (non-Sieverts interfaces, malformed stacks and states) is
+gated in-crate.
+
 ### Invariants
 
 - **Positivity**: nonneg initial data, boundary data, and source imply
@@ -312,8 +402,11 @@ algebraic assertions (`1e-12`), G2 as a transient solve (`1e-6`), G5 as
 the recombination steady-state face construction (G5a algebraic at
 `1e-12`, G5b recovery at `1e-6`), G6 as the recombination transient
 (G6a–G6d asymptotic + self-convergence gates with in-test closed forms,
-plus the G6e independent method-of-lines cross-check), plus
-positivity and mass-balance invariant checks.
+plus the G6e independent method-of-lines cross-check), G7/G8 as the
+multi-layer gates (series-resistance closed forms at `1e-12` with
+roundoff-level interface continuity pins; transient asymptote +
+self-convergence + mass balance), plus positivity and mass-balance
+invariant checks.
 
 ## Worked example: G1 slab
 
@@ -326,12 +419,17 @@ flux is still `≈3e-3 J_ss` at `t = 31.6 s` and reaches `0.9999 J_ss` by
 
 ## Assumptions and limitations
 
-- **1D only**: multi-D FEM, heterogeneous-material assembly, and heat
-  coupling are explicitly out — that is FESTIM's reason to exist, and
-  FESTIM is never a dependency.
+- **1D only**: multi-D FEM and heat coupling are explicitly out — that is
+  FESTIM's reason to exist, and FESTIM is never a dependency. Heterogeneous
+  *series* stacks in 1D (multi-layer, Sieverts interfaces) are in scope
+  (G7/G8); in-plane multi-material geometry is not.
 - **Prescribed temperature**: `T(x, t)` is caller data; no heat solve.
 - **Caller-supplied properties**: diffusivities, solubilities, trapping
   rates, and surface constants ship as caller data; no vendored tables.
+- **Sieverts interfaces only**: internal interface conditions are Sieverts
+  (`c/K_S` continuous, flux continuous) in v1; Henry/recombination interface
+  laws are loud errors, and trap-species discontinuities across interfaces
+  enter only through caller data.
 - **Single mobile species**: tritium only; H/D co-diffusion and isotope
   exchange are out.
 - **Static traps**: `N_j` fixed; damage-driven intrinsic trap creation is
@@ -345,15 +443,18 @@ flux is still `≈3e-3 J_ss` at `t = 31.6 s` and reaches `0.9999 J_ss` by
   and none is claimed.
 - **Thin facades only**: `nucleide.tritium` (Python) and
   `tritiumBreakthrough` (WASM) expose the landed kernel; no new physics
-  past T1–T2/G1–G6.
+  past T1–T2/G1–G8.
 
 ## Validation
 
 - **Analytic replay** (landed): Rust fixture tests plus
   `tests/test_tritium.py` assert the G1–G4 fixtures at the pinned
-  tolerances and replay G5/G6 as in-test closed forms, following the
-  kinetics oracle pattern. No `validation/*_vs_*.py` script
-  exists — there is no external oracle to wire, so none was added.
+  tolerances and replay G5/G6 and the multi-layer G7/G8 gates as in-test
+  closed forms (synthetic stacks with hand-derived series-resistance
+  oracles; the multi-layer goldens live in unit tests, not
+  `fixtures/tritium/`), following the kinetics oracle pattern. No
+  `validation/*_vs_*.py` script exists — there is no external oracle to
+  wire, so none was added.
 - **No external probe**: a FESTIM cross-check, if
   ever attempted, stays a loud-SKIP probe. Do **not** add FESTIM/FEniCS to
   the validation container: the conda weight is intolerable for an

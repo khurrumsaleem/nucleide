@@ -20,7 +20,8 @@
 //!
 //! Modules: [`params`] (transport/trap data), [`bc`] (surface-law
 //! taxonomy), [`mod@solve`] (finite-volume theta stepper, steady solve,
-//! and closed-form gate helpers), [`error`] (error type).
+//! and closed-form gate helpers), [`layers`] (multi-layer series stacks
+//! with Sieverts interface conditions, G7/G8), [`error`] (error type).
 //!
 //! Gate-to-test mapping (fixtures in `fixtures/tritium/`, replayed in
 //! `fixture_tests`): G1/G4 steady linear profiles and G3a/G3b/G3c trap
@@ -28,17 +29,23 @@
 //! (`1e-6` on the breakthrough curve plus the `L²/6D` time lag), G5 as the
 //! recombination steady-state face construction, G6 as the recombination
 //! transient (asymptotic + self-convergence gates, in-test closed forms),
-//! with positivity and mass-balance invariant checks.
+//! G7 as the multi-layer steady series-resistance gates (closed forms in
+//! unit tests, `1e-12`), G8 as the multi-layer transient (asymptotic +
+//! self-convergence gates), with positivity and mass-balance invariant
+//! checks.
 
 #![warn(missing_docs)]
 
 pub mod bc;
 pub mod error;
+pub mod layers;
 pub mod params;
 pub mod solve;
 
 pub use bc::Boundary;
 pub use error::{Error, Result};
+pub use layers::{solve_layers, steady_layers};
+pub use layers::{Interface, LayerSpec, LayerStack, LayeredSolution, LayeredSteadyState};
 pub use params::{arrhenius, TransportParams, TrapSpec, GAS_CONSTANT};
 pub use solve::{
     breakthrough_ratio, effective_diffusivity, equilibrium_trapped, irreversible_fill,

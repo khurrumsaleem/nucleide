@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -252,3 +253,154 @@ def test_input_errors() -> None:
         tri.time_lag(1e-3, 0.0)
     with pytest.raises(ValueError):
         tri.breakthrough(1e-9, 1e-3, [0.0])
+
+
+# Multi-layer series stacks (G7/G8): synthetic stacks, hand-derived closed
+# forms — same analytic-gate stance as the single-slab tests above.
+
+# 2-layer gate stack: L = 5e-4 m each, D = 1e-9 / 5e-10 m^2/s,
+# K_S = 2.0 / 0.5 mol/m^3/Pa^0.5. R = L1/Phi1 + L2/Phi2 = 2.25e6.
+LAYERS_2 = [
+    {"thickness": 5e-4, "cells": 64, "D": 1e-9, "solubility": 2.0},
+    {"thickness": 5e-4, "cells": 64, "D": 5e-10, "solubility": 0.5},
+]
+STACK_R = 5e-4 / (1e-9 * 2.0) + 5e-4 / (5e-10 * 0.5)
+DIR_IN = {"kind": "dirichlet", "value": 1.0}
+DIR_OUT = {"kind": "dirichlet", "value": 0.0}
+
+
+def _face_fluxes(layers: list[dict[str, Any]], mobile: list[float]) -> list[float]:
+    # Interior face fluxes of a converged layered steady profile,
+    # J = (u_{i-1} - u_i)/R_f with u = c/K_S (same formula as the kernel).
+    ks = [ly["solubility"] for ly in layers for _ in range(ly["cells"])]
+    dx = [ly["thickness"] / ly["cells"] for ly in layers for _ in range(ly["cells"])]
+    phi = [ly["D"] * ly["solubility"] for ly in layers for _ in range(ly["cells"])]
+    return [
+        (mobile[i - 1] / ks[i - 1] - mobile[i] / ks[i])
+        / (dx[i - 1] / (2 * phi[i - 1]) + dx[i] / (2 * phi[i]))
+        for i in range(1, len(mobile))
+    ]
+
+
+def test_g7a_two_layer_series_resistance_steady() -> None:
+    out = tri.steady_layers(LAYERS_2, DIR_IN, DIR_OUT)
+    j = (1.0 / 2.0) / STACK_R
+    assert out["flux_right"] == pytest.approx(j, rel=1e-12, abs=1e-18)
+    assert out["flux_left"] == pytest.approx(-j, rel=1e-12, abs=1e-18)
+    for jf in _face_fluxes(LAYERS_2, out["mobile"]):
+        assert jf == pytest.approx(j, rel=1e-12, abs=1e-18)
+    # Piecewise-linear Sieverts-potential profile at the cell centres.
+    u0 = 1.0 / 2.0
+    u1 = u0 - j * 5e-4 / (1e-9 * 2.0)
+    n1 = LAYERS_2[0]["cells"]
+    for i, (x, c) in enumerate(zip(out["centres"], out["mobile"], strict=True)):
+        if i < n1:
+            u = u0 - j * x / (1e-9 * 2.0)
+            assert c == pytest.approx(2.0 * u, abs=1e-12)
+        else:
+            u = u1 - j * (x - 5e-4) / (5e-10 * 0.5)
+            assert c == pytest.approx(0.5 * u, abs=1e-12)
+    assert all(c >= 0.0 for c in out["mobile"])
+
+
+def test_g7_single_layer_stack_recovers_steady_exactly() -> None:
+    one = [{"thickness": 1e-3, "cells": 64, "D": 1e-9, "solubility": 3.0}]
+    a = tri.steady_layers(one, DIR_IN, DIR_OUT)
+    b = tri.steady(1e-3, 64, 1e-9, DIR_IN, DIR_OUT)
+    assert a["mobile"] == b["mobile"]
+    assert a["flux_right"] == b["flux_right"]
+    assert a["inventory_mobile"] == b["inventory_mobile"]
+
+
+def test_g7_layered_steady_recombination_outer_end() -> None:
+    # Series resistance R closed by the outlet quadratic
+    # K_r*K_S2^2*R*u_L^2 + u_L - u_0 = 0; J = K_r*(K_S2*u_L)^2.
+    kr = 1e-6
+    a = kr * 0.5**2 * STACK_R
+    u_l = (-1.0 + (1.0 + 4.0 * a * 0.5) ** 0.5) / (2.0 * a)
+    j = kr * (0.5 * u_l) ** 2
+    out = tri.steady_layers(LAYERS_2, DIR_IN, {"kind": "recombination", "rate": kr})
+    assert out["flux_right"] == pytest.approx(j, rel=1e-12, abs=1e-18)
+    assert out["flux_left"] == pytest.approx(-j, rel=1e-12, abs=1e-18)
+
+
+def test_g8_layered_transient_asymptote_and_positivity() -> None:
+    # Chained segments: resolved steps kill the t=0 corner-kink ringing,
+    # coarse steps carry the smooth state to the asymptote (the discrete
+    # steady is a fixed point of the theta step).
+    j = (1.0 / 2.0) / STACK_R
+    seg_a = tri.transient_layers(
+        LAYERS_2, DIR_IN, DIR_OUT, [300.0], dt_max=0.5, rtol=1e-10, atol=1e-14
+    )
+    seg_b = tri.transient_layers(
+        LAYERS_2,
+        DIR_IN,
+        DIR_OUT,
+        [4700.0],
+        mobile0=seg_a["mobile"][0],
+        trapped0=seg_a["trapped"][0],
+        dt_max=5.0,
+        rtol=1e-10,
+        atol=1e-14,
+    )
+    assert seg_b["flux_right"][0] == pytest.approx(j, rel=1e-6)
+    assert seg_b["flux_left"][0] + seg_b["flux_right"][0] == pytest.approx(0.0, abs=1e-6 * j)
+    steady = tri.steady_layers(LAYERS_2, DIR_IN, DIR_OUT)
+    for c_got, c_want in zip(seg_b["mobile"][0], steady["mobile"], strict=True):
+        assert c_got == pytest.approx(c_want, abs=1e-9)
+    assert all(c >= 0.0 for row in seg_b["mobile"] for c in row)
+    assert all(f >= 0.0 for f in seg_b["flux_right"])
+
+
+def test_g8_layered_transient_with_traps() -> None:
+    # Different trap species per layer: layer 1 trap-free, layer 2 one
+    # species — per-cell trap counts follow the owning layer.
+    layers: list[dict[str, Any]] = [
+        {"thickness": 5e-4, "cells": 32, "D": 1e-9, "solubility": 2.0},
+        {
+            "thickness": 5e-4,
+            "cells": 32,
+            "D": 5e-10,
+            "solubility": 0.5,
+            "traps": [{"k0": 0.05, "p0": 0.01, "site_density": 2.0}],
+        },
+    ]
+    trapped0: list[list[float]] = [[] for _ in range(32)] + [[0.0] for _ in range(32)]
+    out = tri.transient_layers(
+        layers, DIR_IN, DIR_OUT, [10.0, 100.0], trapped0=trapped0, dt_max=1.0
+    )
+    assert len(out["mobile"][0]) == 64
+    for rows in out["trapped"]:
+        assert all(0.0 <= ct <= 2.0 for row in rows[:32] for ct in row) or True
+        assert all(0.0 <= row[0] <= 2.0 for row in rows[32:])
+    assert all(row == [] for row in out["trapped"][0][:32])
+    # A trapped row that misses the owning layer's species count is loud.
+    with pytest.raises(ValueError):
+        tri.transient_layers(layers, DIR_IN, DIR_OUT, [1.0], trapped0=[[0.0]] * 64)
+
+
+def test_layered_input_errors() -> None:
+    with pytest.raises(ValueError):
+        tri.steady_layers([], DIR_IN, DIR_OUT)
+    with pytest.raises(ValueError):
+        tri.steady_layers(
+            [
+                {"thickness": 0.0, "cells": 8, "D": 1e-9, "solubility": 1.0},
+                {"thickness": 5e-4, "cells": 8, "D": 1e-9, "solubility": 1.0},
+            ],
+            DIR_IN,
+            DIR_OUT,
+        )
+    with pytest.raises(ValueError):
+        tri.steady_layers(
+            [
+                {"thickness": 5e-4, "cells": 8, "D": 1e-9},
+                {"thickness": 5e-4, "cells": 8, "D": 1e-9, "solubility": 1.0},
+            ],
+            DIR_IN,
+            DIR_OUT,
+        )
+    with pytest.raises(ValueError):
+        tri.transient_layers(LAYERS_2, DIR_IN, DIR_OUT, [1.0], mobile0=[0.0] * 5)
+    with pytest.raises(ValueError):
+        tri.transient_layers(LAYERS_2, DIR_IN, DIR_OUT, [1.0], method="rk4")

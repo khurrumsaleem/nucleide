@@ -199,6 +199,26 @@ workspace crates from tags.
   dependency is added). New-crate checklist applied (workspace/release
   wiring, `gen-reference` entries, crate-responsibilities section, README
   feature table).
+- Multi-layer tritium permeation in `nucleide-tritium` (Cycle 08, exposed
+  through `nucleide.tritium` as `steady_layers`/`transient_layers`):
+  series stacks of caller-specified layers (thickness, cells, Arrhenius
+  `D`, solubility `K_S`, per-layer traps/temperature/source — e.g.
+  W/Cu/CuCrZr first walls) with Sieverts internal interface conditions
+  (`c/K_S` continuous, flux continuous). The interface fluxes are linear in
+  the cell values and fold directly into the tridiagonal θ-step matrix
+  (same finite-volume stepper and `linalg::tridiag` Thomas solve), so no
+  interface iteration is needed; outer ends reuse the landed surface
+  taxonomy including recombination ends through the same face-response
+  construction. Henry/recombination internal interface laws are loud
+  `UnsupportedInterface` errors in v1 (recorded limitation). A one-layer
+  stack dispatches to the landed single-slab kernel and reproduces it
+  exactly. Gates are analytic and synthetic, in unit tests with recorded
+  provenance (no `fixtures/tritium/` changes): 2/3-layer series-resistance
+  closed forms at `1e-12` with interface flux continuity to roundoff,
+  property-continuous 2-layer ≡ landed kernel, layered recombination-outlet
+  closed form, transient `dt`-halving order bands and late-time asymptote
+  (Dirichlet and recombination outlets), and the discrete mass balance to
+  roundoff.
 
 ## [0.11.0] - 2026-09-14
 

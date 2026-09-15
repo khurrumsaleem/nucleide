@@ -78,7 +78,8 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
   cumulative yields verbatim, 36 parents, chain-XML depletion fallback.
 - Tritium 1D diffusion-trapping kernel (`tritium`): T1–T2 mobile/trap
   transport with the full surface taxonomy; recombination ends closed in
-  steady state and transient (G5/G6).
+  steady state and transient (G5/G6); multi-layer series stacks with
+  Sieverts internal interfaces (G7/G8).
 - Scoped MCNP→OpenMC/Serpent/PHITS/GDML CSG translation (`csg-xlate`): surfaces,
   cells, nested universes, and rectangular `LAT=1` lattices with per-item
   drift reports (GDML lattices expand to per-element placements).
