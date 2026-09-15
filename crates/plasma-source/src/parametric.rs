@@ -267,7 +267,7 @@ impl ParametricSampler {
         let phi = 2.0 * PI * self.rng.uniform();
         let (big_r, z) = self.config.geometry.map(r, theta);
         let ti_kev = self.config.temperature_kev(r);
-        let energy_mev = match FusionReaction::Dt.moments_mev(ti_kev) {
+        let energy_mev = match self.config.fuel.moments_mev(ti_kev) {
             Ok((mean, sigma)) if sigma > 0.0 => mean + sigma * self.rng.standard_normal(),
             Ok((mean, _)) => mean,
             Err(_) => 0.0,
@@ -595,6 +595,20 @@ pub(crate) mod tests {
             "<R> {} vs {want_r}",
             big_r / N as f64
         );
+    }
+
+    #[test]
+    fn dd_config_samples_dd_birth_energies() {
+        // Regression: the sampler must draw from `config.fuel`, not a
+        // hardcoded reaction — DT here would sit ~11.6 MeV too high.
+        let mut config = flat_config(1.85, 0.0, 0.0);
+        config.fuel = FusionReaction::Dd;
+        let mut sampler = ParametricSampler::new(config, 7).unwrap();
+        let particles = sampler.sample_n(N);
+        let (mu, sigma) = FusionReaction::Dd.moments_mev(20.0).unwrap();
+        let mean: f64 = particles.iter().map(|p| p.energy_mev).sum::<f64>() / N as f64;
+        let se = sigma / (N as f64).sqrt();
+        assert!((mean - mu).abs() < 6.0 * se, "<E> {mean} vs {mu} ± {se}");
     }
 
     #[test]
