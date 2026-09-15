@@ -13,6 +13,8 @@ workspace crates from tags.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-16
+
 ### Added
 
 - Clearance / waste-classification analytics (0.12.0 cycle 04) in
