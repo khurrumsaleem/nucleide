@@ -135,6 +135,19 @@ pub enum Error {
     /// A particle carries a negative kinetic energy.
     #[error("particle {0} has negative kinetic energy {1}")]
     NegativeEnergy(usize, f64),
+    /// A particle field is NaN or infinite; writing it would silently emit
+    /// the value into the file bytes and poison downstream sums (e.g.
+    /// `mcpl_stats` `ekin_sum` becomes NaN).
+    #[error("particle {index} field {field} is not finite ({value})")]
+    NonFinite {
+        /// Position of the offending particle in the input list.
+        index: usize,
+        /// Name of the offending field (`ekin`, `weight`, `direction`,
+        /// `position`, `time`, `polarisation`).
+        field: &'static str,
+        /// The offending value.
+        value: f64,
+    },
     /// A file-wide weight must be positive and finite.
     #[error("universal weight must be positive and finite, got {0}")]
     BadUniversalWeight(f64),
@@ -922,6 +935,31 @@ fn decode_particle(h: &Header, rec: &[u8]) -> Result<Particle> {
 }
 
 fn encode_particle(h: &Header, p: &Particle, index: usize, out: &mut Vec<u8>) -> Result<()> {
+    // Finiteness first: NaN slips past every ordering/shape check below
+    // (NaN comparisons are false) and would round-trip into the file bytes.
+    let finite = |field: &'static str, value: f64| {
+        if value.is_finite() {
+            Ok(())
+        } else {
+            Err(Error::NonFinite {
+                index,
+                field,
+                value,
+            })
+        }
+    };
+    finite("ekin", p.ekin)?;
+    finite("weight", p.weight)?;
+    finite("time", p.time)?;
+    for &v in &p.direction {
+        finite("direction", v)?;
+    }
+    for &v in &p.position {
+        finite("position", v)?;
+    }
+    for &v in &p.polarisation {
+        finite("polarisation", v)?;
+    }
     let dir2 = p.direction[0] * p.direction[0]
         + p.direction[1] * p.direction[1]
         + p.direction[2] * p.direction[2];
@@ -1478,6 +1516,35 @@ mod tests {
         ps[0].ekin = -1.0;
         let err = encode_file(&Header::default(), &ps).unwrap_err();
         assert_eq!(err, Error::NegativeEnergy(0, -1.0));
+    }
+
+    #[test]
+    fn writer_rejects_non_finite_fields() {
+        // NaN slips past the unit/negativity checks (NaN comparisons are
+        // false) and would round-trip into the bytes; inf likewise.
+        for (field, value) in [
+            ("ekin", f64::NAN),
+            ("weight", f64::INFINITY),
+            ("time", f64::NAN),
+            ("direction", f64::NAN),
+            ("position", f64::INFINITY),
+            ("polarisation", f64::NAN),
+        ] {
+            let mut ps = axis_particles();
+            match field {
+                "ekin" => ps[0].ekin = value,
+                "weight" => ps[0].weight = value,
+                "time" => ps[0].time = value,
+                "direction" => ps[0].direction[1] = value,
+                "position" => ps[0].position[2] = value,
+                _ => ps[0].polarisation[0] = value,
+            }
+            let err = encode_file(&Header::default(), &ps).unwrap_err();
+            assert!(
+                matches!(err, Error::NonFinite { index: 0, field: f, .. } if f == field),
+                "{field}: {err}"
+            );
+        }
     }
 
     #[test]
