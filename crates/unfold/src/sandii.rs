@@ -15,6 +15,11 @@
 //! φ_j  ← φ_j · exp( Σ_i W_ji · ln(N_i / c_i) / Σ_i W_ji )   (S3 adjustment)
 //! ```
 //!
+//! `W_ij` is the canonical base SAND-II weight; the original
+//! implementation's optional per-detector statistics factor (`N_i²/σ_i`)
+//! is not applied, so adjustments are not Poisson-weighted by detector
+//! uncertainty.
+//!
 //! Clean-room from the public-domain report (US government work); the
 //! adjustment form is the one reproduced across the open unfolding
 //! literature. Detector/detector-reaction labelling, energy-group bounds,
@@ -61,7 +66,8 @@ pub struct Iteration {
     /// Rates folded from the post-adjustment spectrum (S1).
     pub rates: Vec<f64>,
     /// Measured-rate over folded-rate ratios per detector at this state;
-    /// all ones at a fixed point.
+    /// all ones at a fixed point, and 0.0 for a pinned detector (zero
+    /// measurement folding to zero — the 0/0 factor spelled as 0.0).
     pub rate_factors: Vec<f64>,
     /// Largest per-group relative change this adjustment produced,
     /// `max_j |φ_new − φ_old| / φ_old`.
@@ -219,11 +225,13 @@ impl Iterator for SandII<'_> {
         }
         // Diagnostics from the post-adjustment state.
         let rates = crate::fold(self.response, &self.spectrum);
+        // A pinned detector (zero measurement, support pinned to zero) folds
+        // to zero; spell its factor as 0.0 instead of the 0/0 NaN.
         let rate_factors = self
             .rates
             .iter()
             .zip(rates.iter())
-            .map(|(n, &c)| n / c)
+            .map(|(n, &c)| if c == 0.0 { 0.0 } else { n / c })
             .collect();
         Some(Iteration {
             index: self.completed,
@@ -243,7 +251,8 @@ pub struct Solution {
     /// Rates folded from the adjusted spectrum (S1).
     pub rates: Vec<f64>,
     /// Measured-rate over folded-rate ratios per detector; all ones at a
-    /// fixed point.
+    /// fixed point, and 0.0 for a pinned detector (zero measurement folding
+    /// to zero — the 0/0 factor spelled as 0.0).
     pub rate_factors: Vec<f64>,
     /// Number of adjustments applied.
     pub iterations: usize,
@@ -493,6 +502,10 @@ mod tests {
         let guess = vec![2.0, 3.0];
         let sol = unfold(&response, &rates, &guess, 1e-12, 100).unwrap();
         assert_eq!(sol.spectrum, vec![0.0, 0.0]);
+        // The pinned detector folds to zero against its zero measurement;
+        // its diagnostics factor is spelled 0.0, never the 0/0 NaN.
+        assert_eq!(sol.rate_factors, vec![0.0]);
+        assert!(sol.rate_factors.iter().all(|f| f.is_finite()));
     }
 
     #[test]
