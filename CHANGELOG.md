@@ -15,6 +15,34 @@ workspace crates from tags.
 
 ### Added
 
+- Parametric tokamak plasma source in `nucleide-plasma-source` (Cycle 01
+  second landing, exposed through `nucleide.plasma_source` with
+  `kind="parametric"`): Miller-geometry flux surfaces (Fausser et al., Fus.
+  Eng. Des. 87 (2012) 787 — `major_radius`/`minor_radius`/`elongation`/
+  `triangularity`/`shafranov_factor`) carrying caller-supplied L/H/A-mode
+  density and temperature profiles (`mode`, `pedestal_radius`, and the
+  `ion_density_*`/`ion_temperature_*` parameter sets; profiles are inputs,
+  never computed), with reactivity-weighted emission (Bosch & Hale, Nucl.
+  Fusion 32 (1992) 611, Atzeni–Meyer-ter-Vehn parametrization; new
+  `nucleide.plasma_source.reactivity` exposes ⟨σv⟩ in m³/s). Birth
+  positions are drawn ∝ `S·R·|J|` — closed-form Miller Jacobian with the
+  toroidal `R` factor — and energies from the local-ion-temperature
+  Ballabio Gaussian, all through the seeded sampler. Source cards for
+  parametric sources carry the radial/vertical/energy marginals as
+  discrete histograms (`RAD`/`EXT`/`ERG` distributions on `SDEF`, `rad`/
+  `ext`/`erg` on Serpent `src`) and the drift report quantifies the
+  tabulation truncation plus the joint-correlation distance a product-form
+  card cannot carry; SDEF cards still round-trip byte-identically through
+  the typed reader. Analytic gates: `J == r` torus limit, `J == κ·r·(1 −
+  2·esh·r·cosθ/a²)`, area `π·κ·a²`, volume `2π²·κ·a²·R₀` (any Shafranov
+  shift), finite-difference Jacobian agreement at general triangularity,
+  profile pedestal continuity, reactivity transcription goldens, and
+  sampled-moment gates vs fine quadrature. The validation oracle adds
+  always-run P5–P7 and container-only O4–O7 legs against
+  openmc-plasma-source's Miller map, Fausser profile functions, and NeSST
+  reactivities (loud SKIP outside the container). Loud boundary: fuel
+  mixtures (Eriksson-weighted reactant distributions), toroidal sectors,
+  and the D(d,p)T proton branch stay named `NotYetSupported` errors.
 - Tokamak fusion neutron sources in the new `nucleide-plasma-source`
   crate (exposed as `nucleide.plasma_source`): ring and point sources over
   the D-D (2.45 MeV) and D-T (14.1 MeV) reactions with ion-temperature-

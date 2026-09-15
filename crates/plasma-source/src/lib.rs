@@ -1,13 +1,21 @@
 #![warn(missing_docs)]
-//! Tokamak fusion-neutron sources: ring and point geometry over the D-D
+//! Tokamak fusion-neutron sources: ring and point geometry (first landing)
+//! plus a parametric Miller-geometry plasma (second landing) over the D-D
 //! (2.45 MeV) and D-T (14.1 MeV) reactions, sampled to particle vectors and
 //! emitted as MCNP `SDEF` / Serpent `src` cards with a drift report.
 //!
-//! This is the first of two landings: ring/point sources only. The
-//! parametric (Miller-geometry) tokamak plasma — density/temperature
-//! profiles, pedestal modes, reactant mixtures — is the follow-up landing's
-//! scope; nothing here computes profiles and everything outside v1 fails
-//! loudly through [`Error::NotYetSupported`], never a panic or a guess.
+//! Ring/point sources ([`source`], [`sample`], [`emit_sdef`],
+//! [`emit_serpent`]) are the simple full-torus models; the parametric
+//! tokamak plasma ([`miller`], [`profile`], [`reactivity`], [`parametric`])
+//! takes caller-supplied density/temperature profiles over Miller flux
+//! surfaces (Fausser et al., Fus. Eng. Des. **87** (2012) 787) with
+//! reactivity-weighted emission (Bosch & Hale, Nucl. Fusion **32** (1992)
+//! 611) and Ballabio-broadened spectra. Profiles are caller inputs — nothing
+//! computes profiles and no equilibrium is solved. What stays out (loud
+//! [`Error::NotYetSupported`], never a guess): arbitrary non-equimolar
+//! reactant distributions (the Eriksson et al., Comput. Phys. Commun.
+//! **199** (2016) 40 generalization), toroidal sectors, and the D(d,p)T
+//! proton branch.
 //!
 //! # Physics
 //!
@@ -17,9 +25,11 @@
 //! Fusion **38** (1998) 1723, Table III (mean shift and weakly
 //! temperature-dependent FWHM), which refine the Brysk scaling; at
 //! `T_i = 0` the spectrum is the monoenergetic nominal line. Ring/point
-//! spatial moments are closed form (radius/height/azimuth), which the
-//! analytic gates in `validation/plasma_source_vs_openmc.py` check against
-//! sampled particle vectors.
+//! spatial moments are closed form (radius/height/azimuth); the parametric
+//! source's Miller-map Jacobian and volume weighting carry their own closed
+//! forms and finite-difference gates in [`miller`]. The analytic gates in
+//! `validation/plasma_source_vs_openmc.py` check sampled particle vectors
+//! against both.
 //!
 //! # Units and dialects
 //!
@@ -58,20 +68,33 @@
 //! assert!(sdef.text.contains("RAD=D1"));
 //! assert!(serpent.text.contains("src 1 rad d1"));
 //! ```
+//!
+//! The parametric plasma builds the same way via
+//! [`ParametricPlasmaConfig`] + [`ParametricSampler`] /
+//! `emit_sdef_parametric` / `emit_serpent_parametric` (see [`parametric`]).
 
 pub mod emit_sdef;
 pub mod emit_serpent;
 pub mod error;
+pub mod miller;
+pub mod parametric;
+pub mod profile;
 pub mod reaction;
+pub mod reactivity;
 pub mod report;
 pub mod sample;
 pub mod source;
 pub mod spectrum;
 
-pub use emit_sdef::emit_sdef;
 pub use emit_sdef::EmittedCard;
-pub use emit_serpent::emit_serpent;
+pub use emit_sdef::{emit_sdef, emit_sdef_parametric};
+pub use emit_serpent::{emit_serpent, emit_serpent_parametric};
 pub use error::{Error, Result};
+pub use miller::MillerGeometry;
+pub use parametric::{
+    BinnedDistribution, EmissionHistograms, ParametricPlasmaConfig, ParametricSampler,
+};
+pub use profile::{DensityProfile, ProfileMode, TemperatureProfile};
 pub use reaction::FusionReaction;
 pub use report::{DriftReport, DriftRow};
 pub use sample::{Particle, SourceSampler};

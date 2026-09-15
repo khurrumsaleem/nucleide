@@ -25,6 +25,7 @@
 use nucleide_mcnp_io::sdef::{SdefCard, SdefDist, SdefProblem, SdefRef};
 use nucleide_nuclei::particles::ParticleId;
 
+use crate::parametric::{emission_histograms, ParametricPlasmaConfig};
 use crate::{DriftReport, DriftRow, Error, PlasmaSourceConfig, Result, SourceModel, SpectrumSpec};
 
 /// Half-width of the tabulated spectrum window, in sigma.
@@ -159,6 +160,84 @@ pub(crate) fn drift_report(
     report
 }
 
+/// Render a parametric plasma source as an MCNP `SDEF` card plus drift
+/// report.
+///
+/// The card carries the source's *marginals* as discrete histograms —
+/// `RAD=D1` (birth minor-radius profile), `EXT=D2` (birth Z profile), and
+/// `ERG=D3` (global marginal energy spectrum) — which is the strongest
+/// product-form representation the discrete `SI`/`SP` card subset allows.
+/// The drift report quantifies the truncation and the joint-correlation
+/// information the card cannot carry (see [`crate::parametric`]); the card
+/// still round-trips byte-identically through the typed reader.
+pub fn emit_sdef_parametric(
+    config: &ParametricPlasmaConfig,
+    version: u32,
+    n_bins: usize,
+) -> Result<EmittedCard> {
+    config.validate()?;
+    let bins = if n_bins >= 2 { n_bins } else { 21 };
+    let hist = emission_histograms(config, bins)?;
+    let par = neutron_designator(version)?;
+
+    let dist = |number: u32, dist: &crate::BinnedDistribution| SdefDist {
+        number,
+        si: dist.centers.clone(),
+        sp: Some(dist.masses.clone()),
+        sb: None,
+        line: 0,
+    };
+    let card = SdefCard {
+        pos: Some(SdefRef::Literal([0.0, 0.0, 0.0])),
+        axs: Some(SdefRef::Literal([0.0, 0.0, 1.0])),
+        rad: Some(SdefRef::Dist(1)),
+        ext: Some(SdefRef::Dist(2)),
+        erg: Some(SdefRef::Dist(3)),
+        wgt: Some(SdefRef::Literal(config.weight)),
+        par: Some(SdefRef::Literal(par.to_string())),
+        ..SdefCard::default()
+    };
+    let text = SdefProblem {
+        card,
+        dists: vec![
+            dist(1, &hist.radial),
+            dist(2, &hist.vertical),
+            dist(3, &hist.energy),
+        ],
+    }
+    .emit();
+
+    let mut report = DriftReport::new();
+    report.push(DriftRow::new(
+        "emission probability",
+        hist.energy_coverage,
+        true,
+        format!(
+            "marginal energy spectrum tabulated ({} lines, +/-4 sigma window); \
+             tail mass is dropped and the local T_i correlation with birth \
+             position is not representable on the card",
+            hist.energy.centers.len(),
+        ),
+    ));
+    report.push(DriftRow::new(
+        "spatial marginals",
+        1.0,
+        true,
+        "radial and vertical birth-profile marginals preserved as discrete histograms",
+    ));
+    report.push(DriftRow::new(
+        "joint correlation",
+        1.0 - hist.joint_correlation,
+        true,
+        "product-form card: half the L1 distance between the true (r, z) birth \
+         joint and the product of its marginals is lost (0 = independent)",
+    ));
+    Ok(EmittedCard {
+        text,
+        drift: report,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +341,44 @@ mod tests {
     fn invalid_configs_are_loud() {
         let bad = PlasmaSourceConfig::ring(0.0, 0.0, FusionReaction::Dt, 10.0);
         assert!(emit_sdef(&bad, 5, 21).is_err());
+    }
+
+    #[test]
+    fn parametric_card_carries_three_marginals_and_round_trips() {
+        let config = crate::parametric::tests::iter_h_mode();
+        let card = emit_sdef_parametric(&config, 5, 15).unwrap();
+        let head = "SDEF POS=0 0 0\n     AXS=0 0 1\n     RAD=D1\n     EXT=D2\n     ERG=D3\n     WGT=1\n     PAR=n";
+        assert!(card.text.starts_with(head), "card head:\n{}", card.text);
+        assert!(card.text.contains("\nSI1 L "));
+        assert!(card.text.contains("\nSP1 D "));
+        assert!(card.text.contains("\nSI2 L "));
+        assert!(card.text.contains("\nSP2 D "));
+        assert!(card.text.contains("\nSI3 L "));
+        assert!(card.text.contains("\nSP3 D "));
+        for line in card.text.lines() {
+            assert!(line.len() <= 80, "line over 80 columns: {line:?}");
+        }
+        card.verify_round_trip().unwrap();
+        // Three drift rows: truncation, marginals, joint correlation.
+        assert_eq!(card.drift.rows.len(), 3);
+        assert!(card.drift.rows[2].rel_drift > 0.0);
+        assert!(card.drift.rows[2].rel_drift < 1.0);
+        // Re-parse and confirm the marginals survived at card precision.
+        let parsed = nucleide_mcnp_io::sdef::parse_sdef_text(&card.text).unwrap();
+        assert_eq!(parsed.dists.len(), 3);
+        let sp1: f64 = parsed.dists[0].sp.as_ref().unwrap().iter().sum();
+        assert!((sp1 - 1.0).abs() < 1e-4, "radial masses {sp1}");
+    }
+
+    #[test]
+    fn parametric_bad_version_and_config_are_loud() {
+        let config = crate::parametric::tests::iter_h_mode();
+        assert_eq!(
+            emit_sdef_parametric(&config, 4, 15),
+            Err(Error::UnsupportedMcnpVersion(4))
+        );
+        let mut bad = config;
+        bad.ion_temperature.centre_kev = -1.0;
+        assert!(emit_sdef_parametric(&bad, 5, 15).is_err());
     }
 }

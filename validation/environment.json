@@ -5,7 +5,7 @@
     "PyRK": "upstream git `c2bfebf9` (point-kinetics oracle only)",
     "radioactivedecay": "PyPI `0.6.1` (decay oracle only)",
     "mcpl": "PyPI `2.2.8` + `mcpl-extra` (MCPL oracle probe only)",
-    "openmc-plasma-source": "PyPI `0.7.0` (MIT; ring/point tokamak-source oracle probe only)",
+    "openmc-plasma-source": "PyPI `0.7.0` + NeSST `1.1.5` (MIT; ring/point/parametric tokamak-source oracle probes only)",
     "sandy": "PyPI `1.1.0` (UQ-lite oracle probe only; NJOY-gated comparisons stay SKIP)",
     "Python": "miniforge3 base",
 }

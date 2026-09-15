@@ -30,6 +30,7 @@
 //! sampling semantics are Serpent's.
 
 use crate::emit_sdef::drift_report;
+use crate::parametric::{emission_histograms, ParametricPlasmaConfig};
 use crate::{EmittedCard, PlasmaSourceConfig, Result, SourceModel};
 
 /// Half-width of the tabulated spectrum window, in sigma.
@@ -127,6 +128,61 @@ pub fn emit_serpent(config: &PlasmaSourceConfig, n_bins: usize) -> Result<Emitte
     Ok(EmittedCard { text, drift })
 }
 
+/// Render a parametric plasma source as Serpent `src` card lines plus drift
+/// report.
+///
+/// The card carries the same three marginals as the MCNP direction —
+/// `rad d1` (birth minor-radius profile), `ext d2` (birth Z profile), and
+/// `erg d3` (global marginal energy spectrum); see
+/// [`emit_sdef_parametric`](crate::emit_sdef::emit_sdef_parametric) for the
+/// product-form caveat. Drift rows are analytic by design (no Serpent
+/// source reader in the workspace).
+pub fn emit_serpent_parametric(
+    config: &ParametricPlasmaConfig,
+    n_bins: usize,
+) -> Result<EmittedCard> {
+    config.validate()?;
+    let bins = if n_bins >= 2 { n_bins } else { 21 };
+    let hist = emission_histograms(config, bins)?;
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("src 1 pos 0 0 0".to_string());
+    lines.push("src 1 rad d1".to_string());
+    lines.push("src 1 ext d2".to_string());
+    lines.push("src 1 erg d3".to_string());
+    lines.push(format!("src 1 wgt {}", fmt_g6(config.weight)));
+    for (number, dist) in [(1, &hist.radial), (2, &hist.vertical), (3, &hist.energy)] {
+        let centers: Vec<String> = dist.centers.iter().map(|&c| fmt_g6(c)).collect();
+        let masses: Vec<String> = dist.masses.iter().map(|&m| fmt_g6(m)).collect();
+        lines.push(format!("SI{number} {}", centers.join(" ")));
+        lines.push(format!("SP{number} {}", masses.join(" ")));
+    }
+    let text = lines.join("\n");
+
+    let mut drift = crate::report::DriftReport::new();
+    drift.push(crate::report::DriftRow::new(
+        "emission probability",
+        hist.energy_coverage,
+        false,
+        "marginal energy spectrum tabulated; tail mass dropped, local T_i \
+         correlation with position not representable on the card",
+    ));
+    drift.push(crate::report::DriftRow::new(
+        "spatial marginals",
+        1.0,
+        false,
+        "radial and vertical birth-profile marginals preserved as discrete histograms",
+    ));
+    drift.push(crate::report::DriftRow::new(
+        "joint correlation",
+        1.0 - hist.joint_correlation,
+        false,
+        "product-form card: half the L1 distance between the true (r, z) birth \
+         joint and the product of its marginals is lost (analytic by design)",
+    ));
+    Ok(EmittedCard { text, drift })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +251,31 @@ mod tests {
     fn invalid_configs_are_loud() {
         let bad = PlasmaSourceConfig::point(0.0, 0.0, 0.0, FusionReaction::Dt, -1.0);
         assert!(emit_serpent(&bad, 21).is_err());
+    }
+
+    #[test]
+    fn parametric_card_carries_three_marginals() {
+        let config = crate::parametric::tests::iter_h_mode();
+        let card = emit_serpent_parametric(&config, 12).unwrap();
+        let lines: Vec<&str> = card.text.lines().collect();
+        assert_eq!(lines[0], "src 1 pos 0 0 0");
+        assert_eq!(lines[1], "src 1 rad d1");
+        assert_eq!(lines[2], "src 1 ext d2");
+        assert_eq!(lines[3], "src 1 erg d3");
+        assert_eq!(lines[4], "src 1 wgt 1");
+        for number in 1..=3 {
+            assert!(lines[3 + 2 * number].starts_with(&format!("SI{number} ")));
+            assert!(lines[4 + 2 * number].starts_with(&format!("SP{number} ")));
+        }
+        assert_eq!(lines.len(), 11);
+        assert_eq!(card.drift.rows.len(), 3);
+        assert!(!card.drift.rows[0].reparsed, "analytic by design");
+        let sp3: Vec<f64> = lines[10]
+            .trim_start_matches("SP3 ")
+            .split_whitespace()
+            .map(|t| t.parse().unwrap())
+            .collect();
+        let sum: f64 = sp3.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-3, "energy masses {sum}");
     }
 }
