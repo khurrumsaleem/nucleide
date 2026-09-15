@@ -214,9 +214,9 @@ pub fn emit_serpent_wwin(
     let nf = [dims[0] as u32, dims[1] as u32, dims[2] as u32];
     let nft = nf.iter().map(|v| u64::from(*v)).product();
 
-    let particle_windows: Vec<Vec<f64>> = (0..groups)
-        .map(|g| flat_bounds_xfastest_at(output, dims, g))
-        .collect();
+    let nve = dims[0] * dims[1] * dims[2];
+    let mut particle_windows: Vec<Vec<f64>> = vec![vec![0.0; nve]; groups];
+    for_each_bound_xfastest(output, dims, |g, ve, w| particle_windows[g][ve] = w);
     let energies = output.e_upper_bounds.clone();
 
     // MCNP convention (see the nucleide-mcnp-io WWINP fixtures): neutron-only
@@ -357,30 +357,39 @@ fn validate_openmc_options(options: &OpenMcOptions) -> Result<()> {
     Ok(())
 }
 
-/// Flat x-fastest window vector for all energy groups: group `g` outermost,
-/// then k, j, i with x fastest — the ordering both OpenMC and WWINP use.
-/// [`MagicOutput::lower_bounds_ww`] stores the transposed (z-fastest) layout
-/// with groups innermost.
-fn flat_bounds_xfastest(output: &MagicOutput, dims: [usize; 3]) -> Vec<f64> {
-    let mut flat = Vec::with_capacity(output.lower_bounds_ww.len());
-    for g in 0..output.groups_per_ve {
-        flat.extend(flat_bounds_xfastest_at(output, dims, g));
-    }
-    flat
-}
-
-fn flat_bounds_xfastest_at(output: &MagicOutput, dims: [usize; 3], g: usize) -> Vec<f64> {
+/// Visit every `(group, x-fastest ve index, bound)` triple in the flat
+/// x-fastest window layout both target codes use: group outermost, then k,
+/// j, i with x fastest. [`MagicOutput::lower_bounds_ww`] stores the
+/// transposed (z-fastest) layout with groups innermost, so this walks it in
+/// one sequential pass (volume-element rows are contiguous) and scatters
+/// each row across the `groups` destination regions.
+fn for_each_bound_xfastest(
+    output: &MagicOutput,
+    dims: [usize; 3],
+    mut emit: impl FnMut(usize, usize, f64),
+) {
     let (nx, ny, nz) = (dims[0], dims[1], dims[2]);
-    let mut v = Vec::with_capacity(nx * ny * nz);
-    for k in 0..nz {
+    let groups = output.groups_per_ve;
+    for i in 0..nx {
         for j in 0..ny {
-            for i in 0..nx {
-                let ve_zfastest = (i * ny + j) * nz + k;
-                v.push(output.lower_bounds_ww[ve_zfastest * output.groups_per_ve + g]);
+            for k in 0..nz {
+                let row = &output.lower_bounds_ww[((i * ny + j) * nz + k) * groups..][..groups];
+                let ve = (k * ny + j) * nx + i;
+                for (g, &w) in row.iter().enumerate() {
+                    emit(g, ve, w);
+                }
             }
         }
     }
-    v
+}
+
+/// Flat x-fastest window vector for all energy groups: group `g` outermost,
+/// then k, j, i with x fastest — the ordering both OpenMC and WWINP use.
+fn flat_bounds_xfastest(output: &MagicOutput, dims: [usize; 3]) -> Vec<f64> {
+    let nve = dims[0] * dims[1] * dims[2];
+    let mut flat = vec![0.0; nve * output.groups_per_ve];
+    for_each_bound_xfastest(output, dims, |g, ve, w| flat[g * nve + ve] = w);
+    flat
 }
 
 /// Group equal-width runs of cells into WWINP coarse bins. WWINP block 2
@@ -427,22 +436,37 @@ fn null_notes(output: &MagicOutput) -> Vec<String> {
 /// default `1e-38` weight cutoff stay compact. Any spelling `std::stod`
 /// (OpenMC) parses is acceptable; fixtures pin this one.
 fn xml_f64(v: f64) -> String {
-    if v == 0.0 {
-        return "0.0".to_string();
-    }
-    if (1.0e-6..1.0e21).contains(&v.abs()) {
-        format!("{v}")
-    } else {
-        format!("{v:e}")
+    XmlF64(v).to_string()
+}
+
+/// [`std::fmt::Display`] adapter spelling [`xml_f64`] without an
+/// intermediate heap `String` per value.
+struct XmlF64(f64);
+
+impl std::fmt::Display for XmlF64 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let v = self.0;
+        if v == 0.0 {
+            return f.write_str("0.0");
+        }
+        if (1.0e-6..1.0e21).contains(&v.abs()) {
+            write!(f, "{v}")
+        } else {
+            write!(f, "{v:e}")
+        }
     }
 }
 
 fn join_f64(values: &[f64]) -> String {
-    values
-        .iter()
-        .map(|&v| xml_f64(v))
-        .collect::<Vec<_>>()
-        .join(" ")
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(values.len() * 4);
+    for (i, &v) in values.iter().enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        write!(out, "{}", XmlF64(v)).expect("write to String");
+    }
+    out
 }
 
 #[cfg(test)]

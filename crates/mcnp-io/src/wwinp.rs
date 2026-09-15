@@ -284,14 +284,17 @@ impl Wwinp {
                 arr.push(self.cm[i][j]);
                 arr.push(1.0000);
             }
-            out += &wrap6(&arr.iter().copied().map(fmt13).collect::<Vec<_>>());
+            wrap6(&mut out, &arr);
         }
 
         // Block 3
+        let block3_values: usize = self.e.iter().map(Vec::len).sum::<usize>()
+            + self.ww.iter().flatten().map(Vec::len).sum::<usize>();
+        out.reserve(block3_values * 14 + block3_values / 6 + 8);
         for p in 0..self.ww.len() {
-            out += &wrap6(&self.e[p].iter().copied().map(fmt13).collect::<Vec<_>>());
+            wrap6(&mut out, &self.e[p]);
             for group in &self.ww[p] {
-                out += &wrap6(&group.iter().copied().map(fmt13).collect::<Vec<_>>());
+                wrap6(&mut out, group);
             }
         }
 
@@ -324,36 +327,42 @@ impl<'a, I: Iterator<Item = &'a str>> TokenFeed<'a, I> {
 
 /// Format like Python `{0:13.5E}`: width 13, upper-case E, two-digit exponent.
 fn fmt13(v: f64) -> String {
+    let mut out = String::new();
+    push_fmt13(&mut out, v);
+    out
+}
+
+/// Append [`fmt13`] output to `out` without intermediate per-value `String`s.
+fn push_fmt13(out: &mut String, v: f64) {
     let s = format!("{v:.5E}");
     let (mant, exp) = s.split_once('E').expect("uppercase E always present");
     let (sign, digits) = match exp.strip_prefix('-') {
         Some(d) => ('-', d),
         None => ('+', exp),
     };
-    let body = if digits.len() < 2 {
-        format!("{mant}E{sign}0{digits}")
-    } else {
-        format!("{mant}E{sign}{digits}")
-    };
-    format!("{body:>13}")
+    // Python `{0:13.5E}` right-aligns the body in a width-13 field.
+    let body_len = mant.len() + digits.len() + 2 + usize::from(digits.len() < 2);
+    out.extend(std::iter::repeat_n(' ', 13_usize.saturating_sub(body_len)));
+    out.push_str(mant);
+    out.push('E');
+    out.push(sign);
+    if digits.len() < 2 {
+        out.push('0');
+    }
+    out.push_str(digits);
 }
 
-/// Join preformatted 13-wide fields, six per line (WWINP wrapping rule).
-fn wrap6(fields: &[String]) -> String {
-    let mut out = String::new();
-    let mut count = 0;
-    for f in fields {
-        out += f;
-        count += 1;
-        if count == 6 {
-            out += "\n";
-            count = 0;
+/// Append 13-wide fields, six per line (WWINP wrapping rule).
+fn wrap6(out: &mut String, values: &[f64]) {
+    for (i, &v) in values.iter().enumerate() {
+        push_fmt13(out, v);
+        if (i + 1) % 6 == 0 {
+            out.push('\n');
         }
     }
-    if count != 0 {
-        out += "\n";
+    if values.len() % 6 != 0 {
+        out.push('\n');
     }
-    out
 }
 
 #[cfg(test)]
@@ -452,8 +461,11 @@ mod tests {
         assert_eq!(s.trim(), "-1.00000E+02");
         assert_eq!(s.len(), 13);
         assert_eq!(fmt13(15.0).trim(), "1.50000E+01");
-        assert_eq!(wrap6(&["x".to_string()]), "x\n");
-        let padded = wrap6(&(0..6).map(|_| fmt13(1.0)).collect::<Vec<_>>());
+        let mut one = String::new();
+        wrap6(&mut one, &[1.0]);
+        assert_eq!(one, format!("{}\n", fmt13(1.0)));
+        let mut padded = String::new();
+        wrap6(&mut padded, &[1.0; 6]);
         assert_eq!(padded.lines().count(), 1);
     }
 
