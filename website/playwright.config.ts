@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// Distinctive port: 4321 is Astro's default, so an unrelated project's dev
+// server can squat on it and be silently reused (`reuseExistingServer`),
+// failing every test with 404s. 4387 is unique to this repo.
+const e2eBase = "http://localhost:4387";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -8,7 +13,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? "list" : "html",
   use: {
-    baseURL: "http://localhost:4321/",
+    baseURL: e2eBase,
     trace: "on-first-retry",
   },
   projects: [
@@ -18,8 +23,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run preview",
-    url: "http://localhost:4321",
+    command: "npm run preview -- --port 4387",
+    url: e2eBase,
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,
   },
