@@ -27,6 +27,14 @@ pub enum Error {
     /// A grid entry is invalid: `{0}`.
     #[error("tritium: invalid grid: {0}")]
     BadGrid(&'static str),
+    /// A per-cell query index falls outside the stack's total cell count.
+    #[error("tritium: cell index {index} is out of range for a stack of {total} cells")]
+    BadCellIndex {
+        /// The offending cell index.
+        index: usize,
+        /// Total cell count across the stack.
+        total: usize,
+    },
     /// A solver option is invalid: `{0}`.
     #[error("tritium: invalid solver option: {0}")]
     BadOption(&'static str),

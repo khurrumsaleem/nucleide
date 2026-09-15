@@ -188,13 +188,13 @@ impl LayerStack {
         for interface in &interfaces {
             interface.validate()?;
         }
-        let mut total = 0_usize;
-        for layer in &layers {
-            total = total
+        // Validate the total cell count fits in usize (the sum is recomputed
+        // on demand by `total_cells`).
+        layers.iter().try_fold(0_usize, |total, layer| {
+            total
                 .checked_add(layer.cells)
-                .ok_or(Error::BadGrid("total cell count overflows usize"))?;
-        }
-        let _ = total;
+                .ok_or(Error::BadGrid("total cell count overflows usize"))
+        })?;
         Ok(Self { layers, interfaces })
     }
 
@@ -208,15 +208,24 @@ impl LayerStack {
         self.layers.iter().map(|l| l.thickness).sum()
     }
 
-    /// Index of the layer owning cell `i`.
-    fn layer_of(&self, mut i: usize) -> usize {
+    /// Index of the layer owning cell `i`, or `None` when `i` is outside the
+    /// stack's total cell count.
+    fn layer_of(&self, mut i: usize) -> Option<usize> {
         for (k, layer) in self.layers.iter().enumerate() {
             if i < layer.cells {
-                return k;
+                return Some(k);
             }
             i -= layer.cells;
         }
-        unreachable!("cell index out of range")
+        None
+    }
+
+    /// Loud [`Error::BadCellIndex`] for a public per-cell query.
+    fn bad_index(&self, i: usize) -> Error {
+        Error::BadCellIndex {
+            index: i,
+            total: self.total_cells(),
+        }
     }
 
     /// Per-cell widths `dx` \[m\].
@@ -243,14 +252,15 @@ impl LayerStack {
         centres
     }
 
-    /// Temperature at cell `i` \[K\] (uniform broadcasts).
-    pub fn temp_at(&self, i: usize) -> f64 {
-        let layer = &self.layers[self.layer_of(i)];
+    /// Temperature at cell `i` \[K\] (uniform broadcasts). A cell index
+    /// outside the stack is a loud [`Error::BadCellIndex`].
+    pub fn temp_at(&self, i: usize) -> Result<f64, Error> {
+        let k = self.layer_of(i).ok_or_else(|| self.bad_index(i))?;
+        let layer = &self.layers[k];
         if layer.temperature.len() == 1 {
-            layer.temperature[0]
+            Ok(layer.temperature[0])
         } else {
-            let start = self.layer_start(self.layer_of(i));
-            layer.temperature[i - start]
+            Ok(layer.temperature[i - self.layer_start(k)])
         }
     }
 
@@ -260,22 +270,23 @@ impl LayerStack {
     }
 
     /// Source at cell `i` \[mol/m³/s\] (empty means zero, uniform broadcasts).
-    pub fn source_at(&self, i: usize) -> f64 {
-        let k = self.layer_of(i);
+    /// A cell index outside the stack is a loud [`Error::BadCellIndex`].
+    pub fn source_at(&self, i: usize) -> Result<f64, Error> {
+        let k = self.layer_of(i).ok_or_else(|| self.bad_index(i))?;
         let layer = &self.layers[k];
         if layer.source.is_empty() {
-            0.0
+            Ok(0.0)
         } else if layer.source.len() == 1 {
-            layer.source[0]
+            Ok(layer.source[0])
         } else {
-            layer.source[i - self.layer_start(k)]
+            Ok(layer.source[i - self.layer_start(k)])
         }
     }
 
     /// Diffusivity at cell `i` \[m²/s\] (Arrhenius in the cell temperature).
     pub fn diffusivity_at(&self, i: usize) -> Result<f64, Error> {
-        let layer = &self.layers[self.layer_of(i)];
-        arrhenius(layer.d0, layer.e_d, self.temp_at(i))
+        let layer = &self.layers[self.layer_of(i).ok_or_else(|| self.bad_index(i))?];
+        arrhenius(layer.d0, layer.e_d, self.temp_at(i)?)
     }
 
     /// Diffusivity at every cell \[m²/s\].
@@ -285,15 +296,16 @@ impl LayerStack {
             .collect()
     }
 
-    /// Sieverts solubility `K_S` at cell `i` \[mol/m³/Pa¹ᐟ²\].
-    pub fn solubility_at(&self, i: usize) -> f64 {
-        self.layers[self.layer_of(i)].solubility
+    /// Sieverts solubility `K_S` at cell `i` \[mol/m³/Pa¹ᐟ²\]. A cell index
+    /// outside the stack is a loud [`Error::BadCellIndex`].
+    pub fn solubility_at(&self, i: usize) -> Result<f64, Error> {
+        Ok(self.layers[self.layer_of(i).ok_or_else(|| self.bad_index(i))?].solubility)
     }
 
     /// Trap `(k, p)` rates at cell `i` for every species of the owning layer.
     pub fn trap_rates_at(&self, i: usize) -> Result<Vec<(f64, f64)>, Error> {
-        let t = self.temp_at(i);
-        self.layers[self.layer_of(i)]
+        let t = self.temp_at(i)?;
+        self.layers[self.layer_of(i).ok_or_else(|| self.bad_index(i))?]
             .traps
             .iter()
             .map(|trap| trap.rates(t))
@@ -334,7 +346,8 @@ impl LayerStack {
             ));
         }
         for i in 0..n {
-            let traps = &self.layers[self.layer_of(i)].traps;
+            let traps =
+                &self.layers[self.layer_of(i).expect("i < total_cells by construction")].traps;
             let row = &initial.trapped[i];
             if row.len() != traps.len() {
                 return Err(Error::BadState(
@@ -477,7 +490,9 @@ fn assemble_layers(
     let n = stack.total_cells();
     let dx = stack.cell_widths();
     let d_cell = stack.diffusivities()?;
-    let sol: Vec<f64> = (0..n).map(|i| stack.solubility_at(i)).collect();
+    let sol: Vec<f64> = (0..n)
+        .map(|i| stack.solubility_at(i))
+        .collect::<std::result::Result<Vec<_>, Error>>()?;
     let phi: Vec<f64> = d_cell.iter().zip(&sol).map(|(d, s)| d * s).collect();
     let mut face_r = vec![0.0; n + 1];
     face_r[0] = dx[0] / (2.0 * phi[0]);
@@ -508,7 +523,7 @@ fn assemble_layers(
             diag[i] -= 2.0 * d_cell[i] / (dx[i] * dx[i]);
             rhs[i] += 2.0 * d_cell[i] * cf / (dx[i] * dx[i]);
         }
-        rhs[i] += stack.source_at(i);
+        rhs[i] += stack.source_at(i)?;
     }
     Ok(LayeredSystem {
         sub,
@@ -535,7 +550,8 @@ fn finish_layered_steady(
         let rates = stack.trap_rates_at(i)?;
         let mut row = Vec::with_capacity(rates.len());
         for (j, (k, p)) in rates.iter().enumerate() {
-            let traps = &stack.layers[stack.layer_of(i)].traps;
+            let traps =
+                &stack.layers[stack.layer_of(i).expect("i < total_cells by construction")].traps;
             row.push(solve_langmuir(traps[j].site_density, *k, *p, c)?);
         }
         trapped.push(row);
@@ -761,7 +777,11 @@ pub fn solve_layers(
     let sys = assemble_layers(stack, left, right)?;
     let n = stack.total_cells();
     let ntraps_per_cell: Vec<usize> = (0..n)
-        .map(|i| stack.layers[stack.layer_of(i)].traps.len())
+        .map(|i| {
+            stack.layers[stack.layer_of(i).expect("i < total_cells by construction")]
+                .traps
+                .len()
+        })
         .collect();
     let theta = opts.theta.value();
 
@@ -829,7 +849,10 @@ pub fn solve_layers(
                                 c_next[i],
                                 k,
                                 p,
-                                stack.layers[stack.layer_of(i)].traps[j].site_density,
+                                stack.layers
+                                    [stack.layer_of(i).expect("i < total_cells by construction")]
+                                .traps[j]
+                                    .site_density,
                                 dt,
                             );
                         }
@@ -1030,7 +1053,10 @@ fn solve_layers_recombination(
                                 c_next[i],
                                 k,
                                 p,
-                                stack.layers[stack.layer_of(i)].traps[j].site_density,
+                                stack.layers
+                                    [stack.layer_of(i).expect("i < total_cells by construction")]
+                                .traps[j]
+                                    .site_density,
                                 dt,
                             );
                         }
@@ -1149,7 +1175,7 @@ mod tests {
     fn interior_face_fluxes(stack: &LayerStack, s: &LayeredSteadyState) -> Vec<f64> {
         let n = stack.total_cells();
         let d = stack.diffusivities().unwrap();
-        let sol: Vec<f64> = (0..n).map(|i| stack.solubility_at(i)).collect();
+        let sol: Vec<f64> = (0..n).map(|i| stack.solubility_at(i).unwrap()).collect();
         let dx = stack.cell_widths();
         let phi: Vec<f64> = d.iter().zip(&sol).map(|(a, b)| a * b).collect();
         (1..n)
@@ -1794,5 +1820,35 @@ mod tests {
             ..Default::default()
         };
         assert!(solve_layers(&stack, &left, &right, &grid, &stack.zero_state(), &opts).is_err());
+    }
+
+    #[test]
+    fn per_cell_getters_reject_out_of_range_index() {
+        // The audit-confirmed panic path: `stack.temp_at(99)` on a 16-cell
+        // stack (via the public getters) must be a named error, never a
+        // panic.
+        let stack = LayerStack::new(
+            vec![
+                LayerSpec::new(5e-4, 8, 1e-9, 0.0, 1.0, vec![], vec![500.0], vec![1.0]).unwrap(),
+                LayerSpec::new(5e-4, 8, 1e-9, 0.0, 2.0, vec![], vec![600.0], vec![]).unwrap(),
+            ],
+            vec![Interface::Sieverts],
+        )
+        .unwrap();
+        let want = Error::BadCellIndex {
+            index: 99,
+            total: 16,
+        };
+        assert_eq!(stack.temp_at(99).unwrap_err(), want);
+        assert_eq!(stack.source_at(99).unwrap_err(), want);
+        assert_eq!(stack.diffusivity_at(99).unwrap_err(), want);
+        assert_eq!(stack.solubility_at(99).unwrap_err(), want);
+        assert_eq!(stack.trap_rates_at(99).unwrap_err(), want);
+        // In-range cells keep working, including across the layer boundary.
+        assert_eq!(stack.temp_at(7).unwrap(), 500.0);
+        assert_eq!(stack.temp_at(8).unwrap(), 600.0);
+        assert_eq!(stack.source_at(0).unwrap(), 1.0);
+        assert_eq!(stack.source_at(8).unwrap(), 0.0);
+        assert_eq!(stack.solubility_at(15).unwrap(), 2.0);
     }
 }
