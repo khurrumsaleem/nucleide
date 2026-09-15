@@ -36,7 +36,10 @@
 //! but a negative bound has no meaning), when the energy upper bounds are not
 //! strictly increasing positive values, when the mesh bounds are degenerate,
 //! or when the requested OpenMC tuning parameters fall outside the ranges
-//! the OpenMC reader enforces. Each case is a named [`crate::Error`]
+//! the OpenMC reader enforces. The Serpent `wwin` card tokens (`name`,
+//! `file`) must be single whitespace-and-quote-free words, and the OpenMC
+//! scaling steps (MeV→eV energies, `lower × upper_bound_ratio`) must stay
+//! finite after formatting. Each case is a named [`crate::Error`]
 //! variant; nothing is silently dropped or clamped.
 
 use nucleide_mcnp_io::meshtal::{MeshTallyData, ParticleKind};
@@ -124,6 +127,23 @@ pub fn emit_openmc_weight_windows(
         .iter()
         .map(|v| v * options.upper_bound_ratio)
         .collect();
+    // Finite validated inputs can still overflow at the scaling steps
+    // (MeV→eV, lower × ratio); a non-finite value in the XML would silently
+    // break the OpenMC reader, so the emission is loud instead.
+    if let Some(&v) = energy_bounds.iter().find(|v| !v.is_finite()) {
+        return Err(Error::BadEmissionOption {
+            option: "energy_bounds",
+            value: v.to_string(),
+            detail: "MeV-to-eV scaling overflowed to a non-finite value",
+        });
+    }
+    if let Some(&v) = upper.iter().find(|v| !v.is_finite()) {
+        return Err(Error::BadEmissionOption {
+            option: "upper_ww_bounds",
+            value: v.to_string(),
+            detail: "lower * upper_bound_ratio overflowed to a non-finite value",
+        });
+    }
 
     let mut xml = String::new();
     xml += &format!("  <mesh id=\"{}\">\n", options.mesh_id);
@@ -185,6 +205,25 @@ pub fn emit_openmc_weight_windows(
     Ok(OpenMcWeightWindows { xml, notes })
 }
 
+/// Validate one token interpolated into the Serpent `wwin` card. The card
+/// is assembled as `wwin {name} wf "{file}" 2`, so a token holding
+/// whitespace or a quote would corrupt the deck (an injected newline starts
+/// a new card). Only a single whitespace-and-quote-free word is accepted.
+fn check_wwin_token(option: &'static str, token: &str) -> Result<()> {
+    if token.is_empty()
+        || token
+            .chars()
+            .any(|c| c.is_whitespace() || c == '"' || c == '\'')
+    {
+        return Err(Error::BadEmissionOption {
+            option,
+            value: token.to_string(),
+            detail: "must be a single token without whitespace or quotes",
+        });
+    }
+    Ok(())
+}
+
 /// Emit MAGIC lower bounds as a Serpent-readable weight-window file.
 ///
 /// The file is written in the MCNP WWINP text spelling, which Serpent reads
@@ -198,6 +237,8 @@ pub fn emit_serpent_wwin(
     name: &str,
     file: &str,
 ) -> Result<SerpentWwin> {
+    check_wwin_token("name", name)?;
+    check_wwin_token("file", file)?;
     let dims = validate(output, tally)?;
     let groups = output.groups_per_ve;
 
@@ -329,28 +370,28 @@ fn validate_openmc_options(options: &OpenMcOptions) -> Result<()> {
     if options.upper_bound_ratio <= 1.0 {
         return Err(Error::BadEmissionOption {
             option: "upper_bound_ratio",
-            value: options.upper_bound_ratio,
+            value: options.upper_bound_ratio.to_string(),
             detail: "must be greater than 1",
         });
     }
     if !(options.survival_ratio > 1.0 && options.survival_ratio < options.upper_bound_ratio) {
         return Err(Error::BadEmissionOption {
             option: "survival_ratio",
-            value: options.survival_ratio,
+            value: options.survival_ratio.to_string(),
             detail: "must be greater than 1 and less than upper_bound_ratio",
         });
     }
     if options.max_split < 2 {
         return Err(Error::BadEmissionOption {
             option: "max_split",
-            value: options.max_split as f64,
+            value: options.max_split.to_string(),
             detail: "must be at least 2",
         });
     }
     if !(options.weight_cutoff > 0.0 && options.weight_cutoff <= 1.0) {
         return Err(Error::BadEmissionOption {
             option: "weight_cutoff",
-            value: options.weight_cutoff,
+            value: options.weight_cutoff.to_string(),
             detail: "must be in (0, 1]",
         });
     }
@@ -600,6 +641,51 @@ mod tests {
             floats_of("lower_ww_bounds", &out.xml),
             vec![0.5, 0.125, 0.25, 0.0625]
         );
+    }
+
+    #[test]
+    fn openmc_post_scaling_overflow_is_loud() {
+        // Finite, validated inputs can still overflow at the scaling steps:
+        // huge MeV group bounds x1e6 and huge lower bounds x the ratio.
+        let mut output = sample_output();
+        output.e_upper_bounds = vec![1.0e300, 1.0e308];
+        assert!(matches!(
+            emit_openmc_weight_windows(&output, &sample_tally(), &OpenMcOptions::default()),
+            Err(Error::BadEmissionOption {
+                option: "energy_bounds",
+                ..
+            })
+        ));
+        let mut output = sample_output();
+        output.lower_bounds_ww = vec![1.0e308; 8];
+        assert!(matches!(
+            emit_openmc_weight_windows(&output, &sample_tally(), &OpenMcOptions::default()),
+            Err(Error::BadEmissionOption {
+                option: "upper_ww_bounds",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn serpent_wwin_rejects_card_token_injection() {
+        // `name`/`file` interpolate into `wwin {name} wf "{file}" 2`; a
+        // whitespace or quote character would corrupt the deck.
+        for (name, file, option) in [
+            ("ww1\nsrc 2 1 1 1", "mesh.wwd", "name"),
+            ("ww1 src", "mesh.wwd", "name"),
+            ("ww1", "mesh.wwd\nsrc 2", "file"),
+            ("ww1", "mesh\"wwd", "file"),
+        ] {
+            let err = emit_serpent_wwin(&sample_output(), &sample_tally(), name, file).unwrap_err();
+            assert!(
+                matches!(err, Error::BadEmissionOption { option: o, .. } if o == option),
+                "{name:?}/{file:?}: {err}"
+            );
+        }
+        // Plain tokens still emit the pinned card.
+        let out = emit_serpent_wwin(&sample_output(), &sample_tally(), "ww1", "mesh.wwd").unwrap();
+        assert_eq!(out.card, "wwin ww1 wf \"mesh.wwd\" 2");
     }
 
     #[test]

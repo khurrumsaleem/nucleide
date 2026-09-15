@@ -115,14 +115,16 @@ pub enum Error {
         /// Index of the offending bound.
         index: usize,
     },
-    /// An emission tuning parameter falls outside the range the target code
-    /// enforces when reading the file.
+    /// An emission tuning parameter or card token falls outside the range the
+    /// target code enforces when reading the file, or cannot be interpolated
+    /// into the emitted card safely.
     BadEmissionOption {
         /// Parameter name (`upper_bound_ratio`, `survival_ratio`,
-        /// `max_split`, `weight_cutoff`).
+        /// `max_split`, `weight_cutoff`, `name`, `file`, `energy_bounds`,
+        /// `upper_ww_bounds`).
         option: &'static str,
         /// The offending value.
-        value: f64,
+        value: String,
         /// Why it was rejected.
         detail: &'static str,
     },
@@ -255,7 +257,7 @@ mod tests {
             (
                 Error::BadEmissionOption {
                     option: "survival_ratio",
-                    value: 1.0,
+                    value: "1".to_string(),
                     detail: "must be greater than 1",
                 },
                 "survival_ratio",
