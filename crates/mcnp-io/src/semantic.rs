@@ -1748,6 +1748,14 @@ pub fn validate_problem(
                 format!("Cell {} has a non-void material but no density", cell.num),
             ));
         }
+        if let Some(dens) = cell.dens {
+            if !dens.is_finite() {
+                return Err(bad(
+                    cell.line,
+                    format!("Cell {} has a non-finite density", cell.num),
+                ));
+            }
+        }
         if matches!(cell.geom, GeomExpr::Intersect(ref parts) if parts.is_empty()) {
             return Err(bad(
                 cell.line,
@@ -1773,6 +1781,17 @@ pub fn validate_problem(
                 ));
             }
         }
+        // Overflowing literals parse to inf (e.g. `1e309`); a non-finite
+        // coefficient would silently emit `x="inf"`/NaN into target codes.
+        if let Some((index, _)) = surf.coeffs.iter().enumerate().find(|(_, c)| !c.is_finite()) {
+            return Err(bad(
+                surf.line,
+                format!(
+                    "Surface: {} has a non-finite coefficient at index {index}",
+                    surf.num
+                ),
+            ));
+        }
     }
     for material in materials {
         if material.fractions.is_empty() && material.number != 0 {
@@ -1791,6 +1810,34 @@ pub fn validate_problem(
                 transform.line,
                 format!(
                     "Transform: {} does not have a valid displacement vector",
+                    transform.number
+                ),
+            ));
+        }
+        if let Some((index, _)) = transform
+            .displacement
+            .iter()
+            .enumerate()
+            .find(|(_, v)| !v.is_finite())
+        {
+            return Err(bad(
+                transform.line,
+                format!(
+                    "Transform: {} has a non-finite displacement entry at index {index}",
+                    transform.number
+                ),
+            ));
+        }
+        if let Some((index, _)) = transform
+            .rotation
+            .iter()
+            .enumerate()
+            .find(|(_, v)| !v.is_finite())
+        {
+            return Err(bad(
+                transform.line,
+                format!(
+                    "Transform: {} has a non-finite rotation entry at index {index}",
                     transform.number
                 ),
             ));
@@ -2817,5 +2864,55 @@ mod tests {
         let text = "msg\ntitle\n1 0 -1\n\n1 arb 1 2 3\n\n";
         let deck = parse_deck(text).unwrap();
         validate_problem(&deck.cells, &deck.surfs, &deck.materials, &deck.data).unwrap();
+    }
+
+    #[test]
+    fn non_finite_card_numbers_are_loud() {
+        // Overflowing literals parse to inf and must not flow into emitted
+        // documents (e.g. `x="inf"` GDML): surfaces, densities, transforms.
+        let text = "msg\ntitle\n1 0 -1\n\n1 px 1e309\n\n";
+        let deck = parse_deck(text).unwrap();
+        let err =
+            validate_problem(&deck.cells, &deck.surfs, &deck.materials, &deck.data).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Surface: 1 has a non-finite coefficient"),
+            "{err}"
+        );
+        // NaN coefficient (`1e309 - 1e309` folds at parse time only through
+        // an explicit NaN literal spelling).
+        let text = "msg\ntitle\n1 0 -1\n\n1 so nan\n\n";
+        let deck = parse_deck(text).unwrap();
+        let err =
+            validate_problem(&deck.cells, &deck.surfs, &deck.materials, &deck.data).unwrap_err();
+        assert!(err.to_string().contains("non-finite coefficient"), "{err}");
+        // Cell density.
+        let text = "msg\ntitle\n1 1 -1e309 -1\n\n1 so 1\n\nm1 1001 1.0\n";
+        let deck = parse_deck(text).unwrap();
+        let err =
+            validate_problem(&deck.cells, &deck.surfs, &deck.materials, &deck.data).unwrap_err();
+        assert!(
+            err.to_string().contains("Cell 1 has a non-finite density"),
+            "{err}"
+        );
+        // Transform displacement and rotation entries.
+        let text = "msg\ntitle\n1 0 -1\n\n1 so 1\n\ntr1 0 0 1e309\n";
+        let deck = parse_deck(text).unwrap();
+        let err =
+            validate_problem(&deck.cells, &deck.surfs, &deck.materials, &deck.data).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Transform: 1 has a non-finite displacement"),
+            "{err}"
+        );
+        let text = "msg\ntitle\n1 0 -1\n\n1 so 1\n\ntr1 0 0 0 1e309 0 0 0 1e309 0 0 1e309 0 1\n";
+        let deck = parse_deck(text).unwrap();
+        let err =
+            validate_problem(&deck.cells, &deck.surfs, &deck.materials, &deck.data).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("Transform: 1 has a non-finite rotation"),
+            "{err}"
+        );
     }
 }
