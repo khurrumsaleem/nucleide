@@ -29,9 +29,16 @@
 //!   displace — see the LI discussion in Griffin SAND2016-2269 §2.5).
 //! - The piecewise boundaries sit on the **PKA energy** `T` at `E_d` and
 //!   `2·E_d/κ`, while the high branch evaluates `κ·T_dam/(2·E_d)` on the
-//!   **damage energy** (Nordlund 2018, Eq. (1) and Eq. (5) verbatim). The
-//!   small downward step at `T = 2E_d/κ` (where `T_dam < T`) is the known
-//!   NRT construction, not a bug.
+//!   **damage energy**. That boundary convention follows SPECTER/NJOY
+//!   (Griffin, SAND2016-2269 §2.5), not Nordlund 2018 verbatim — the paper
+//!   writes both piecewise boundaries on the damage energy `T_d` (its
+//!   Eqs. (1) and (5) are damage-energy statements). Two consequences are
+//!   pinned as known artifacts of the PKA-energy convention, not bugs:
+//!   (a) the `N_d = 1` plateau covers points where `T_dam < E_d` (the
+//!   paper's damage-energy form gives 0 there), and (b) at `T = 2E_d/κ`
+//!   the arc efficiency overshoots 1 because `T_dam < T` there (the
+//!   junction test below pins that overshoot). The small downward step at
+//!   the junction is the known NRT construction, not a bug.
 //! - Everything is a pure function over caller-supplied material constants
 //!   (`E_d`, `b_arc`, `c_arc`) and nuclide keys; no evaluated data, no
 //!   tables, no PKA-spectrum solving (explicitly OUT of scope: the
@@ -403,7 +410,10 @@ mod tests {
         // arc-dpa never exceeds NRT-dpa by more than the junction overshoot:
         // on the high branch arc/nrt = ξ(T_dam(T)), ξ is monotone decreasing
         // and T_dam is increasing, so the ratio peaks at the junction
-        // T = 2E_d/κ (where it exceeds 1 because T_dam < T there).
+        // T = 2E_d/κ. The overshoot > 1.0 assertion pins known artifact (b)
+        // of the PKA-energy boundary convention (see the module docs): at the
+        // junction T_dam < T, so ξ(T_dam) > 1 — the paper's damage-energy
+        // form stays ≤ 1 there.
         let overshoot = arc_efficiency(
             damage_energy(2.0 * ed / NRT_EFFICIENCY, &fe, &fe).unwrap(),
             ed,
