@@ -1,0 +1,29 @@
+---
+title: Damage metrics
+description: Fold a three-group flux with damage and gas response cross sections and read NRT-dpa, arc-dpa, helium production, and the He/dpa ratio in the browser.
+sidebar:
+  order: 16
+---
+
+Neutron bombardment displaces atoms from their lattice sites and transmutes
+them into gases such as helium and hydrogen. Two closed-form damage models
+convert a primary knock-on atom (PKA) energy into a displacement count: the
+classic **NRT model** (Norgett, Robinson & Torrens, 1975) and the
+**arc-dpa correction** (Nordlund et al., 2018), which multiplies the NRT
+result by an efficiency below one fitted to molecular-dynamics cascades.
+Gas production is counted the same way with helium-production cross sections.
+
+The demo below folds a three-group flux with caller-supplied response cross
+sections, exactly as a reactor dosimetry pipeline would: each group
+contributes `flux × response`, and the sum scales with exposure time. All
+numbers are synthetic round values — no evaluated nuclear data is bundled.
+The arc-efficiency chart shows the Nordlund correction ξ falling with PKA
+energy for the material constants you set.
+
+<InteractiveDemo kind="damage" />
+
+## Further reading
+
+- Theory: [Damage metrics](../../theory/damage-metrics.mdx)
+- Tutorial: [Damage metrics with Python](../python/damage-metrics.md)
+- Crate docs: [`crates/damage/src/lib.rs`](https://github.com/nukehub-dev/nucleide/blob/main/crates/damage/src/lib.rs)

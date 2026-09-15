@@ -1,0 +1,30 @@
+---
+title: Spectrum unfolding
+description: Adjust a guess neutron spectrum against measured foil-activation rates with the SAND-II iteration and compare guess vs unfolded in the browser.
+sidebar:
+  order: 18
+---
+
+Foil-activation spectrometry measures a handful of reaction rates — each
+detector is sensitive to a different energy band — and the spectrum behind
+those rates must be reconstructed. **SAND-II** (McElroy et al., AFWL-TR-67-41,
+1967) does this iteratively: it folds the current spectrum guess through the
+response matrix, compares the calculated rates against the measured ones, and
+multiplies each energy group by a weighted geometric mean of the correction
+factors, so the spectrum stays positive and a guess that already fits is left
+unchanged.
+
+The demo below ships a small determined synthetic problem — four detectors,
+six energy groups, Gaussian response bumps — with editable measured rates.
+Press **Unfold spectrum** to watch the adjusted spectrum against the flat
+guess, the iteration count, and how well the final fold reproduces the rates
+you entered. The response values are synthetic round numbers, not evaluated
+detector data.
+
+<InteractiveDemo kind="unfold" />
+
+## Further reading
+
+- Theory: [Spectrum unfolding](../../theory/unfolding.mdx)
+- Tutorial: [Unfold a spectrum with Python](../python/unfold-spectrum.md)
+- Crate docs: [`crates/unfold/src/lib.rs`](https://github.com/nukehub-dev/nucleide/blob/main/crates/unfold/src/lib.rs)

@@ -267,6 +267,29 @@ NUCLIDE PU239 94239 2
       { button: "Run sampling", output: "text=Sample mean", chart: ".js-plotly-plot" },
     ],
   },
+  {
+    path: "tutorials/interactive/damage",
+    button: "Compute damage metrics",
+    output: "text=He production",
+    chart: { button: "Compute damage metrics", selector: ".js-plotly-plot" },
+  },
+  {
+    path: "tutorials/interactive/fusion-sources",
+    button: "Sample source",
+    output: "text=Emitted source cards",
+    chart: { button: "Sample source", selector: ".js-plotly-plot" },
+  },
+  {
+    path: "tutorials/interactive/unfold",
+    button: "Unfold spectrum",
+    output: "text=Measured vs folded rates",
+    chart: { button: "Unfold spectrum", selector: ".js-plotly-plot" },
+  },
+  {
+    path: "tutorials/interactive/clearance",
+    button: "Screen inventory",
+    output: "text=Screening class",
+  },
 ];
 
 for (const { path, button, output, cell, chart, paste, extraSteps } of INTERACTIVE_PAGES) {

@@ -686,6 +686,134 @@ export interface CusumResult {
   count: number;
 }
 
+export interface FusionSpectrumMoments {
+  reaction: string;
+  nominalMeV: number;
+  meanMeV: number;
+  sigmaMeV: number;
+  mono: boolean;
+}
+
+export interface FusionParticleJson {
+  positionCm: [number, number, number];
+  direction: [number, number, number];
+  energyMeV: number;
+  weight: number;
+}
+
+export interface FusionSampleResult {
+  kind: string;
+  count: number;
+  particles: FusionParticleJson[];
+}
+
+export interface FusionRingSpec {
+  kind: "ring";
+  radiusCm: number;
+  heightCm: number;
+  reaction: string;
+  tiKev: number;
+  n: number;
+  seed: number;
+}
+
+export interface FusionPointSpec {
+  kind: "point";
+  xCm: number;
+  yCm: number;
+  zCm: number;
+  reaction: string;
+  tiKev: number;
+  n: number;
+  seed: number;
+}
+
+export interface FusionParametricSpec {
+  kind: "parametric";
+  majorRadiusCm: number;
+  minorRadiusCm: number;
+  elongation: number;
+  triangularity: number;
+  shafranovFactorCm: number;
+  mode: string;
+  fuel: string;
+  centreDensityM3: number;
+  densityPeaking: number;
+  pedestalDensityM3: number;
+  separatrixDensityM3: number;
+  centreTempKev: number;
+  tempPeaking: number;
+  tempBeta: number;
+  pedestalTempKev: number;
+  separatrixTempKev: number;
+  pedestalRadiusCm: number;
+  n: number;
+  seed: number;
+}
+
+export type FusionSourceSpec = FusionRingSpec | FusionPointSpec | FusionParametricSpec;
+
+export interface FusionCardsSpec {
+  kind: "ring" | "point" | "parametric";
+  radiusCm?: number;
+  heightCm?: number;
+  xCm?: number;
+  yCm?: number;
+  zCm?: number;
+  reaction?: string;
+  tiKev?: number;
+  majorRadiusCm?: number;
+  minorRadiusCm?: number;
+  elongation?: number;
+  triangularity?: number;
+  shafranovFactorCm?: number;
+  mode?: string;
+  fuel?: string;
+  centreDensityM3?: number;
+  densityPeaking?: number;
+  pedestalDensityM3?: number;
+  separatrixDensityM3?: number;
+  centreTempKev?: number;
+  tempPeaking?: number;
+  tempBeta?: number;
+  pedestalTempKev?: number;
+  separatrixTempKev?: number;
+  pedestalRadiusCm?: number;
+  nBins?: number;
+  mcnpVersion?: number;
+}
+
+export interface FusionCardsResult {
+  mcnp: string;
+  serpent: string;
+}
+
+export interface SandiiSolutionJson {
+  spectrum: number[];
+  rates: number[];
+  rateFactors: number[];
+  iterations: number;
+  tolerance: number;
+  maxRelChange: number;
+}
+
+export interface ClearanceTableEntry {
+  nuclide: string;
+  limitBqG: number;
+}
+
+export interface ClearanceTableJson {
+  count: number;
+  entries: ClearanceTableEntry[];
+}
+
+export interface SumOfFractionsJson {
+  sum: number;
+  class: "satisfied" | "exceeded";
+  maxFraction: number;
+  maxNuclide: string | null;
+}
+
 export interface WasmMaterialsCompendium {
   len: number;
   is_empty: boolean;
@@ -864,4 +992,32 @@ export interface WasmApi {
   mcpl2ssw(mcplBytes: Uint8Array, referenceSswBytes: Uint8Array, surface?: number): Uint8Array;
   uqSample(mean: number[], cov: number[][], n: number, seed: number): UqSampleResult;
   sampleLhs(mean: number[], cov: number[][], n: number, seed: number): UqSampleResult;
+  damageNrtDpa(flux: number[], response: number[], bounds: number[], seconds: number): number;
+  damageArcDpa(flux: number[], response: number[], bounds: number[], seconds: number): number;
+  damageGasAppm(flux: number[], response: number[], bounds: number[], seconds: number): number;
+  damageHeDpaRatio(
+    flux: number[],
+    heResponse: number[],
+    damageResponse: number[],
+    bounds: number[],
+    seconds: number,
+  ): number;
+  damageEnergy(tEv: number, target: string): number;
+  nrtDisplacements(tEv: number, edEv: number, target: string): number;
+  arcEfficiency(tDamEv: number, edEv: number, bArc: number, cArc: number): number;
+  fusionSpectrumMoments(reaction: string, tiKev: number): FusionSpectrumMoments;
+  fusionReactivity(reaction: string, tiKev: number): number;
+  sampleFusionSource(spec: FusionSourceSpec): FusionSampleResult;
+  emitFusionSourceCards(spec: FusionCardsSpec): FusionCardsResult;
+  unfoldForwardFold(response: number[][], spectrum: number[]): number[];
+  sandiiSolve(
+    response: number[][],
+    rates: number[],
+    guess: number[],
+    tolerance?: number,
+    maxIterations?: number,
+  ): SandiiSolutionJson;
+  euClearanceTable(): ClearanceTableJson;
+  clearanceIndex(inventory: Record<string, number>): number;
+  clearanceSumOfFractions(inventory: Record<string, number>): SumOfFractionsJson;
 }

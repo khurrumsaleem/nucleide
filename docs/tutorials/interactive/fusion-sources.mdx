@@ -1,0 +1,27 @@
+---
+title: Fusion neutron sources
+description: Sample a tokamak ring fusion-neutron source, histogram its birth energies, and emit MCNP SDEF and Serpent source cards in the browser.
+sidebar:
+  order: 17
+---
+
+A burning deuterium–tritium (or deuterium–deuterium) plasma is a neutron
+source with a thermal spectrum: the birth energy of each neutron follows a
+Gaussian whose width grows with the square root of the ion temperature —
+the Brysk scaling, refined by the closed-form fits of **Ballabio et al.,
+Nucl. Fusion 38 (1998) 1723**. At the 14.1 MeV D-T line the broadening is
+small at reactor temperatures but never exactly zero.
+
+The demo below samples a tokamak midplane ring source (fixed major radius
+and height, uniform azimuth, isotropic directions) with a seeded generator,
+histograms the sampled birth energies, and renders the same configuration as
+MCNP `SDEF` and Serpent `src` cards that transport codes can read directly.
+Identical inputs always reproduce the identical particle stream.
+
+<InteractiveDemo kind="fusion-sources" />
+
+## Further reading
+
+- Theory: [Fusion neutron sources](../../theory/fusion-sources.mdx)
+- Tutorial: [Fusion sources with Python](../python/fusion-sources.md)
+- Crate docs: [`crates/plasma-source/src/lib.rs`](https://github.com/nukehub-dev/nucleide/blob/main/crates/plasma-source/src/lib.rs)

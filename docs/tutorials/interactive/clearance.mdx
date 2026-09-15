@@ -1,0 +1,28 @@
+---
+title: Clearance screening
+description: Screen a nuclide inventory against the EU 2013/59/Euratom Annex VII Table A clearance levels with the sum-of-fractions rule in the browser.
+sidebar:
+  order: 19
+---
+
+Material leaving a regulated radiation area can be cleared for reuse or
+disposal when its activity concentrations are low enough. **EU Council
+Directive 2013/59/Euratom, Annex VII Table A** tabulates default activity
+concentrations (in Bq/g) for solid material, and the screening criterion is
+the **sum-of-fractions rule**: add up each nuclide's activity divided by its
+table level, and the material passes when the sum is at or below one.
+
+The demo below screens an editable nuclide inventory against the default EU
+table. It reports the per-nuclide fractions, the sum, the dominant
+contributor, and whether the screening criterion is satisfied. This is
+screening arithmetic, not a compliance decision — real clearance requires
+the governing regulatory table, material bookkeeping, and the national
+transposition of the directive.
+
+<InteractiveDemo kind="clearance" />
+
+## Further reading
+
+- Theory: [Clearance screening](../../theory/clearance-screening.mdx)
+- Tutorial: [Clearance screening with Python](../python/clearance-screening.md)
+- Crate docs: [`crates/alara-io/src/clearance.rs`](https://github.com/nukehub-dev/nucleide/blob/main/crates/alara-io/src/clearance.rs)

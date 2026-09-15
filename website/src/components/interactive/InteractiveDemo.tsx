@@ -16,6 +16,10 @@ import { TritiumBreakthrough } from "./TritiumBreakthrough";
 import { McplDemo } from "./McplDemo";
 import { SpectroscopyDemo } from "./SpectroscopyDemo";
 import { UqDemo } from "./UqDemo";
+import { DamageDemo } from "./DamageDemo";
+import { FusionSourceDemo } from "./FusionSourceDemo";
+import { UnfoldDemo } from "./UnfoldDemo";
+import { ClearanceDemo } from "./ClearanceDemo";
 
 interface InteractiveDemoProps {
   kind:
@@ -36,7 +40,11 @@ interface InteractiveDemoProps {
     | "tritium"
     | "mcpl-io"
     | "spectroscopy"
-    | "uq";
+    | "uq"
+    | "damage"
+    | "fusion-sources"
+    | "unfold"
+    | "clearance";
 }
 
 export function InteractiveDemo({ kind }: InteractiveDemoProps) {
@@ -77,6 +85,14 @@ export function InteractiveDemo({ kind }: InteractiveDemoProps) {
       return <SpectroscopyDemo />;
     case "uq":
       return <UqDemo />;
+    case "damage":
+      return <DamageDemo />;
+    case "fusion-sources":
+      return <FusionSourceDemo />;
+    case "unfold":
+      return <UnfoldDemo />;
+    case "clearance":
+      return <ClearanceDemo />;
     default:
       return <div className="text-sm text-muted-foreground">Unknown demo kind: {kind}</div>;
   }

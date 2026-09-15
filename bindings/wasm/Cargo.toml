@@ -38,6 +38,9 @@ nucleide-origen-io.workspace = true
 nucleide-vr-tools.workspace = true
 nucleide-tritium.workspace = true
 nucleide-linalg = { workspace = true, default-features = false }
+nucleide-damage.workspace = true
+nucleide-plasma-source.workspace = true
+nucleide-unfold.workspace = true
 
 [features]
 default = []

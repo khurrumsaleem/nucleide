@@ -5237,3 +5237,596 @@ pub fn parse_rtflux(text: &str, kind: &str) -> Result<JsValue, JsValue> {
         truncated,
     })
 }
+
+// ---------------------------------------------------------------------------
+// Damage (NRT/arc-dpa folds + closed-form point evaluations)
+// ---------------------------------------------------------------------------
+
+/// NRT-dpa from one spectral fold: `seconds · 1e-24 · Σ_g flux[g]·response[g]`
+/// with `flux` the per-group integrated flux [n/cm²/s] and `response` the
+/// group dpa cross sections [barns] over `bounds` (`G + 1` MeV boundaries).
+#[wasm_bindgen(js_name = damageNrtDpa)]
+pub fn damage_nrt_dpa(
+    flux: Vec<f64>,
+    response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+) -> Result<f64, JsValue> {
+    nucleide_damage::nrt_dpa(&flux, &response, &bounds, seconds).map_err(js_err)
+}
+
+/// arc-dpa: same fold with arc-corrected dpa cross sections.
+#[wasm_bindgen(js_name = damageArcDpa)]
+pub fn damage_arc_dpa(
+    flux: Vec<f64>,
+    response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+) -> Result<f64, JsValue> {
+    nucleide_damage::arc_dpa(&flux, &response, &bounds, seconds).map_err(js_err)
+}
+
+/// Gas production [appm]: `seconds · 1e-18 · Σ_g flux[g]·response[g]` with the
+/// caller's gas-production cross sections [barns].
+#[wasm_bindgen(js_name = damageGasAppm)]
+pub fn damage_gas_appm(
+    flux: Vec<f64>,
+    response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+) -> Result<f64, JsValue> {
+    nucleide_damage::gas_appm(&flux, &response, &bounds, seconds).map_err(js_err)
+}
+
+/// He/dpa ratio [appm per dpa] from one flux fold of the He production and
+/// damage cross sections; a zero damage fold is a loud error, never `inf`.
+#[wasm_bindgen(js_name = damageHeDpaRatio)]
+pub fn damage_he_dpa_ratio(
+    flux: Vec<f64>,
+    he_response: Vec<f64>,
+    damage_response: Vec<f64>,
+    bounds: Vec<f64>,
+    seconds: f64,
+) -> Result<f64, JsValue> {
+    nucleide_damage::he_dpa_ratio(&flux, &he_response, &damage_response, &bounds, seconds)
+        .map_err(js_err)
+}
+
+/// Lindhard damage energy `T_dam = T·P(ε)` [eV] for a self-recoil `target`
+/// (Robinson fit; energies in eV throughout).
+#[wasm_bindgen(js_name = damageEnergy)]
+pub fn damage_energy(t_ev: f64, target: &str) -> Result<f64, JsValue> {
+    let id = target.parse::<NuclideId>().map_err(js_err)?;
+    nucleide_damage::damage_energy(t_ev, &id, &id).map_err(js_err)
+}
+
+/// NRT displacement count `N_d(T)` for a self-recoil `target` with threshold
+/// displacement energy `ed_ev` [eV].
+#[wasm_bindgen(js_name = nrtDisplacements)]
+pub fn nrt_displacements(t_ev: f64, ed_ev: f64, target: &str) -> Result<f64, JsValue> {
+    let id = target.parse::<NuclideId>().map_err(js_err)?;
+    nucleide_damage::nrt_displacements(t_ev, ed_ev, &id).map_err(js_err)
+}
+
+/// arc-dpa efficiency `ξ(T_dam)` (Nordlund et al. 2018 Eq. (7)) at damage
+/// energy `t_dam_ev` [eV] with material constants `b_arc` (`< 0`) and `c_arc`
+/// (`∈ (0, 1)`).
+#[wasm_bindgen(js_name = arcEfficiency)]
+pub fn arc_efficiency(t_dam_ev: f64, ed_ev: f64, b_arc: f64, c_arc: f64) -> Result<f64, JsValue> {
+    let params = nucleide_damage::ArcParams::new(b_arc, c_arc).map_err(js_err)?;
+    nucleide_damage::arc_efficiency(t_dam_ev, ed_ev, &params).map_err(js_err)
+}
+
+// ---------------------------------------------------------------------------
+// Fusion neutron sources (ring/point/parametric: moments, sampling, cards)
+// ---------------------------------------------------------------------------
+
+/// Demo cap on sampled source particles: the browser slice stays cheap.
+const MAX_FUSION_SAMPLES: usize = 5000;
+
+fn parse_fusion_reaction(s: &str) -> Result<nucleide_plasma_source::FusionReaction, JsValue> {
+    match s.to_ascii_lowercase().replace([' ', '-', '_'], "").as_str() {
+        "dt" | "td" => Ok(nucleide_plasma_source::FusionReaction::Dt),
+        "dd" => Ok(nucleide_plasma_source::FusionReaction::Dd),
+        _ => Err(js_err(format!(
+            "unknown fusion reaction `{s}` (supported: dt, dd)"
+        ))),
+    }
+}
+
+fn check_seed(seed: f64) -> Result<u64, JsValue> {
+    if !seed.is_finite() || seed < 0.0 || seed.fract() != 0.0 {
+        return Err(js_err(format!(
+            "seed must be a finite non-negative integer (got {seed})"
+        )));
+    }
+    if seed >= 9_007_199_254_740_992.0 {
+        return Err(js_err(format!(
+            "seed must be below 2^53 for exact f64 integer precision (got {seed})"
+        )));
+    }
+    Ok(seed as u64)
+}
+
+fn check_sample_count(n: usize) -> Result<(), JsValue> {
+    if n == 0 {
+        return Err(js_err("n must be >= 1"));
+    }
+    if n > MAX_FUSION_SAMPLES {
+        return Err(js_err(format!(
+            "n = {n} exceeds the demo cap of {MAX_FUSION_SAMPLES} particles"
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct FusionSpectrumMoments {
+    reaction: String,
+    #[serde(rename = "nominalMeV")]
+    nominal_mev: f64,
+    #[serde(rename = "meanMeV")]
+    mean_mev: f64,
+    #[serde(rename = "sigmaMeV")]
+    sigma_mev: f64,
+    mono: bool,
+}
+
+/// Ballabio spectrum moments of `reaction` (`"dt"` / `"dd"`) at ion
+/// temperature `ti_kev` [keV]: the nominal line, the shifted Gaussian mean,
+/// and the Brysk width (`sigma` zero at `T_i = 0`, the monoenergetic line).
+#[wasm_bindgen(js_name = fusionSpectrumMoments)]
+pub fn fusion_spectrum_moments(reaction: &str, ti_kev: f64) -> Result<JsValue, JsValue> {
+    let reaction = parse_fusion_reaction(reaction)?;
+    let (mean_mev, sigma_mev) = reaction.moments_mev(ti_kev).map_err(js_err)?;
+    to_js(&FusionSpectrumMoments {
+        reaction: reaction.label().to_string(),
+        nominal_mev: reaction.nominal_energy_mev(),
+        mean_mev,
+        sigma_mev,
+        mono: sigma_mev == 0.0,
+    })
+}
+
+/// Thermonuclear reactivity ⟨σv⟩ [m³/s] of `reaction` (`"dt"` / `"dd"`) at ion
+/// temperature `ti_kev` [keV] (Bosch & Hale 1992 fit; zero at `T_i = 0`).
+#[wasm_bindgen(js_name = fusionReactivity)]
+pub fn fusion_reactivity(reaction: &str, ti_kev: f64) -> Result<f64, JsValue> {
+    parse_fusion_reaction(reaction)?
+        .reactivity_m3_per_s(ti_kev)
+        .map_err(js_err)
+}
+
+#[derive(Deserialize)]
+struct FusionRingSpecJson {
+    #[serde(rename = "radiusCm", alias = "radius_cm")]
+    radius_cm: f64,
+    #[serde(rename = "heightCm", alias = "height_cm")]
+    height_cm: f64,
+    reaction: String,
+    #[serde(rename = "tiKev", alias = "ti_kev")]
+    ti_kev: f64,
+}
+
+#[derive(Deserialize)]
+struct FusionPointSpecJson {
+    #[serde(rename = "xCm", alias = "x_cm")]
+    x_cm: f64,
+    #[serde(rename = "yCm", alias = "y_cm")]
+    y_cm: f64,
+    #[serde(rename = "zCm", alias = "z_cm")]
+    z_cm: f64,
+    reaction: String,
+    #[serde(rename = "tiKev", alias = "ti_kev")]
+    ti_kev: f64,
+}
+
+#[derive(Deserialize)]
+struct FusionParametricSpecJson {
+    #[serde(rename = "majorRadiusCm", alias = "major_radius_cm")]
+    major_radius_cm: f64,
+    #[serde(rename = "minorRadiusCm", alias = "minor_radius_cm")]
+    minor_radius_cm: f64,
+    elongation: f64,
+    triangularity: f64,
+    #[serde(rename = "shafranovFactorCm", alias = "shafranov_factor_cm")]
+    shafranov_factor_cm: f64,
+    mode: String,
+    fuel: String,
+    #[serde(rename = "centreDensityM3", alias = "centre_density_m3")]
+    centre_density_m3: f64,
+    #[serde(rename = "densityPeaking", alias = "density_peaking")]
+    density_peaking: f64,
+    #[serde(rename = "pedestalDensityM3", alias = "pedestal_density_m3")]
+    pedestal_density_m3: f64,
+    #[serde(rename = "separatrixDensityM3", alias = "separatrix_density_m3")]
+    separatrix_density_m3: f64,
+    #[serde(rename = "centreTempKev", alias = "centre_temp_kev")]
+    centre_temp_kev: f64,
+    #[serde(rename = "tempPeaking", alias = "temp_peaking")]
+    temp_peaking: f64,
+    #[serde(rename = "tempBeta", alias = "temp_beta")]
+    temp_beta: f64,
+    #[serde(rename = "pedestalTempKev", alias = "pedestal_temp_kev")]
+    pedestal_temp_kev: f64,
+    #[serde(rename = "separatrixTempKev", alias = "separatrix_temp_kev")]
+    separatrix_temp_kev: f64,
+    #[serde(rename = "pedestalRadiusCm", alias = "pedestal_radius_cm")]
+    pedestal_radius_cm: f64,
+}
+
+/// Read one string field off a raw JS object.
+fn js_get_string(obj: &JsValue, key: &str) -> Result<String, JsValue> {
+    js_sys::Reflect::get(obj, &JsValue::from_str(key))
+        .ok()
+        .and_then(|v| v.as_string())
+        .ok_or_else(|| js_err(format!("spec is missing string field `{key}`")))
+}
+
+/// Read one finite-number field off a raw JS object.
+fn js_get_f64(obj: &JsValue, key: &str) -> Result<f64, JsValue> {
+    let v = js_sys::Reflect::get(obj, &JsValue::from_str(key))
+        .ok()
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| js_err(format!("spec is missing numeric field `{key}`")))?;
+    if !v.is_finite() {
+        return Err(js_err(format!(
+            "spec field `{key}` must be finite (got {v})"
+        )));
+    }
+    Ok(v)
+}
+
+fn ring_config(spec: &JsValue) -> Result<nucleide_plasma_source::PlasmaSourceConfig, JsValue> {
+    let parsed: FusionRingSpecJson =
+        serde_wasm_bindgen::from_value(spec.clone()).map_err(js_err)?;
+    Ok(nucleide_plasma_source::PlasmaSourceConfig::ring(
+        parsed.radius_cm,
+        parsed.height_cm,
+        parse_fusion_reaction(&parsed.reaction)?,
+        parsed.ti_kev,
+    ))
+}
+
+fn point_config(spec: &JsValue) -> Result<nucleide_plasma_source::PlasmaSourceConfig, JsValue> {
+    let parsed: FusionPointSpecJson =
+        serde_wasm_bindgen::from_value(spec.clone()).map_err(js_err)?;
+    Ok(nucleide_plasma_source::PlasmaSourceConfig::point(
+        parsed.x_cm,
+        parsed.y_cm,
+        parsed.z_cm,
+        parse_fusion_reaction(&parsed.reaction)?,
+        parsed.ti_kev,
+    ))
+}
+
+fn parametric_config(
+    spec: &JsValue,
+) -> Result<nucleide_plasma_source::ParametricPlasmaConfig, JsValue> {
+    let parsed: FusionParametricSpecJson =
+        serde_wasm_bindgen::from_value(spec.clone()).map_err(js_err)?;
+    use nucleide_plasma_source::{
+        DensityProfile, MillerGeometry, ParametricPlasmaConfig, ProfileMode, TemperatureProfile,
+    };
+    let mode = ProfileMode::parse(&parsed.mode).map_err(js_err)?;
+    Ok(ParametricPlasmaConfig {
+        geometry: MillerGeometry {
+            major_radius_cm: parsed.major_radius_cm,
+            minor_radius_cm: parsed.minor_radius_cm,
+            elongation: parsed.elongation,
+            triangularity: parsed.triangularity,
+            shafranov_factor_cm: parsed.shafranov_factor_cm,
+        },
+        mode,
+        ion_density: DensityProfile {
+            centre_m3: parsed.centre_density_m3,
+            peaking_factor: parsed.density_peaking,
+            pedestal_m3: parsed.pedestal_density_m3,
+            separatrix_m3: parsed.separatrix_density_m3,
+        },
+        ion_temperature: TemperatureProfile {
+            centre_kev: parsed.centre_temp_kev,
+            peaking_factor: parsed.temp_peaking,
+            beta: parsed.temp_beta,
+            pedestal_kev: parsed.pedestal_temp_kev,
+            separatrix_kev: parsed.separatrix_temp_kev,
+        },
+        pedestal_radius_cm: parsed.pedestal_radius_cm,
+        fuel: parse_fusion_reaction(&parsed.fuel)?,
+        weight: 1.0,
+    })
+}
+
+#[derive(Serialize)]
+struct FusionParticleJson {
+    #[serde(rename = "positionCm")]
+    position_cm: [f64; 3],
+    direction: [f64; 3],
+    #[serde(rename = "energyMeV")]
+    energy_mev: f64,
+    weight: f64,
+}
+
+#[derive(Serialize)]
+struct FusionSampleResult {
+    kind: String,
+    count: usize,
+    particles: Vec<FusionParticleJson>,
+}
+
+fn particle_json(particles: &[nucleide_plasma_source::Particle]) -> Vec<FusionParticleJson> {
+    particles
+        .iter()
+        .map(|p| FusionParticleJson {
+            position_cm: p.position_cm,
+            direction: p.direction,
+            energy_mev: p.energy_mev,
+            weight: p.weight,
+        })
+        .collect()
+}
+
+/// Sample `n` seeded fusion-source particles.
+///
+/// `spec` is a discriminated union on `kind`: `"ring"` takes `radiusCm`,
+/// `heightCm`, `reaction` (`"dt"`/`"dd"`), `tiKev`; `"point"` takes `xCm`,
+/// `yCm`, `zCm` instead of the ring geometry; `"parametric"` takes the Miller
+/// geometry (`majorRadiusCm`, `minorRadiusCm`, `elongation`, `triangularity`,
+/// `shafranovFactorCm`), the confinement `mode` (`"L"`/`"H"`/`"A"`), the
+/// `fuel`, and the Fausser profile parameters (`centreDensityM3`,
+/// `densityPeaking`, `pedestalDensityM3`, `separatrixDensityM3`,
+/// `centreTempKev`, `tempPeaking`, `tempBeta`, `pedestalTempKev`,
+/// `separatrixTempKev`, `pedestalRadiusCm`). All kinds take `n` (capped at
+/// [`MAX_FUSION_SAMPLES`]) and an integer `seed`. Returns `{kind, count,
+/// particles}` with one `{positionCm, direction, energyMeV, weight}` row per
+/// particle (lengths in cm, energies in MeV).
+#[wasm_bindgen(js_name = sampleFusionSource)]
+pub fn sample_fusion_source(spec: JsValue) -> Result<JsValue, JsValue> {
+    let kind = js_get_string(&spec, "kind")?.to_ascii_lowercase();
+    let (n, seed) = sample_args(&spec)?;
+    let result = match kind.as_str() {
+        "ring" => {
+            let mut sampler = nucleide_plasma_source::SourceSampler::new(ring_config(&spec)?, seed)
+                .map_err(js_err)?;
+            let particles = sampler.sample_n(n);
+            FusionSampleResult {
+                kind: "ring".to_string(),
+                count: particles.len(),
+                particles: particle_json(&particles),
+            }
+        }
+        "point" => {
+            let mut sampler =
+                nucleide_plasma_source::SourceSampler::new(point_config(&spec)?, seed)
+                    .map_err(js_err)?;
+            let particles = sampler.sample_n(n);
+            FusionSampleResult {
+                kind: "point".to_string(),
+                count: particles.len(),
+                particles: particle_json(&particles),
+            }
+        }
+        "parametric" => {
+            let mut sampler =
+                nucleide_plasma_source::ParametricSampler::new(parametric_config(&spec)?, seed)
+                    .map_err(js_err)?;
+            let particles = sampler.sample_n(n);
+            FusionSampleResult {
+                kind: "parametric".to_string(),
+                count: particles.len(),
+                particles: particle_json(&particles),
+            }
+        }
+        other => {
+            return Err(js_err(format!(
+                "unknown fusion source kind `{other}` (supported: ring, point, parametric)"
+            )));
+        }
+    };
+    to_js(&result)
+}
+
+/// Read the shared `n`/`seed` scalars off the raw spec object.
+fn sample_args(spec: &JsValue) -> Result<(usize, u64), JsValue> {
+    let n = js_get_f64(spec, "n")?;
+    check_sample_count(n as usize)?;
+    let seed = check_seed(js_get_f64(spec, "seed")?)?;
+    Ok((n as usize, seed))
+}
+
+#[derive(Serialize)]
+struct FusionCardsResult {
+    mcnp: String,
+    serpent: String,
+}
+
+/// Emit MCNP `SDEF` and Serpent `src` cards for one fusion source.
+///
+/// `spec` matches [`sample_fusion_source`] (the `n`/`seed` fields are
+/// ignored); optional `nBins` (default 21) sets the Gaussian tabulation bin
+/// count and `mcnpVersion` (default 6) selects the `PAR=` designator dialect
+/// for the `SDEF` card. Returns `{mcnp, serpent}` card texts.
+#[wasm_bindgen(js_name = emitFusionSourceCards)]
+pub fn emit_fusion_source_cards(spec: JsValue) -> Result<JsValue, JsValue> {
+    let get_opt = |key: &str| -> Option<f64> {
+        js_sys::Reflect::get(&spec, &JsValue::from_str(key))
+            .ok()
+            .and_then(|v| v.as_f64())
+    };
+    let n_bins = get_opt("nBins").unwrap_or(21.0) as usize;
+    let version = get_opt("mcnpVersion").unwrap_or(6.0) as u32;
+    let kind = js_get_string(&spec, "kind")?.to_ascii_lowercase();
+    let (mcnp, serpent) = match kind.as_str() {
+        "ring" | "point" => {
+            let config = if kind == "ring" {
+                ring_config(&spec)?
+            } else {
+                point_config(&spec)?
+            };
+            (
+                nucleide_plasma_source::emit_sdef(&config, version, n_bins).map_err(js_err)?,
+                nucleide_plasma_source::emit_serpent(&config, n_bins).map_err(js_err)?,
+            )
+        }
+        "parametric" => {
+            let config = parametric_config(&spec)?;
+            (
+                nucleide_plasma_source::emit_sdef_parametric(&config, version, n_bins)
+                    .map_err(js_err)?,
+                nucleide_plasma_source::emit_serpent_parametric(&config, n_bins).map_err(js_err)?,
+            )
+        }
+        other => {
+            return Err(js_err(format!(
+                "unknown fusion source kind `{other}` (supported: ring, point, parametric)"
+            )));
+        }
+    };
+    to_js(&FusionCardsResult {
+        mcnp: mcnp.text,
+        serpent: serpent.text,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Spectrum unfolding (forward fold + SAND-II solve)
+// ---------------------------------------------------------------------------
+
+/// Forward operator: fold `spectrum` (one value per energy group) through the
+/// `response` matrix (one row per detector) into calculated rates per
+/// detector.
+#[wasm_bindgen(js_name = unfoldForwardFold)]
+pub fn unfold_forward_fold(response: JsValue, spectrum: Vec<f64>) -> Result<JsValue, JsValue> {
+    let response: Vec<Vec<f64>> = serde_wasm_bindgen::from_value(response).map_err(js_err)?;
+    to_js(&nucleide_unfold::forward_fold(&response, &spectrum).map_err(js_err)?)
+}
+
+#[derive(Serialize)]
+struct SandiiSolutionJson {
+    spectrum: Vec<f64>,
+    rates: Vec<f64>,
+    #[serde(rename = "rateFactors")]
+    rate_factors: Vec<f64>,
+    iterations: usize,
+    tolerance: f64,
+    #[serde(rename = "maxRelChange")]
+    max_rel_change: f64,
+}
+
+/// Run the SAND-II iterative adjustment to convergence.
+///
+/// `response` is a nested array (one row per detector, one value per energy
+/// group), `rates` the measured rate per detector, and `guess` one strictly
+/// positive starting value per group. `tolerance` (default 1e-3) is the
+/// per-group relative-change convergence bound and `maxIterations` (default
+/// 200) the adjustment cap — exhausting it is a loud error, never a partial
+/// spectrum. Returns `{spectrum, rates, rateFactors, iterations, tolerance,
+/// maxRelChange}`.
+#[wasm_bindgen(js_name = sandiiSolve)]
+pub fn sandii_solve(
+    response: JsValue,
+    rates: Vec<f64>,
+    guess: Vec<f64>,
+    tolerance: Option<f64>,
+    max_iterations: Option<f64>,
+) -> Result<JsValue, JsValue> {
+    let response: Vec<Vec<f64>> = serde_wasm_bindgen::from_value(response).map_err(js_err)?;
+    let tolerance = tolerance.unwrap_or(nucleide_unfold::DEFAULT_TOLERANCE);
+    let max_iterations = max_iterations
+        .unwrap_or(nucleide_unfold::DEFAULT_MAX_ITERATIONS as f64)
+        .round() as usize;
+    let solution =
+        nucleide_unfold::sandii::unfold(&response, &rates, &guess, tolerance, max_iterations)
+            .map_err(js_err)?;
+    to_js(&SandiiSolutionJson {
+        spectrum: solution.spectrum,
+        rates: solution.rates,
+        rate_factors: solution.rate_factors,
+        iterations: solution.iterations,
+        tolerance: solution.tolerance,
+        max_rel_change: solution.max_rel_change,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Clearance screening (EU 2013/59/Euratom Annex VII Table A default)
+// ---------------------------------------------------------------------------
+
+/// The vendored EU 2013/59/Euratom Annex VII Table A default: activity
+/// concentrations for solid material in Bq/g. Returns `{count, entries}` with
+/// one `{nuclide, limitBqG}` row per table entry in canonical nucid order.
+#[wasm_bindgen(js_name = euClearanceTable)]
+pub fn eu_clearance_table() -> Result<JsValue, JsValue> {
+    #[derive(Serialize)]
+    struct ClearanceEntryJson {
+        nuclide: String,
+        #[serde(rename = "limitBqG")]
+        limit_bq_g: f64,
+    }
+    let table = nucleide_alara_io::ClearanceTable::eu_annex_vii();
+    let entries: Vec<ClearanceEntryJson> = table
+        .iter()
+        .map(|(id, limit)| ClearanceEntryJson {
+            nuclide: id.to_name(),
+            limit_bq_g: limit,
+        })
+        .collect();
+    #[derive(Serialize)]
+    struct ClearanceTableJson {
+        count: usize,
+        entries: Vec<ClearanceEntryJson>,
+    }
+    to_js(&ClearanceTableJson {
+        count: entries.len(),
+        entries,
+    })
+}
+
+fn clearance_inventory(comp: JsValue) -> Result<Vec<(NuclideId, f64)>, JsValue> {
+    let map: BTreeMap<String, f64> = serde_wasm_bindgen::from_value(comp).map_err(js_err)?;
+    map.into_iter()
+        .map(|(name, activity)| {
+            let id = name
+                .parse::<NuclideId>()
+                .map_err(|e| js_err(format!("`{name}`: {e}")))?;
+            Ok((id, activity))
+        })
+        .collect()
+}
+
+/// Clearance index `CI = Σ_i A_i / CL_i` of a `{nuclide: Bq/g}` inventory
+/// against the default EU Annex VII Table A (every inventory nuclide needs a
+/// table entry; activities must be finite and non-negative).
+#[wasm_bindgen(js_name = clearanceIndex)]
+pub fn clearance_index(inventory: JsValue) -> Result<f64, JsValue> {
+    let inventory = clearance_inventory(inventory)?;
+    let table = nucleide_alara_io::ClearanceTable::eu_annex_vii();
+    nucleide_alara_io::clearance::clearance_index(&inventory, &table).map_err(js_err)
+}
+
+/// Sum-of-fractions screening of a `{nuclide: Bq/g}` inventory against the
+/// default EU Annex VII Table A: `<= 1` satisfies the screening criterion
+/// (boundary included). Returns `{sum, class: "satisfied" | "exceeded",
+/// maxFraction, maxNuclide}` with the dominant contributor (`maxNuclide` is
+/// `null` for an empty inventory).
+#[wasm_bindgen(js_name = clearanceSumOfFractions)]
+pub fn clearance_sum_of_fractions(inventory: JsValue) -> Result<JsValue, JsValue> {
+    #[derive(Serialize)]
+    struct SumOfFractionsJson {
+        sum: f64,
+        class: String,
+        #[serde(rename = "maxFraction")]
+        max_fraction: f64,
+        #[serde(rename = "maxNuclide")]
+        max_nuclide: Option<String>,
+    }
+    let inventory = clearance_inventory(inventory)?;
+    let table = nucleide_alara_io::ClearanceTable::eu_annex_vii();
+    let out = nucleide_alara_io::clearance::sum_of_fractions(&inventory, &table).map_err(js_err)?;
+    to_js(&SumOfFractionsJson {
+        sum: out.sum,
+        class: out.class.to_string(),
+        max_fraction: out.max_fraction,
+        max_nuclide: out.max_nuclide.map(|id| id.to_name()),
+    })
+}
