@@ -914,6 +914,7 @@ dependencies = [
 name = "nucleide-mcpl-io"
 version = "0.11.0"
 dependencies = [
+ "criterion",
  "flate2",
  "nucleide-mcnp-io",
  "thiserror 2.0.20",
@@ -939,6 +940,7 @@ dependencies = [
 name = "nucleide-plasma-source"
 version = "0.11.0"
 dependencies = [
+ "criterion",
  "nucleide-mcnp-io",
  "nucleide-nuclei",
  "thiserror 2.0.20",
@@ -977,6 +979,7 @@ dependencies = [
 name = "nucleide-tritium"
 version = "0.11.0"
 dependencies = [
+ "criterion",
  "nucleide-linalg",
  "serde_json",
  "thiserror 2.0.20",
@@ -986,6 +989,7 @@ dependencies = [
 name = "nucleide-unfold"
 version = "0.11.0"
 dependencies = [
+ "criterion",
  "nucleide-linalg",
  "thiserror 2.0.20",
 ]

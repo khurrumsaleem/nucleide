@@ -1,11 +1,13 @@
-//! Criterion benchmarks for MAGIC weight-window generation and source sampling.
+//! Criterion benchmarks for MAGIC weight-window generation, source sampling,
+//! and weight-window emission (OpenMC/Serpent text).
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use nucleide_mcnp_io::meshtal::{MeshTallyData, ParticleKind};
 use nucleide_vr_tools::{
     magic, magic_with,
     sampling::{AliasTable, MeshSourceSampler, Mode},
-    MagicSelection,
+    windows::{emit_openmc_weight_windows, emit_serpent_wwin, OpenMcOptions},
+    MagicOutput, MagicSelection,
 };
 
 /// Build a large synthetic structured mesh tally: 50 x 50 x 20 voxels,
@@ -150,6 +152,39 @@ fn bench_vr_tools(c: &mut Criterion) {
     });
 
     group_sample.finish();
+
+    // Weight-window emission over the same 50x50x20 x 10-group shape
+    // (500 000 bounds): the streaming paths fixed in 0.12.0.
+    let n_ve = tally.num_ves();
+    let n_groups = 10;
+    let bench_output = MagicOutput {
+        lower_bounds_ww: (0..n_ve * n_groups)
+            .map(|i| 0.05 + ((i * 7919) % 1000) as f64 * 0.001)
+            .collect(),
+        groups_per_ve: n_groups,
+        scale_factors: vec![1.0; n_groups],
+        e_upper_bounds: tally.e_bounds[1..].to_vec(),
+        ww_tag_name: "ww_n".to_string(),
+        e_upper_bounds_tag_name: "n_e_upper_bounds".to_string(),
+    };
+    // Sanity: the synthetic tally and output agree before timing.
+    emit_openmc_weight_windows(&bench_output, &tally, &OpenMcOptions::default())
+        .expect("bench emission valid");
+
+    let mut group_emit = c.benchmark_group("vr_tools_windows_emit");
+    group_emit.throughput(Throughput::Elements((n_ve * n_groups) as u64));
+    group_emit.sample_size(10);
+    group_emit.measurement_time(std::time::Duration::from_secs(8));
+    group_emit.bench_function("emit_openmc_xml", |b| {
+        b.iter(|| {
+            emit_openmc_weight_windows(&bench_output, &tally, &OpenMcOptions::default())
+                .expect("emit openmc")
+        })
+    });
+    group_emit.bench_function("emit_serpent_wwin", |b| {
+        b.iter(|| emit_serpent_wwin(&bench_output, &tally, "ww", "mesh.wwd").expect("emit serpent"))
+    });
+    group_emit.finish();
 }
 
 criterion_group!(benches, bench_vr_tools);

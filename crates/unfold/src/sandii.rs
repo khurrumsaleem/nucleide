@@ -285,7 +285,12 @@ pub fn unfold(
     if !run.converged() {
         return Err(Error::NotConverged);
     }
-    let last = last.expect("converged run always applied at least one adjustment");
+    // `max_iterations >= 1` is validated, so a converged run applied at least
+    // one adjustment; the `None` arm is unreachable-in-practice defense (loud
+    // error, never a panic).
+    let Some(last) = last else {
+        return Err(Error::NotConverged);
+    };
     Ok(Solution {
         spectrum: last.spectrum,
         rates: last.rates,

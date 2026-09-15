@@ -652,7 +652,13 @@ fn steady_recombination(
             face[*e0] = x0;
             face[*e1] = x1;
         }
-        _ => unreachable!("steady_recombination needs a recombination end"),
+        _ => {
+            // Unreachable-in-practice: callers dispatch here only with at
+            // least one recombination end. Loud error, never a panic.
+            return Err(Error::BadBoundary(
+                "steady_recombination needs a recombination end",
+            ));
+        }
     }
     let mobile = solve_faces(face)?;
     let bl = kr_left.map_or_else(|| left.clone(), |_| Boundary::Dirichlet(face[0]));
@@ -1028,7 +1034,11 @@ pub(crate) fn close_faces(
             )?;
             Ok([Some(pair[0]), Some(pair[1])])
         }
-        (None, None) => unreachable!("close_faces needs a recombination end"),
+        (None, None) => {
+            // Unreachable-in-practice: callers dispatch here only with at
+            // least one recombination end. Loud error, never a panic.
+            Err(Error::BadBoundary("close_faces needs a recombination end"))
+        }
     }
 }
 

@@ -62,7 +62,8 @@ Owns `crates/csg-xlate/src/lib.rs` (`deck_csg_to_openmc_xml`,
   `macrobody-expansion` drift). Axis planes map to half-space box pairs and
   infinite cylinder axes to bounded `tube`s (per-deck cutoff `L`, one
   `halfspace-bounded` deck note; CX/CY add a single-axis `firstrotation`).
-  `#n` inlines by De Morgan exactly like OpenMC; unions mixing an exterior
+  `#n` inlines by De Morgan exactly like OpenMC (complementing an empty
+  region is a loud `ComplementTooComplex`, never a panic); unions mixing an exterior
   rewrite through `subtraction(bigbox, …)`, exact within the cutoff.
   Rectangular lattices expand to one `<physvol>` per element at the element
   center (`lattice-expanded` drift note). Materials emit as `mat_<n>` stubs

@@ -479,7 +479,7 @@ impl McplFile {
     fn decode_record(&self, i: usize) -> Result<Particle> {
         let size = self.header.particle_size();
         let off = self.header_len + i * size;
-        decode_particle(&self.header, &self.data[off..off + size])
+        decode_particle(&self.header, &self.data[off..off + size], i)
     }
 
     /// Decode all particle records.
@@ -694,7 +694,14 @@ fn read_header(data: &[u8]) -> Result<(Header, usize)> {
     }
 
     let universal_weight = if has_uweight {
-        Some(c.f64("universal weight")?)
+        let w = c.f64("universal weight")?;
+        // A corrupt file can carry NaN/inf/non-positive here; it would ride
+        // every decoded record's weight, so reject loudly on open like the
+        // write path does.
+        if !w.is_finite() || w <= 0.0 {
+            return Err(Error::BadUniversalWeight(w));
+        }
+        Some(w)
     } else {
         None
     };
@@ -864,7 +871,7 @@ pub fn statsum_comment(key: &str, value: f64) -> Result<String> {
     })
 }
 
-fn decode_particle(h: &Header, rec: &[u8]) -> Result<Particle> {
+fn decode_particle(h: &Header, rec: &[u8], index: usize) -> Result<Particle> {
     let mut c = Cursor::new(rec);
     let single = !h.double_prec;
     let mut get_fp = |what: &str| -> Result<f64> {
@@ -922,6 +929,33 @@ fn decode_particle(h: &Header, rec: &[u8]) -> Result<Particle> {
         }
         (ekin, direction)
     };
+    // Read-path finiteness mirrors the write path (`encode_particle` rejects
+    // non-finite fields): a foreign or corrupt file carrying NaN/inf must be
+    // a loud `NonFinite`, never a decoded particle that silently poisons
+    // `mcpl_stats` sums downstream.
+    let finite = |field: &'static str, value: f64| {
+        if value.is_finite() {
+            Ok(())
+        } else {
+            Err(Error::NonFinite {
+                index,
+                field,
+                value,
+            })
+        }
+    };
+    finite("ekin", ekin)?;
+    finite("weight", weight)?;
+    finite("time", time)?;
+    for &v in &direction {
+        finite("direction", v)?;
+    }
+    for &v in &position {
+        finite("position", v)?;
+    }
+    for &v in &polarisation {
+        finite("polarisation", v)?;
+    }
     Ok(Particle {
         ekin,
         polarisation,
@@ -1152,7 +1186,11 @@ pub fn merge_mcpl(files: &[McplFile]) -> Result<(Header, Vec<Particle>)> {
         "Merged by nucleide-mcpl-io merge_mcpl from {} files",
         files.len()
     ));
-    let mut particles = Vec::new();
+    // Pre-size from the declared counts: merging N files of known length
+    // must not pay repeated realloc growth (the inputs are already decoded
+    // in memory, so the reservation cannot exceed live memory).
+    let total: usize = files.iter().map(|f| f.header.nparticles as usize).sum();
+    let mut particles = Vec::with_capacity(total);
     for f in files {
         particles.extend(f.particles()?);
     }
@@ -1446,6 +1484,54 @@ mod tests {
         assert!((ps[0].ekin - 1.25).abs() < 1e-9);
         assert!((ps[0].direction[2] - 1.0).abs() < 1e-9);
         assert_eq!(ps[0].pdgcode, 2112);
+    }
+
+    #[test]
+    fn corrupt_non_finite_record_is_loud_on_read() {
+        // A foreign/corrupt file carrying NaN must fail decode loudly, never
+        // poison `mcpl_stats` sums: patch position[0] of record 0 to NaN.
+        let bytes = encode_file(&Header::default(), &axis_particles()).unwrap();
+        let probe = McplFile::from_bytes(bytes.clone()).unwrap();
+        let mut bad = bytes;
+        let off = probe.header_len;
+        bad[off..off + 4].copy_from_slice(&f32::NAN.to_le_bytes());
+        let file = McplFile::from_bytes(bad).unwrap();
+        match file.particles() {
+            Err(Error::NonFinite { index, field, .. }) => {
+                assert_eq!(index, 0);
+                assert_eq!(field, "position");
+            }
+            other => panic!("expected NonFinite, got {other:?}"),
+        }
+        // The untouched bytes still decode: the gate is the NaN, not the file.
+        assert_eq!(probe.particles().unwrap().len(), axis_particles().len());
+    }
+
+    #[test]
+    fn corrupt_universal_weight_is_loud_on_open() {
+        let h = Header {
+            universal_weight: Some(1.5),
+            ..Header::default()
+        };
+        let bytes = encode_file(&h, &axis_particles()).unwrap();
+        // Single-prec records never store the f64 weight, so its encoding
+        // appears only in the header block; pin that before patching.
+        let header_len = McplFile::from_bytes(bytes.clone()).unwrap().header_len;
+        let needle = 1.5f64.to_le_bytes();
+        let pos = bytes
+            .windows(8)
+            .position(|w| w == needle)
+            .expect("encoded universal weight present");
+        assert!(
+            pos + 8 <= header_len,
+            "patched bytes must be the header weight"
+        );
+        let mut bad = bytes;
+        bad[pos..pos + 8].copy_from_slice(&f64::INFINITY.to_le_bytes());
+        match McplFile::from_bytes(bad) {
+            Err(Error::BadUniversalWeight(w)) => assert_eq!(w, f64::INFINITY),
+            other => panic!("expected BadUniversalWeight, got {other:?}"),
+        }
     }
 
     #[test]

@@ -11,3 +11,10 @@ rust-version.workspace = true
 thiserror.workspace = true
 flate2 = "1"
 nucleide-mcnp-io.workspace = true
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "mcpl_bench"
+harness = false

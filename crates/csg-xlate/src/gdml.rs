@@ -802,7 +802,10 @@ impl<'a> Gdml<'a> {
                 Some(prev) => union_pieces(self, cell, prev, negated)?,
             });
         }
-        Ok(acc.expect("flat regions hold at least one literal"))
+        // A flat region with no literals (e.g. an empty intersection) has no
+        // De Morgan inline: the complement of all-space is nothing, which the
+        // solid-based GDML model cannot spell. Loud error, never a panic.
+        acc.ok_or(Error::ComplementTooComplex { cell, target })
     }
 
     /// Resolve one geometry expression to a single piece (unions folded).

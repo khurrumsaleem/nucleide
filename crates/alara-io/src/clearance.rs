@@ -113,37 +113,50 @@ impl ClearanceTable {
     /// (`name`, `Bq/g`); see the module docs for the unit-basis contract.
     ///
     /// The table is embedded at build time and parsed lazily on first call.
-    /// The transcription is committed data (like the `nuclei` static tables),
-    /// so the loader guards its invariants with loud unreachable-in-practice
-    /// panics rather than a `Result`; this constructor is not a fallible
-    /// entry point.
+    /// The transcription is committed data (like the `nuclei` static tables)
+    /// pinned by the `eu_table_row_count` test, so this constructor treats a
+    /// corrupt transcription as unreachable-in-practice and panics with the
+    /// offending line; fallible callers use [`Self::try_eu_annex_vii`].
     pub fn eu_annex_vii() -> Self {
         static TABLE: std::sync::OnceLock<ClearanceTable> = std::sync::OnceLock::new();
         TABLE
             .get_or_init(|| {
-                let mut table = ClearanceTable::new();
-                for (index, line) in EU_ANNEX_VII_A_TSV.lines().enumerate() {
-                    let line_no = index + 1;
-                    let trimmed = line.trim();
-                    if trimmed.is_empty() || trimmed.starts_with('#') {
-                        continue;
-                    }
-                    let (name, value_text) = trimmed.split_once('\t').unwrap_or_else(|| {
-                        panic!("eu_annex_vii_a.tsv line {line_no}: expected `name<TAB>Bq/g`")
-                    });
-                    let nuclide = NuclideId::from_name(name.trim()).unwrap_or_else(|_| {
-                        panic!("eu_annex_vii_a.tsv line {line_no}: unknown nuclide `{name}`")
-                    });
-                    let limit: f64 = value_text.trim().parse().unwrap_or_else(|_| {
-                        panic!("eu_annex_vii_a.tsv line {line_no}: bad limit `{value_text}`")
-                    });
-                    table
-                        .insert(nuclide, limit)
-                        .unwrap_or_else(|e| panic!("eu_annex_vii_a.tsv line {line_no}: {e}"));
-                }
-                table
+                Self::try_eu_annex_vii().unwrap_or_else(|e| panic!("eu_annex_vii_a.tsv: {e}"))
             })
             .clone()
+    }
+
+    /// Fallible parse of the embedded EU Annex VII Table A transcription.
+    ///
+    /// Same data as [`Self::eu_annex_vii`] without the lazy cache: every
+    /// malformed line (missing tab, unknown nuclide, bad limit) is a loud
+    /// [`Error::Parse`] carrying the 1-based TSV line number.
+    pub fn try_eu_annex_vii() -> Result<Self> {
+        let mut table = ClearanceTable::new();
+        for (index, line) in EU_ANNEX_VII_A_TSV.lines().enumerate() {
+            let line_no = index + 1;
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            let (name, value_text) = trimmed.split_once('\t').ok_or_else(|| Error::Parse {
+                line: line_no,
+                msg: format!("expected `name<TAB>Bq/g`, found `{trimmed}`"),
+            })?;
+            let nuclide = NuclideId::from_name(name.trim()).map_err(|_| Error::Parse {
+                line: line_no,
+                msg: format!("unknown nuclide `{name}`"),
+            })?;
+            let limit: f64 = value_text.trim().parse().map_err(|_| Error::Parse {
+                line: line_no,
+                msg: format!("bad limit `{value_text}`"),
+            })?;
+            table.insert(nuclide, limit).map_err(|e| Error::Parse {
+                line: line_no,
+                msg: format!("{e}"),
+            })?;
+        }
+        Ok(table)
     }
 }
 
@@ -229,6 +242,17 @@ fn fraction_sum(inventory: &[(NuclideId, f64)], table: &ClearanceTable) -> Resul
             max_fraction = fraction;
             max_nuclide = Some(*nuclide);
         }
+    }
+    // Finite inputs can still overflow the sum (huge activity over a tiny
+    // limit): an infinite total is a loud error, never `Ok(inf)`.
+    if !sum.is_finite() {
+        return Err(Error::BadClearanceValue {
+            nuclide: "total".to_string(),
+            msg: format!(
+                "fraction sum overflowed to {sum} over {} entries",
+                inventory.len()
+            ),
+        });
     }
     // `inventory` empty: no dominant nuclide (`max_fraction` is 0.0).
     let class = if sum <= 1.0 {
@@ -358,6 +382,37 @@ mod tests {
         assert_eq!(out.class, ClearanceClass::Exceeded);
         assert_eq!(out.max_nuclide, Some(NuclideId::from_name("Co60").unwrap()));
         assert!(out.max_fraction > out.sum - out.max_fraction);
+    }
+
+    #[test]
+    fn eu_table_loads_with_pinned_entry_count() {
+        // Pins the committed transcription: any edit to the TSV must update
+        // this count deliberately, which keeps `eu_annex_vii()` honest about
+        // its unreachable-in-practice panic.
+        let table = ClearanceTable::try_eu_annex_vii().unwrap();
+        assert_eq!(table.len(), 260);
+        assert_eq!(ClearanceTable::eu_annex_vii().len(), 260);
+        // Spot check: Co-60 Table A value is 0.1 Bq/g.
+        let co60 = table.get(NuclideId::from_name("Co60").unwrap()).unwrap();
+        assert_eq!(co60, 0.1);
+    }
+
+    #[test]
+    fn overflowing_fraction_sum_is_a_loud_error() {
+        // Finite inputs whose sum overflows: loud, never Ok(inf).
+        // f64::MAX over a 1e-308 limit overflows the single fraction to inf.
+        let mut table = ClearanceTable::new();
+        table
+            .insert(NuclideId::from_name("Co60").unwrap(), 1e-308)
+            .unwrap();
+        let inv = [(NuclideId::from_name("Co60").unwrap(), f64::MAX)];
+        match clearance_index(&inv, &table) {
+            Err(Error::BadClearanceValue { nuclide, msg }) => {
+                assert_eq!(nuclide, "total");
+                assert!(msg.contains("overflowed"), "msg was `{msg}`");
+            }
+            other => panic!("expected overflow error, got {other:?}"),
+        }
     }
 
     #[test]

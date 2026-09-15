@@ -106,8 +106,24 @@ impl ClearanceScan {
 
     /// Sum of the per-nuclide clearance-index column (FISPACT-II's own
     /// `A_i / CL_i` values summed over the scan).
-    pub fn total_clearance_index(&self) -> f64 {
-        self.rows.iter().map(|row| row.clearance_index).sum()
+    ///
+    /// Rows are finite by construction ([`parse_data_row`] rejects
+    /// non-finite tokens), but a scan with many huge rows can still overflow
+    /// the sum to infinity — that is a loud [`Error::Parse`], never a silent
+    /// `inf` total.
+    pub fn total_clearance_index(&self) -> Result<f64> {
+        let sum: f64 = self.rows.iter().map(|row| row.clearance_index).sum();
+        if sum.is_finite() {
+            Ok(sum)
+        } else {
+            Err(Error::Parse {
+                line: 0,
+                msg: format!(
+                    "clearance-index total overflowed to {sum} over {} rows",
+                    self.rows.len()
+                ),
+            })
+        }
     }
 
     /// Number of rows.
@@ -231,6 +247,12 @@ fn parse_time_header(line: &str, line_no: usize) -> Result<(i64, f64, String, bo
         line: line_no,
         msg: format!("expected step time, found `{value_text}`"),
     })?;
+    if !value.is_finite() || value < 0.0 {
+        return Err(Error::Parse {
+            line: line_no,
+            msg: format!("expected finite non-negative step time, found `{value_text}`"),
+        });
+    }
     let factor = time_unit_to_seconds(unit).ok_or_else(|| Error::Parse {
         line: line_no,
         msg: format!("unknown step-time unit `{unit}`"),
@@ -306,17 +328,37 @@ fn parse_data_row(
     }
     let mut floats = [0.0f64; 11];
     for (slot, token) in floats.iter_mut().zip(&tokens[idx..values_end]) {
-        *slot = token.parse().map_err(|_| Error::Parse {
+        let value: f64 = token.parse().map_err(|_| Error::Parse {
             line: line_no,
             msg: format!("expected float, found `{token}`"),
         })?;
+        // FISPACT-II prints finite inventory data; a NaN/inf token is a
+        // corrupt row, and letting it through would silently poison
+        // `total_clearance_index` (NaN sums, inf totals). Loud, like every
+        // other malformed row.
+        if !value.is_finite() {
+            return Err(Error::Parse {
+                line: line_no,
+                msg: format!("expected finite float, found `{token}`"),
+            });
+        }
+        *slot = value;
     }
     let half_life_s = match tokens[values_end] {
         "Stable" => -1.0,
-        text => text.parse().map_err(|_| Error::Parse {
-            line: line_no,
-            msg: format!("expected half-life or `Stable`, found `{text}`"),
-        })?,
+        text => {
+            let value: f64 = text.parse().map_err(|_| Error::Parse {
+                line: line_no,
+                msg: format!("expected half-life or `Stable`, found `{text}`"),
+            })?;
+            if !value.is_finite() || value < 0.0 {
+                return Err(Error::Parse {
+                    line: line_no,
+                    msg: format!("expected finite non-negative half-life, found `{text}`"),
+                });
+            }
+            value
+        }
     };
     // Normalize the two-token nuclide spelling through the shared dialect
     // machinery (validates element and mass); isomer letter rides on `mass`.
@@ -423,7 +465,10 @@ mod tests {
         assert_eq!(step2.rows[1].activity_bq, 3.8e6);
 
         // Hand-computed column totals across both steps.
-        assert_eq!(scan.total_clearance_index(), 1.0e6 + 4.0e9 + 9.5e5 + 2.0e7);
+        assert_eq!(
+            scan.total_clearance_index().unwrap(),
+            1.0e6 + 4.0e9 + 9.5e5 + 2.0e7
+        );
     }
 
     #[test]
@@ -472,6 +517,45 @@ mod tests {
             }
             other => panic!("expected parse error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn non_finite_values_are_loud() {
+        let header = "1 * * * TIME INTERVAL 1 * * * TIME IS 1.0 SECS\n\
+                      \n  NUCLIDE ATOMS CLEARANCE HALF LIFE\n kW seconds\n";
+        let row = |activity: &str, ci: &str, hl: &str| {
+            format!("{header}Co 60 > 1.0 1.0 {activity} 1.0 1.0 1.0 1.0 1.0 1.0 {ci} 1.0 {hl}\n")
+        };
+        // NaN/inf activity or clearance index: corrupt row, loud error.
+        for (activity, ci) in [
+            ("NaN", "1.0"),
+            ("inf", "1.0"),
+            ("1.0", "NaN"),
+            ("1.0", "-inf"),
+        ] {
+            match parse_clearance(&row(activity, ci, "1.0")) {
+                Err(Error::Parse { line, msg }) => {
+                    assert_eq!(line, 5);
+                    assert!(msg.contains("finite"), "msg was `{msg}`");
+                }
+                other => panic!("expected parse error, got {other:?}"),
+            }
+        }
+        // NaN/negative half-life likewise.
+        assert!(matches!(
+            parse_clearance(&row("1.0", "1.0", "NaN")),
+            Err(Error::Parse { .. })
+        ));
+        assert!(matches!(
+            parse_clearance(&row("1.0", "1.0", "-3.0")),
+            Err(Error::Parse { .. })
+        ));
+        // Non-finite step time.
+        let badtime = "1 * * * TIME INTERVAL 1 * * * TIME IS inf SECS\n";
+        assert!(matches!(
+            parse_clearance(badtime),
+            Err(Error::Parse { line: 1, .. })
+        ));
     }
 
     #[test]

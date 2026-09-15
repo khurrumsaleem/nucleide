@@ -171,6 +171,10 @@ pub struct LayerStack {
     /// Interface condition between `layers[k]` and `layers[k + 1]`
     /// (length `layers.len() − 1`; Sieverts in v1).
     pub interfaces: Vec<Interface>,
+    /// Cached first-cell index of each layer (length `layers.len()`).
+    /// Derived from `layers` at construction so per-cell queries stay
+    /// O(log layers) instead of re-summing offsets on every call.
+    starts: Vec<usize>,
 }
 
 impl LayerStack {
@@ -188,14 +192,20 @@ impl LayerStack {
         for interface in &interfaces {
             interface.validate()?;
         }
-        // Validate the total cell count fits in usize (the sum is recomputed
-        // on demand by `total_cells`).
+        // Validate the total cell count fits in usize, caching each
+        // layer's first-cell offset as we go (see `starts`).
+        let mut starts = Vec::with_capacity(layers.len());
         layers.iter().try_fold(0_usize, |total, layer| {
+            starts.push(total);
             total
                 .checked_add(layer.cells)
                 .ok_or(Error::BadGrid("total cell count overflows usize"))
         })?;
-        Ok(Self { layers, interfaces })
+        Ok(Self {
+            layers,
+            interfaces,
+            starts,
+        })
     }
 
     /// Total cell count across all layers.
@@ -209,15 +219,11 @@ impl LayerStack {
     }
 
     /// Index of the layer owning cell `i`, or `None` when `i` is outside the
-    /// stack's total cell count.
-    fn layer_of(&self, mut i: usize) -> Option<usize> {
-        for (k, layer) in self.layers.iter().enumerate() {
-            if i < layer.cells {
-                return Some(k);
-            }
-            i -= layer.cells;
-        }
-        None
+    /// stack's total cell count. Binary search over the cached `starts`
+    /// offsets: O(log layers), safe to call per cell inside stepper loops.
+    fn layer_of(&self, i: usize) -> Option<usize> {
+        let k = self.starts.partition_point(|&s| s <= i).checked_sub(1)?;
+        (i < self.starts[k] + self.layers[k].cells).then_some(k)
     }
 
     /// Loud [`Error::BadCellIndex`] for a public per-cell query.
@@ -264,9 +270,9 @@ impl LayerStack {
         }
     }
 
-    /// First cell index of layer `k`.
+    /// First cell index of layer `k` (cached at construction).
     fn layer_start(&self, k: usize) -> usize {
-        self.layers[..k].iter().map(|l| l.cells).sum()
+        self.starts[k]
     }
 
     /// Source at cell `i` \[mol/m³/s\] (empty means zero, uniform broadcasts).
@@ -671,7 +677,13 @@ fn steady_layers_recombination(
             face[*e0] = pair[0];
             face[*e1] = pair[1];
         }
-        _ => unreachable!("steady_layers_recombination needs a recombination end"),
+        _ => {
+            // Unreachable-in-practice: callers dispatch here only with at
+            // least one recombination end. Loud error, never a panic.
+            return Err(Error::BadBoundary(
+                "steady_layers_recombination needs a recombination end",
+            ));
+        }
     }
     let mobile = solve_faces(face)?;
     let bl = kr_left.map_or_else(|| left.clone(), |_| Boundary::Dirichlet(face[0]));
@@ -1156,6 +1168,27 @@ mod tests {
 
     /// Series resistance of stack A: L₁/Φ₁ + L₂/Φ₂ = 2.5e5 + 2.0e6.
     const STACK_A_R: f64 = 2.25e6;
+
+    #[test]
+    fn layer_offsets_resolve_every_cell() {
+        let stack = gate_stack_a();
+        assert_eq!(stack.layer_start(0), 0);
+        assert_eq!(stack.layer_start(1), 128);
+        for i in 0..128 {
+            assert_eq!(stack.layer_of(i), Some(0));
+        }
+        for i in 128..256 {
+            assert_eq!(stack.layer_of(i), Some(1));
+        }
+        assert_eq!(stack.layer_of(256), None);
+        assert!(matches!(
+            stack.temp_at(256),
+            Err(Error::BadCellIndex {
+                index: 256,
+                total: 256
+            })
+        ));
+    }
 
     /// Closed-form steady flux for Dirichlet(c0)|Dirichlet(cN): J = Δu/R.
     fn series_flux(stack: &LayerStack, c0: f64, cn: f64, left: &Boundary, right: &Boundary) -> f64 {

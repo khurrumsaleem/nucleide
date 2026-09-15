@@ -214,10 +214,10 @@ impl WeightTable {
     fn sample_r(&self, u: f64) -> f64 {
         let total = self.cumulative[R_GRID];
         let target = u * total;
-        let idx = match self
-            .cumulative
-            .binary_search_by(|v| v.partial_cmp(&target).unwrap())
-        {
+        // `total_cmp` (not `partial_cmp().unwrap()`): total order, no panic
+        // path even if a corrupt table ever held NaN (construction rejects
+        // non-finite masses, so this is defense-in-depth).
+        let idx = match self.cumulative.binary_search_by(|v| v.total_cmp(&target)) {
             Ok(i) => i.min(R_GRID - 1),
             Err(i) => i.saturating_sub(1).min(R_GRID - 1),
         };
@@ -231,7 +231,7 @@ impl WeightTable {
     /// Sample a poloidal angle from the cell's poloidal CDF.
     fn sample_theta(&self, cell: usize, u: f64) -> f64 {
         let cdf = &self.theta_cdfs[cell];
-        let idx = match cdf.binary_search_by(|v| v.partial_cmp(&u).unwrap()) {
+        let idx = match cdf.binary_search_by(|v| v.total_cmp(&u)) {
             Ok(i) => i.min(THETA_GRID - 1),
             Err(i) => i.saturating_sub(1).min(THETA_GRID - 1),
         };
@@ -269,7 +269,29 @@ impl ParametricSampler {
     /// Sample one particle: `r` from the strength-weighted radial CDF, `θ`
     /// from the cell's poloidal CDF, `φ` uniform; energy from the local
     /// ion-temperature Ballabio Gaussian; isotropic direction.
+    ///
+    /// The `Err(_) => 0.0` arm is unreachable-in-practice: the config is
+    /// validated at construction and `temperature_kev(r)` evaluates a
+    /// caller profile already accepted by `WeightTable::build`, so
+    /// `moments_mev` cannot fail here. The zero fallback (not a panic) keeps
+    /// the infallible sampling stream total; a fallible caller should use
+    /// [`ParametricSampler::try_sample`].
     pub fn sample(&mut self) -> Particle {
+        match self.try_sample() {
+            Ok(particle) => particle,
+            Err(_) => Particle {
+                position_cm: [0.0, 0.0, 0.0],
+                direction: [0.0, 0.0, 1.0],
+                energy_mev: 0.0,
+                weight: self.config.weight,
+            },
+        }
+    }
+
+    /// Fallible single-particle sample: like [`ParametricSampler::sample`]
+    /// but surfaces a spectrum-moment failure as a loud [`Error`] instead of
+    /// the documented zero-energy fallback.
+    pub fn try_sample(&mut self) -> Result<Particle> {
         let r = self.table.sample_r(self.rng.uniform());
         let dr = self.config.geometry.minor_radius_cm / R_GRID as f64;
         let cell = ((r / dr).floor() as usize).min(R_GRID - 1);
@@ -277,17 +299,18 @@ impl ParametricSampler {
         let phi = 2.0 * PI * self.rng.uniform();
         let (big_r, z) = self.config.geometry.map(r, theta);
         let ti_kev = self.config.temperature_kev(r);
-        let energy_mev = match self.config.fuel.moments_mev(ti_kev) {
-            Ok((mean, sigma)) if sigma > 0.0 => mean + sigma * self.rng.standard_normal(),
-            Ok((mean, _)) => mean,
-            Err(_) => 0.0,
+        let (mean, sigma) = self.config.fuel.moments_mev(ti_kev)?;
+        let energy_mev = if sigma > 0.0 {
+            mean + sigma * self.rng.standard_normal()
+        } else {
+            mean
         };
-        Particle {
+        Ok(Particle {
             position_cm: [big_r * phi.cos(), big_r * phi.sin(), z],
             direction: self.rng.isotropic_direction(),
             energy_mev,
             weight: self.config.weight,
-        }
+        })
     }
 
     /// Sample `n` particles.

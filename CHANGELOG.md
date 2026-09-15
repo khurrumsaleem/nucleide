@@ -220,6 +220,28 @@ workspace crates from tags.
   (Dirichlet and recombination outlets), and the discrete mass balance to
   roundoff.
 
+### Fixed
+
+- Robustness hardening across the 0.12.0 surface (all loud errors, never
+  silent partials or panics): GDML `#n` complement of an empty region is
+  `ComplementTooComplex` instead of a panic; the FISPACT-II clearance
+  reader rejects non-finite/negative inventory values and step times and
+  `total_clearance_index` reports overflow as an error (now returning
+  `Result<f64>`); `alara-io` fraction sums report overflow instead of
+  `Ok(inf)` and the EU Annex VII loader gains a fallible
+  `try_eu_annex_vii` constructor with a row-count-pinned test;
+  `mcpl-io` decoding rejects non-finite particle fields and universal
+  weights on read (mirroring the write path) so corrupt files fail loudly
+  instead of poisoning `mcpl_stats`; parametric sampling uses a panic-free
+  total-order CDF search plus a fallible `try_sample`; SAND-II replaces its
+  last `expect` with a loud error; layered-tritium `unreachable!` sites
+  become named errors.
+- Efficiency: `merge_mcpl` pre-sizes from declared counts; layered-tritium
+  per-cell layer lookup is a cached-offset binary search; Criterion
+  coverage added for every 0.12.0 kernel and reworked emission path (new
+  `unfold`, `tritium`, `mcpl`, `plasma` benches; `windows_emit` and
+  `wwinp_to_text` cases in the existing `vr-tools`/`mcnp-io` benches).
+
 ## [0.11.0] - 2026-09-14
 
 ### Added

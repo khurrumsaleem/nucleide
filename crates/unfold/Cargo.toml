@@ -14,3 +14,10 @@ thiserror.workspace = true
 # least-squares method lands on the shared `lstsq` kernel next cycle, and any
 # least-squares inside this crate must route through it.
 nucleide-linalg.workspace = true
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "unfold_bench"
+harness = false
