@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" role="img" font-family="sans-serif">
+  <title>SAND-II iteration: fold, weigh, adjust, check convergence</title>
+
+<rect x="30" y="40" width="150" height="76" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1"/>
+<text x="105.0" y="62" text-anchor="middle" font-size="13" font-weight="600" fill="var(--muted-foreground)">guess &#x3c6;</text>
+<text x="105.0" y="84" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">&#x3c6;ⱼ > 0</text>
+<text x="105.0" y="104" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">strictly positive</text>
+<rect x="245" y="40" width="150" height="76" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1"/>
+<text x="320.0" y="62" text-anchor="middle" font-size="13" font-weight="600" fill="var(--muted-foreground)">S1 fold</text>
+<text x="320.0" y="84" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">cᵢ = &#x3a3; Rᵢⱼ&#x3c6;ⱼ</text>
+<text x="320.0" y="104" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">calculated rates</text>
+<rect x="460" y="40" width="150" height="76" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1"/>
+<text x="535.0" y="62" text-anchor="middle" font-size="13" font-weight="600" fill="var(--muted-foreground)">rate ratios</text>
+<text x="535.0" y="84" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">Nᵢ / cᵢ</text>
+<text x="535.0" y="104" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">measured / folded</text>
+<rect x="30" y="190" width="150" height="76" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1"/>
+<text x="105.0" y="212" text-anchor="middle" font-size="13" font-weight="600" fill="var(--muted-foreground)">S3 adjust</text>
+<text x="105.0" y="234" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">&#x3c6; × geom. mean</text>
+<text x="105.0" y="254" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">of corrections</text>
+<rect x="245" y="190" width="150" height="76" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1"/>
+<text x="320.0" y="212" text-anchor="middle" font-size="13" font-weight="600" fill="var(--muted-foreground)">S2 weights</text>
+<text x="320.0" y="234" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">Wⱼᵢ = Rᵢⱼ&#x3c6;ⱼ/cᵢ</text>
+<text x="320.0" y="254" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">rate shares</text>
+<rect x="460" y="190" width="150" height="76" rx="10" fill="#fef3c7" stroke="var(--border)" stroke-width="1"/>
+<text x="535.0" y="212" text-anchor="middle" font-size="13" font-weight="600" fill="var(--muted-foreground)">converged?</text>
+<text x="535.0" y="234" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">max |Δ&#x3c6;/&#x3c6;| &lt; tol</text>
+<text x="535.0" y="254" text-anchor="middle" font-size="12" fill="var(--muted-foreground)">strictly below</text>
+<line x1="180" y1="78" x2="245" y2="78" stroke="var(--muted-foreground)" stroke-width="1.5"/>
+<polygon points="245,78 237,74 237,82" fill="var(--muted-foreground)"/>
+<line x1="395" y1="78" x2="460" y2="78" stroke="var(--muted-foreground)" stroke-width="1.5"/>
+<polygon points="460,78 452,74 452,82" fill="var(--muted-foreground)"/>
+<polyline points="535,116 535,153 320,153 320,190" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="320,190 316,182 324,182" fill="var(--muted-foreground)"/>
+<line x1="245" y1="228" x2="180" y2="228" stroke="var(--muted-foreground)" stroke-width="1.5"/>
+<polygon points="180,228 188,224 188,232" fill="var(--muted-foreground)"/>
+<polyline points="105,266 105,300 535,300 535,266" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="535,266 531,274 539,274" fill="var(--muted-foreground)"/>
+<polyline points="560,267 560,352 20,352 20,78 32,78" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="32,78 24,74 24,82" fill="var(--muted-foreground)"/>
+<text x="180" y="344" text-anchor="middle" font-size="11.5" fill="var(--muted-foreground)">no: next iteration</text>
+<polyline points="610,228 630,228" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polygon points="630,228 622,224 622,232" fill="var(--muted-foreground)"/>
+<text x="445" y="344" text-anchor="middle" font-size="11.5" fill="var(--muted-foreground)">yes: solution + diagnostics</text>
+</svg>
