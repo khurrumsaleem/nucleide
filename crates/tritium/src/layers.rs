@@ -787,10 +787,12 @@ pub fn solve_layers(
         if dt < opts.dt_min {
             return Err(Error::BadOption("output spacing needs a step below dt_min"));
         }
+        // dt is constant across the substeps of this span, so build the
+        // theta-step matrix once per span (matches the recombination paths).
+        let m_sub: Vec<f64> = sys.sub.iter().map(|v| -dt * theta * v).collect();
+        let m_diag: Vec<f64> = sys.diag.iter().map(|v| 1.0 - dt * theta * v).collect();
+        let m_sup: Vec<f64> = sys.sup.iter().map(|v| -dt * theta * v).collect();
         for _ in 0..n_sub {
-            let m_sub: Vec<f64> = sys.sub.iter().map(|v| -dt * theta * v).collect();
-            let m_diag: Vec<f64> = sys.diag.iter().map(|v| 1.0 - dt * theta * v).collect();
-            let m_sup: Vec<f64> = sys.sup.iter().map(|v| -dt * theta * v).collect();
             let mut e = vec![0.0; n];
             for i in 0..n {
                 let mut a_c = sys.diag[i] * c[i];
