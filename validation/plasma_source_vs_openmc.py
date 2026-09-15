@@ -436,7 +436,12 @@ def oracle_check_openmc_plasma_source() -> tuple[list[list[str]], list[str], boo
     )
     rng = np.random.default_rng(2026)
     try:
-        upstream_e = np.asarray(upstream.energy.sample(N, seed=1)) / 1e6  # eV -> MeV
+        sampled = upstream.energy.sample(N, seed=1)
+        # OpenMC >= 0.13 returns (samples, weights); older versions return
+        # the bare sample array.
+        if isinstance(sampled, tuple):
+            sampled = sampled[0]
+        upstream_e = np.asarray(sampled) / 1e6  # eV -> MeV
     except (AttributeError, TypeError):
         mean_ev = neutron_energy_mean(ion_temperature=ti_ev, reaction="DD")
         std_ev = neutron_energy_std_dev(ion_temperature=ti_ev, reaction="DD")

@@ -3,10 +3,10 @@
   "name": "magic",
   "title": "MAGIC weight windows (`magic_vs_pyne.py`)",
   "environment": {
-    "date": "2026-09-14",
+    "date": "2026-09-15",
     "python": "3.12.14",
     "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
-    "nucleide": "0.10.0",
+    "nucleide": "0.11.0",
     "pyne": "0.7.5",
     "openmc": "0.16.0"
   },
@@ -41,6 +41,44 @@
     {
       "kind": "prose",
       "text": "Nucleide's MAGIC output matched the reference formula exactly for the synthetic\ntest tally."
+    },
+    {
+      "kind": "heading",
+      "level": 3,
+      "text": "Weight-window emission probes"
+    },
+    {
+      "kind": "prose",
+      "text": "The per-group MAGIC output was also emitted as an OpenMC settings.xml fragment\n(`<mesh>` + `<weight_windows>`) and as a Serpent-readable WWINP file (`wwin ... wf`)\nand each emitted text was re-parsed structurally back to the MAGIC windows."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Probe",
+        "Result"
+      ],
+      "rows": [
+        [
+          "OpenMC fragment re-parse (stdlib XML)",
+          "PASS: 8 cells x 2 groups round-trip"
+        ],
+        [
+          "Serpent WWINP re-parse (tokenizer)",
+          "PASS: 8 cells x 2 groups round-trip"
+        ],
+        [
+          "OpenMC container load",
+          "PASS: openmc.MeshBase/openmc.WeightWindows parsed the emitted fragment"
+        ],
+        [
+          "Serpent container load",
+          "SKIP: Serpent is proprietary and not installed; the WWINP FMT=2 spelling is verified by the in-tree reader round-trip instead"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "The Serpent file is emitted in the MCNP WWINP text spelling that Serpent reads via\n`wwin <name> wf \"<file>\" 2`; the returned card pins that reference:\n`wwin ww1 wf \"wwindows.wwd\" 2`."
     }
   ]
 }

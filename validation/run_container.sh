@@ -25,6 +25,8 @@ podman build -t "$IMAGE" -f "$SCRIPT_DIR/Containerfile" "$REPO_ROOT"
 
 echo "Building Nucleide release wheel (maturin container, cargo-cached)..."
 mkdir -p "$REPO_ROOT/target/container-wheels"
+# Stale wheels from previous runs would collide in the install glob below.
+rm -f "$REPO_ROOT"/target/container-wheels/nucleide-*.whl
 podman run --rm -v "$REPO_ROOT:/io" ghcr.io/pyo3/maturin:latest \
     build --release -m bindings/python/Cargo.toml -o /io/target/container-wheels
 

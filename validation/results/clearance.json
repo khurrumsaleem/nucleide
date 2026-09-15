@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "name": "clearance",
+  "title": "Clearance / waste-classification (`clearance_vs_pypact.py`)",
+  "environment": {
+    "date": "2026-09-15",
+    "python": "3.12.14",
+    "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
+    "nucleide": "0.11.0",
+    "pyne": "0.7.5",
+    "openmc": "0.16.0"
+  },
+  "sections": [
+    {
+      "kind": "prose",
+      "text": "Two-part oracle for `nucleide.alara` clearance analytics and the `nucleide.fispact` clearance-block reader: analytic gates C1-C5 on the synthetic fixture in the real FISPACT-II wide-table grammar (always run), and a cross-check of the overlapping inventory columns (atoms, activity, clearance index) against the upstream Apache-2.0 pypact reader (oracle leg)."
+    },
+    {
+      "kind": "prose",
+      "text": "EU Annex VII Table A transcription: 260 entries (Bq/g)."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Value",
+        "Expected",
+        "Status"
+      ],
+      "rows": [
+        [
+          "C1 CI == 1 at limit",
+          "1.000000e+00",
+          "== 1",
+          "PASS"
+        ],
+        [
+          "C1 CI mixed vector",
+          "4.000000e+00",
+          "== 4",
+          "PASS"
+        ],
+        [
+          "C2 boundary == 1",
+          "1.000000e+00",
+          "satisfied",
+          "PASS"
+        ],
+        [
+          "C2 one ulp above",
+          "1.000000e+00",
+          "exceeded",
+          "PASS"
+        ],
+        [
+          "C2 one ulp below",
+          "1.000000e+00",
+          "satisfied",
+          "PASS"
+        ],
+        [
+          "C3 EU table spots",
+          "260 entries",
+          "exact",
+          "PASS"
+        ],
+        [
+          "C4 clearance-block parse",
+          "7 rows",
+          "7",
+          "PASS"
+        ],
+        [
+          "C4 column total CI",
+          "4.021950e+09",
+          "4.021950e+09",
+          "PASS"
+        ],
+        [
+          "C5 parsed-inventory CI",
+          "2.000000e+00",
+          "== 2",
+          "PASS"
+        ]
+      ]
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Quantity",
+        "Value"
+      ],
+      "rows": [
+        [
+          "Parsed clearance-index total",
+          "4.021950e+09"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "pypact overlap: 7 nuclide-steps, worst rel err 0.000e+00."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Nucleide",
+        "pypact",
+        "Rel err",
+        "Status"
+      ],
+      "rows": [
+        [
+          "O step 1 V55",
+          "0.000000e+00",
+          "0.000000e+00",
+          "0.000000e+00",
+          "PASS"
+        ],
+        [
+          "O step 1 Fe56",
+          "0.000000e+00",
+          "0.000000e+00",
+          "0.000000e+00",
+          "PASS"
+        ],
+        [
+          "O step 1 Co60",
+          "4.000000e+06",
+          "4.000000e+06",
+          "0.000000e+00",
+          "PASS"
+        ],
+        [
+          "O step 1 Rb86m",
+          "8.000000e+09",
+          "8.000000e+09",
+          "0.000000e+00",
+          "PASS"
+        ],
+        [
+          "O step 2 Fe56",
+          "0.000000e+00",
+          "0.000000e+00",
+          "0.000000e+00",
+          "PASS"
+        ],
+        [
+          "O step 2 Co60",
+          "3.800000e+06",
+          "3.800000e+06",
+          "0.000000e+00",
+          "PASS"
+        ],
+        [
+          "O step 2 Rb86m",
+          "4.000000e+07",
+          "4.000000e+07",
+          "0.000000e+00",
+          "PASS"
+        ]
+      ]
+    }
+  ]
+}

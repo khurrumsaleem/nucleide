@@ -3,10 +3,10 @@
   "name": "mcpl",
   "title": "MCPL interchange vs upstream tooling",
   "environment": {
-    "date": "2026-09-14",
+    "date": "2026-09-15",
     "python": "3.12.14",
     "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
-    "nucleide": "0.10.0",
+    "nucleide": "0.11.0",
     "pyne": "0.7.5",
     "openmc": "0.16.0"
   },
@@ -178,6 +178,75 @@
     {
       "kind": "prose",
       "text": "SSW oracle runs the upstream converter scripts over the synthetic pair."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Expected",
+        "Got",
+        "Status"
+      ],
+      "rows": [
+        [
+          "U1 merge concat order",
+          "4, golden bytes",
+          "4",
+          "PASS"
+        ],
+        [
+          "U2 first-file header + provenance",
+          "srcname merge-a, 2 comments",
+          "merge-a, ['first file', 'Merged by nucleide-mcpl-io merge_mcpl from 2 files']",
+          "PASS"
+        ],
+        [
+          "U3 stat:sum verbatim, not synthesized",
+          "stat:sum:nps(2.0) once",
+          "'stat:sum:nps:                       2'",
+          "PASS"
+        ],
+        [
+          "U4 precision promotes to double",
+          "3, double, f32 values exact",
+          "3, True, 6.620000e-01",
+          "PASS"
+        ],
+        [
+          "U5 incompatible merge is loud",
+          "ValueError",
+          "ValueError",
+          "PASS"
+        ],
+        [
+          "U6 extract range, header verbatim",
+          "2, [22, 2112]",
+          "2, [22, 2112]",
+          "PASS"
+        ],
+        [
+          "U7 extract predicate (PDG)",
+          "2, [2.5, 14.1] MeV",
+          "2, [2.5, 14.1]",
+          "PASS"
+        ],
+        [
+          "U8 stats hand moments",
+          "n=4, sum 22.262, min 0.662, max 14.1",
+          "n=4, sum 2.226200e+01, min 6.620000e-01, max 1.410000e+01",
+          "PASS"
+        ],
+        [
+          "U9 repair unpatched count",
+          "2, bytes identical",
+          "2",
+          "PASS"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "Utility gates run over the committed hand-framed utils fixtures (synthetic axis-vector records only; no upstream files are read)."
     }
   ]
 }

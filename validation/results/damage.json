@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "name": "damage",
+  "title": "Damage/gas metrics (`damage_vs_specter.py`)",
+  "environment": {
+    "date": "2026-09-15",
+    "python": "3.12.14",
+    "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
+    "nucleide": "0.11.0",
+    "pyne": "0.7.5",
+    "openmc": "0.16.0"
+  },
+  "sections": [
+    {
+      "kind": "prose",
+      "text": "Two-part oracle for `nucleide.damage`: analytic gates G1-G5 on synthetic inputs (always run \u2014 NRT/arc closed forms, fold conventions, invariants, and the pinned-seed MVN UQ gate), and a SPECTER cross-check (ANL/FPP/TM-197, US-gov PD) folding report-transcribed spots at print precision (container only; loud SKIP outside)."
+    },
+    {
+      "kind": "prose",
+      "text": "G1: Fe-56 synthetic target, E_d = 40 eV; partition and branch recomputed from published constants."
+    },
+    {
+      "kind": "prose",
+      "text": "G2: synthetic arc constants (b_arc=-0.55, c_arc=0.3); the fitted material table is caller data by design."
+    },
+    {
+      "kind": "prose",
+      "text": "G5: seeded MVN over the caller [flux, response] block (linalg engine); exact bilinear expectation, first-order propagated std."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Value",
+        "Tol",
+        "Status"
+      ],
+      "rows": [
+        [
+          "G1 Lindhard partition transcription",
+          "3.837686e-16",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "G1 NRT high branch",
+          "0.000000e+00",
+          "< 1e-15",
+          "PASS"
+        ],
+        [
+          "G1 NRT piecewise low/plateau",
+          "-",
+          "exact",
+          "PASS"
+        ],
+        [
+          "G2 xi(2E_d/0.8) = 1",
+          "1.000000e+00",
+          "exact",
+          "PASS"
+        ],
+        [
+          "G2 xi saturation",
+          "3.294835e-04",
+          "< 1e-3",
+          "PASS"
+        ],
+        [
+          "G2 xi monotone (b<0)",
+          "-",
+          "decreasing",
+          "PASS"
+        ],
+        [
+          "G2 arc high branch = NRT x xi",
+          "0.000000e+00",
+          "< 1e-15",
+          "PASS"
+        ],
+        [
+          "G3 nrt_dpa hand sum",
+          "0.000000e+00",
+          "< 1e-15",
+          "PASS"
+        ],
+        [
+          "G3 gas_appm hand sum",
+          "0.000000e+00",
+          "< 1e-15",
+          "PASS"
+        ],
+        [
+          "G3 piecewise-constant (bounds width-free)",
+          "-",
+          "identical",
+          "PASS"
+        ],
+        [
+          "G4 zero-flux groups",
+          "4.000000e-10",
+          "exact hand product",
+          "PASS"
+        ],
+        [
+          "G4 He/dpa at zero dpa",
+          "-",
+          "loud named error",
+          "PASS"
+        ],
+        [
+          "G4 negative flux",
+          "-",
+          "ValueError",
+          "PASS"
+        ],
+        [
+          "G4 non-monotonic bounds",
+          "-",
+          "ValueError",
+          "PASS"
+        ],
+        [
+          "G5 UQ k-SE gate (n=20000)",
+          "-",
+          "passed",
+          "PASS"
+        ],
+        [
+          "G5 pinned-seed determinism",
+          "-",
+          "identical",
+          "PASS"
+        ],
+        [
+          "G5 ratio UQ named-open",
+          "-",
+          "NotYetSupported",
+          "PASS"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "Spots transcribed from ANL/FPP/TM-197 (US-gov PD): Table VI (HFIR-CTR32, fluence 4.78373E+22) spectrum-averaged dpa cross sections and DPA for Fe/Ti/Cu; Table V spectral-averaged gas production cross sections (mb) and GAS(APPM). One-group fluence folds (seconds=1); bounds are documentation-only. Tolerance 1e-4 relative = 2 half-ulp of the 5-digit print, the finest agreement transcribed inputs allow. No SPECTER table is vendored."
+    },
+    {
+      "kind": "prose",
+      "text": "Fe He/dpa uses the He production cross section printed in the Fe row (6.6776E-05 barns), which the report's own helium appm (3.1944E+00) corroborates via appm = fluence x sigma x 1e-18."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Rel err",
+        "Tol",
+        "Status"
+      ],
+      "rows": [
+        [
+          "S1 Fe dpa",
+          "3.828535e-06",
+          "< 0.0001 (print)",
+          "PASS"
+        ],
+        [
+          "S1 Ti dpa",
+          "5.230992e-05",
+          "< 0.0001 (print)",
+          "PASS"
+        ],
+        [
+          "S1 Cu dpa",
+          "2.457405e-06",
+          "< 0.0001 (print)",
+          "PASS"
+        ],
+        [
+          "S2 C12 He appm",
+          "8.946240e-07",
+          "< 0.0001 (print)",
+          "PASS"
+        ],
+        [
+          "S2 Li7 He appm",
+          "2.033549e-05",
+          "< 0.0001 (print)",
+          "PASS"
+        ],
+        [
+          "S2 B10 H appm",
+          "2.611458e-05",
+          "< 0.0001 (print)",
+          "PASS"
+        ],
+        [
+          "S2 N14 H appm",
+          "1.337693e-05",
+          "< 0.0001 (print)",
+          "PASS"
+        ],
+        [
+          "S3 Fe He/dpa",
+          "8.979780e-06",
+          "< 0.0001 (print)",
+          "PASS"
+        ]
+      ]
+    }
+  ]
+}

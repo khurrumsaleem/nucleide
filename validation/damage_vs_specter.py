@@ -157,11 +157,14 @@ def analytic_gates() -> tuple[list[list[str]], list[str]]:
         ["G3 piecewise-constant (bounds width-free)", "-", "identical", _check(ok, "G3 width-free")]
     )
 
-    # G4: invariants and loud errors.
+    # G4: invariants and loud errors. "Exact" means exact equality with the
+    # IEEE hand product of the live groups — 1e-24 * 4e14 rounds one ulp
+    # below the 4e-10 literal, so a decimal-literal target is unachievable.
     live = [0.0, 2.0e12, 0.0]
     got = dmg.nrt_dpa(live, resp3, bounds3, 1.0)
+    want = 1.0e-24 * (2.0e12 * resp3[1])
     rows.append(
-        ["G4 zero-flux groups", fmt(got), "exact 4e-10", _check(got == 4.0e-10, "G4 zero flux")]
+        ["G4 zero-flux groups", fmt(got), "exact hand product", _check(got == want, "G4 zero flux")]
     )
     try:
         dmg.he_dpa_ratio([0.0, 0.0, 0.0], resp3, resp3, bounds3, 1.0)

@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "name": "unfold",
+  "title": "Neutron spectrum unfolding (`unfold_vs_analytic.py`)",
+  "environment": {
+    "date": "2026-09-15",
+    "python": "3.12.14",
+    "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
+    "nucleide": "0.11.0",
+    "pyne": "0.7.5",
+    "openmc": "0.16.0"
+  },
+  "sections": [
+    {
+      "kind": "prose",
+      "text": "Two-part oracle for `nucleide.unfold`, both parts always run: analytic gates U1-U4 on synthetic forward folds (fold identity, exact fixed point, determined and underdetermined round-trips at pinned tolerances) and IRDFF-II analytical benchmark-shape probes U5 (Trkov et al. 2020, published facts with citation). No external unfolding oracle exists, so no container dependency is added and no check can SKIP."
+    },
+    {
+      "kind": "prose",
+      "text": "U2: an exact guess is a fixed point (one confirming no-op adjustment)."
+    },
+    {
+      "kind": "prose",
+      "text": "U3 determined 6x6 recovery from a 3x-biased guess: 2 adjustments."
+    },
+    {
+      "kind": "prose",
+      "text": "U4 underdetermined case (6 detectors, 24 groups): rates reproduced; spectrum error 3.989e-01 vs guess error 1.000e+00 \u2014 the recoverable bias component converges, the null-space part keeps the guess."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Value",
+        "Tol",
+        "Status"
+      ],
+      "rows": [
+        [
+          "U1 forward fold",
+          "8.881784e-16",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "U2 exact fixed point",
+          "-",
+          "1 no-op adjust",
+          "PASS"
+        ],
+        [
+          "U3 determined recovery",
+          "3.283852e-16",
+          "< 1e-6",
+          "PASS"
+        ],
+        [
+          "U3 rate factors",
+          "0.000000e+00",
+          "< 1e-9",
+          "PASS"
+        ],
+        [
+          "U4 underdetermined rate repro",
+          "1.099715e-09",
+          "< 1e-6",
+          "PASS"
+        ],
+        [
+          "U4 spectrum error reduction",
+          "3.989160e-01",
+          "< guess err / 2",
+          "PASS"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "U5 shapes are the IRDFF-II analytical benchmark fields named in Trkov et al., Nucl. Data Sheets 163 (2020) 1 (arXiv:1909.03336), re-derived from their closed forms; the IAEA-copyright tabulated spectra are never used."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Rel err",
+        "Tol",
+        "Status"
+      ],
+      "rows": [
+        [
+          "U5 thermal Maxwellian 293.6 K",
+          "5.729956e-16",
+          "< 1e-5",
+          "PASS"
+        ],
+        [
+          "U5 pure 1/E",
+          "2.320996e-16",
+          "< 1e-5",
+          "PASS"
+        ],
+        [
+          "U5 Maxwellian 25 keV",
+          "3.190368e-16",
+          "< 1e-5",
+          "PASS"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "U6-U8: non-convergence raises (never a partial spectrum), unconstrained groups keep the guess bit-exactly, and every malformed input names its cause."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Value",
+        "Tol",
+        "Status"
+      ],
+      "rows": [
+        [
+          "U6 cap is a hard fail",
+          "-",
+          "ValueError",
+          "PASS"
+        ],
+        [
+          "U7 unconstrained keeps guess",
+          "-",
+          "bit-exact",
+          "PASS"
+        ],
+        [
+          "U8 named input errors",
+          "-",
+          "5 cases",
+          "PASS"
+        ]
+      ]
+    }
+  ]
+}

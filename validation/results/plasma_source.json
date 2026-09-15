@@ -1,0 +1,302 @@
+{
+  "schema": 1,
+  "name": "plasma_source",
+  "title": "Tokamak fusion sources (`plasma_source_vs_openmc.py`)",
+  "environment": {
+    "date": "2026-09-15",
+    "python": "3.12.14",
+    "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
+    "nucleide": "0.11.0",
+    "pyne": "0.7.5",
+    "openmc": "0.16.0"
+  },
+  "sections": [
+    {
+      "kind": "prose",
+      "text": "Two-part oracle for `nucleide.plasma_source`: analytic gates P1-P4 on the synthetic ring spec (closed-form ring/spectrum moments, sampler determinism, card emission) and P5-P7 on a parametric Miller-geometry plasma (flat-profile Jacobian closed forms, Bosch-Hale reactivity transcription, sampled moments vs fine quadrature) \u2014 always run \u2014 plus container-only cross-checks O1-O7 against the upstream openmc-plasma-source package and NeSST (Ballabio helpers, sampled ring/point sources, Miller map, Fausser profiles, reactivities, and end-to-end parametric moments)."
+    },
+    {
+      "kind": "prose",
+      "text": "P1 ring sampling: n=200000, radius min/max 300.000000/300.000000 cm."
+    },
+    {
+      "kind": "prose",
+      "text": "P2 spectrum moments vs in-script Ballabio 1998 Table III transcription."
+    },
+    {
+      "kind": "prose",
+      "text": "P4 Serpent drift rows are analytic by design (no reader in the workspace)."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Value",
+        "Tol",
+        "Status"
+      ],
+      "rows": [
+        [
+          "P1 ring radius/height",
+          "-",
+          "exact",
+          "PASS"
+        ],
+        [
+          "P1 <x>",
+          "4.070264e-01",
+          "< 8 sigma",
+          "PASS"
+        ],
+        [
+          "P1 <y>",
+          "1.218568e-01",
+          "< 8 sigma",
+          "PASS"
+        ],
+        [
+          "P1 direction isotropy <w>",
+          "-1.422059e-03",
+          "< 1e-2",
+          "PASS"
+        ],
+        [
+          "P2 DD Ti=1 keV moments",
+          "0.000000e+00",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "P2 DD Ti=10 keV moments",
+          "1.235765e-16",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "P2 DD Ti=20 keV moments",
+          "0.000000e+00",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "P2 DT Ti=1 keV moments",
+          "1.842517e-16",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "P2 DT Ti=10 keV moments",
+          "0.000000e+00",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "P2 DT Ti=20 keV moments",
+          "1.643695e-16",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "P3 pinned-seed determinism",
+          "-",
+          "identical",
+          "PASS"
+        ],
+        [
+          "P4 SDEF reader round trip",
+          "-",
+          "byte-identical",
+          "PASS"
+        ],
+        [
+          "P4 tabulation tail drift",
+          "6.337207e-05",
+          "~ +/-4 sigma tail",
+          "PASS"
+        ],
+        [
+          "P4 Serpent src structure",
+          "-",
+          "shape",
+          "PASS"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "P5 flat-profile closed forms at delta=0: <r^2> = a^2/2, <z> = 0, and the outboard volume bias <R> = R0 + a^2/(4 R0) (volume element R|J|)."
+    },
+    {
+      "kind": "prose",
+      "text": "P6 reactivity <sigma v> vs in-script Bosch-Hale/Atzeni transcription."
+    },
+    {
+      "kind": "prose",
+      "text": "P7 H-mode sampled moments vs fine quadrature of S\u00b7R\u00b7|J| (in-script Fausser/Bosch-Hale transcription), n=200000."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Value",
+        "Tol",
+        "Status"
+      ],
+      "rows": [
+        [
+          "P5 flat <r^2> = a^2/2",
+          "9.277966e-04",
+          "< 5e-2",
+          "PASS"
+        ],
+        [
+          "P5 <z> = 0",
+          "1.022081e-01",
+          "< 8 sigma",
+          "PASS"
+        ],
+        [
+          "P5 <R> = R0 + a^2/4R0",
+          "2.638868e-04",
+          "< 5e-2",
+          "PASS"
+        ],
+        [
+          "P6 reactivity transcription",
+          "2.257322e-16",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "P7 mean birth energy",
+          "8.960130e-05",
+          "< 1e-2",
+          "PASS"
+        ],
+        [
+          "P7 birth <r^2>",
+          "4.408783e-03",
+          "< 1e-2",
+          "PASS"
+        ]
+      ]
+    },
+    {
+      "kind": "prose",
+      "text": "O1 compares the Rust coefficient transcription against the upstream package's Table III helpers at three ion temperatures."
+    },
+    {
+      "kind": "prose",
+      "text": "O2 D-D sampled moments at T_i=20 keV, n=200000 per side (upstream space object sampled analytically where OpenMC exposes no sampler)."
+    },
+    {
+      "kind": "prose",
+      "text": "O3 geometry cross-check uses the upstream ring's own CylindricalIndependent parameters (r delta, z delta, uniform azimuth) against Nucleide's sampled ring."
+    },
+    {
+      "kind": "prose",
+      "text": "O4 forward map R(a,\u03b8), Z(a,\u03b8) (Shafranov shift included) at a 4\u00d75 grid."
+    },
+    {
+      "kind": "prose",
+      "text": "O5 Fausser L/H density and temperature profiles at seven radii (keV/eV converted)."
+    },
+    {
+      "kind": "prose",
+      "text": "O6 Bosch-Hale reactivity vs NeSST (tolerance 1e-6 reflects the published coefficients' precision, not the implementation)."
+    },
+    {
+      "kind": "prose",
+      "text": "O7 end-to-end parametric moments vs quadrature over the upstream map/profiles with the NeSST D-T reactivity, n=200000."
+    },
+    {
+      "kind": "table",
+      "headers": [
+        "Gate",
+        "Rel err",
+        "Tol",
+        "Status"
+      ],
+      "rows": [
+        [
+          "O1 Ballabio fit transcription",
+          "1.842517e-16",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "O2 DD energy mean",
+          "3.751890e-04",
+          "< 1e-2",
+          "PASS"
+        ],
+        [
+          "O2 DD energy std",
+          "5.055002e-03",
+          "< 1e-2",
+          "PASS"
+        ],
+        [
+          "O3 ring radius moments",
+          "0.000000e+00",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "O3 ring height moments",
+          "0.000000e+00",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "O3 azimuth <x^2>",
+          "3.471047e-03",
+          "< 1e-2",
+          "PASS"
+        ],
+        [
+          "O3 point position",
+          "-",
+          "exact",
+          "PASS"
+        ],
+        [
+          "O4 Miller map transcription",
+          "0.000000e+00",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "O5 density profile",
+          "0.000000e+00",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "O5 temperature profile",
+          "0.000000e+00",
+          "< 1e-12",
+          "PASS"
+        ],
+        [
+          "O6 reactivity vs NeSST",
+          "5.750953e-09",
+          "< 1e-6",
+          "PASS"
+        ],
+        [
+          "O7 mean birth energy",
+          "4.473240e-05",
+          "< 1e-2",
+          "PASS"
+        ],
+        [
+          "O7 birth <r^2>",
+          "5.026414e-03",
+          "< 1e-2",
+          "PASS"
+        ]
+      ]
+    }
+  ]
+}

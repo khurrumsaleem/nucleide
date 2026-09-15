@@ -3,10 +3,10 @@
   "name": "parsers",
   "title": "Parser cross-validation (`parsers_vs_refs.py`)",
   "environment": {
-    "date": "2026-09-14",
+    "date": "2026-09-15",
     "python": "3.12.14",
     "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.39",
-    "nucleide": "0.10.0",
+    "nucleide": "0.11.0",
     "pyne": "0.7.5",
     "openmc": "0.16.0"
   },
@@ -386,11 +386,15 @@
     {
       "kind": "heading",
       "level": 3,
-      "text": "CSG translation vs OpenMC"
+      "text": "CSG translation vs OpenMC + GDML schema"
     },
     {
       "kind": "prose",
       "text": "The `nucleide.mcnp.parse_csg_to_openmc` facade translates the committed\n`fixtures/mcnp/inp/deck_csg_*.txt` decks to OpenMC `geometry.xml` (scoped\nv3: surfaces, cells, nested universes, rectangular `LAT=1` lattices, and a\nmaterial stub; a filled cell carries `fill` instead of `material`).\nStructural probes \u2014 surface and cell counts, region ids referencing defined\nsurfaces, boundary attributes, material/fill stubs \u2014 always run, as do\nlattice cross-references (dimension/count products, universe-id references,\nfill linkage) for decks with `<lattice>` blocks. When `openmc` is importable\n(validation container), the `Region.from_expression` cross-check runs, every\nGO deck's `geometry.xml` is fully loaded by OpenMC (`Geometry.from_xml` with\nstub materials for the emitted material numbers), and lattice decks are\nverified geometrically against the source deck: each element's universe id\nmatches the deck `FILL` matrix entry at the same MCNP `(i, j, k)` indices\n(`k, j, i` i-fastest vs OpenMC row-major `z` up/`y` down/`x` up), the\nelement centroid lies inside the universe's cells as positioned by the\ndeck surfaces, and `pitch * dimension` spans the lattice cell's RPP bounds.\nReject decks must raise `ValueError`."
+    },
+    {
+      "kind": "prose",
+      "text": "The same decks translate through `nucleide.mcnp.parse_csg_to_gdml` to Geant4\nGDML (schema version 3.1.7, pinned from the Geant4 v11.4.2 tag; the format is described by the CHEP 2005 paper, CERN-CDS-1023367).\nGDML is solid-based: every cell becomes a named boolean solid plus a\n`<volume>`, every universe an `<assembly>`, rectangular `LAT=1` lattices\nexpand to one `<physvol>` per element at the element center (checked against\nthe deck bounds; all lengths convert from MCNP cm to GDML millimetres, the\nschema default), and infinite half-spaces are bounded by the per-deck\ncutoff recorded in the drift report. The structural probe verifies that\nevery reference (`solidref`, boolean `first`/`second`, `volumeref`,\n`materialref`, `world`) resolves and that the document carries the pinned\nschema version. Wherever `lxml` is importable (validation container), every\ntranslated document is additionally validated against the runtime-fetched,\nSHA-256-pinned XSD; a Geant4 load gate stays OUT (disproportionate\ndependency for an emitter), and a missing validator degrades to a loud SKIP."
     },
     {
       "kind": "table",
@@ -420,6 +424,12 @@
           "OK"
         ],
         [
+          "deck_csg_sphere_box.txt",
+          "gdml structure",
+          "25 solids, 4 volumes, 34 refs",
+          "OK"
+        ],
+        [
           "deck_csg_rpp.txt",
           "structure",
           "6 surfs, 2 cells, 12 refs",
@@ -435,6 +445,12 @@
           "deck_csg_rpp.txt",
           "phits structure",
           "1 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_rpp.txt",
+          "gdml structure",
+          "3 solids, 3 volumes, 11 refs",
           "OK"
         ],
         [
@@ -456,6 +472,36 @@
           "OK"
         ],
         [
+          "deck_csg_rcc.txt",
+          "gdml structure",
+          "7 solids, 3 volumes, 15 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_cylinders.txt",
+          "structure",
+          "3 surfs, 2 cells, 6 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_cylinders.txt",
+          "serpent structure",
+          "3 surfs, 2 cells, 4 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_cylinders.txt",
+          "phits structure",
+          "3 surfs, 2 cells, 4 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_cylinders.txt",
+          "gdml structure",
+          "12 solids, 3 volumes, 25 refs",
+          "OK"
+        ],
+        [
           "deck_csg_complement.txt",
           "structure",
           "2 surfs, 2 cells, 3 refs",
@@ -471,6 +517,12 @@
           "deck_csg_complement.txt",
           "phits structure",
           "2 surfs, 2 cells, 3 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_complement.txt",
+          "gdml structure",
+          "4 solids, 3 volumes, 11 refs",
           "OK"
         ],
         [
@@ -492,6 +544,12 @@
           "OK"
         ],
         [
+          "deck_csg_universe_fill.txt",
+          "gdml structure",
+          "3 solids, 3 volumes, 10 refs",
+          "OK"
+        ],
+        [
           "deck_csg_universe_data.txt",
           "structure",
           "2 surfs, 2 cells, 2 refs",
@@ -507,6 +565,12 @@
           "deck_csg_universe_data.txt",
           "phits structure",
           "2 surfs, 2 cells, 2 refs",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_data.txt",
+          "gdml structure",
+          "3 solids, 3 volumes, 10 refs",
           "OK"
         ],
         [
@@ -534,10 +598,64 @@
           "OK"
         ],
         [
+          "deck_csg_lattice_rect.txt",
+          "gdml structure",
+          "11 solids, 11 volumes, 43 refs, 8 placements",
+          "OK"
+        ],
+        [
           "deck_csg_complement_reject.txt",
           "reject",
           "1",
           "OK (ValueError)"
+        ],
+        [
+          "deck_csg_complement.txt",
+          "gdml xsd",
+          "1",
+          "OK"
+        ],
+        [
+          "deck_csg_cylinders.txt",
+          "gdml xsd",
+          "1",
+          "OK"
+        ],
+        [
+          "deck_csg_lattice_rect.txt",
+          "gdml xsd",
+          "1",
+          "OK"
+        ],
+        [
+          "deck_csg_rcc.txt",
+          "gdml xsd",
+          "1",
+          "OK"
+        ],
+        [
+          "deck_csg_rpp.txt",
+          "gdml xsd",
+          "1",
+          "OK"
+        ],
+        [
+          "deck_csg_sphere_box.txt",
+          "gdml xsd",
+          "1",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_data.txt",
+          "gdml xsd",
+          "1",
+          "OK"
+        ],
+        [
+          "deck_csg_universe_fill.txt",
+          "gdml xsd",
+          "1",
+          "OK"
         ],
         [
           "deck_csg_sphere_box.txt",
@@ -553,6 +671,12 @@
         ],
         [
           "deck_csg_rcc.txt",
+          "openmc regions",
+          "2",
+          "OK"
+        ],
+        [
+          "deck_csg_cylinders.txt",
           "openmc regions",
           "2",
           "OK"
@@ -595,6 +719,12 @@
         ],
         [
           "deck_csg_rcc.txt",
+          "openmc geometry load",
+          "2 cells, 1 universes",
+          "OK"
+        ],
+        [
+          "deck_csg_cylinders.txt",
           "openmc geometry load",
           "2 cells, 1 universes",
           "OK"

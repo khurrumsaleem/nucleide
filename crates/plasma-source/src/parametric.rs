@@ -137,6 +137,7 @@ impl ParametricPlasmaConfig {
 
 /// Piecewise-constant inverse-CDF table over `[0, a_minor]`: cell masses and
 /// per-cell poloidal CDFs (so θ sampling needs no per-particle quadrature).
+#[derive(Debug)]
 struct WeightTable {
     /// Cell edges (R_GRID + 1).
     edges: Vec<f64>,
@@ -172,6 +173,15 @@ impl WeightTable {
                 let w = config.geometry.volume_element(r, theta);
                 weights.push(w);
                 w_acc += w;
+            }
+            // A zero (or non-finite) accumulated weight would make the
+            // per-cell theta CDF a 0/0 division (and the sampler's
+            // partial_cmp().unwrap() a panic path); reject loudly at build
+            // time instead of relying on the global-strength check below.
+            if w_acc.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+                return Err(Error::InvalidProfile(
+                    "parametric source cell has zero poloidal weight",
+                ));
             }
             let mass = strength * w_acc * dtheta * dr;
             masses.push(mass);
@@ -707,5 +717,27 @@ pub(crate) mod tests {
         let mut c = iter_h_mode();
         c.ion_density.centre_m3 = -1.0;
         assert!(matches!(c.validate(), Err(Error::InvalidProfile(_))));
+    }
+
+    #[test]
+    fn zero_poloidal_cell_weight_is_loud_at_build() {
+        // A zero minor radius collapses every cell's poloidal Jacobian sum
+        // (`w_acc == 0`), the 0/0 CDF division behind the sampler's
+        // partial_cmp().unwrap() panic path. WeightTable::build is reached
+        // without validation (e.g. via total_strength), so the guard must
+        // fire on its own.
+        let mut c = iter_h_mode();
+        c.geometry.minor_radius_cm = 0.0;
+        let err = WeightTable::build(&c).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidProfile(m) if m.contains("zero poloidal weight")),
+            "{err}"
+        );
+        // Same via the public total_strength entry point.
+        assert!(
+            matches!(c.total_strength(), Err(Error::InvalidProfile(_))),
+            "{:?}",
+            c.total_strength()
+        );
     }
 }
