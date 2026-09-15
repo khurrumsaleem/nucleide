@@ -432,8 +432,10 @@ impl McplFile {
         &self.data
     }
 
-    /// Decode all particle records.
-    pub fn particles(&self) -> Result<Vec<Particle>> {
+    /// Check that the byte region after the header holds exactly
+    /// `nparticles` complete records — the length contract shared by full
+    /// decode, range extraction, and the streaming stats tally.
+    fn check_particle_region(&self) -> Result<()> {
         let size = self.header.particle_size();
         let n = self.header.nparticles as usize;
         let want_end =
@@ -456,10 +458,24 @@ impl McplFile {
                 particle: n as u64,
             });
         }
+        Ok(())
+    }
+
+    /// Decode the particle record at index `i`; `check_particle_region`
+    /// guarantees the byte range is present.
+    fn decode_record(&self, i: usize) -> Result<Particle> {
+        let size = self.header.particle_size();
+        let off = self.header_len + i * size;
+        decode_particle(&self.header, &self.data[off..off + size])
+    }
+
+    /// Decode all particle records.
+    pub fn particles(&self) -> Result<Vec<Particle>> {
+        self.check_particle_region()?;
+        let n = self.header.nparticles as usize;
         let mut out = Vec::with_capacity(n);
         for i in 0..n {
-            let off = self.header_len + i * size;
-            out.push(decode_particle(&self.header, &self.data[off..off + size])?);
+            out.push(self.decode_record(i)?);
         }
         Ok(out)
     }
@@ -1042,19 +1058,29 @@ impl std::fmt::Debug for ExtractSpec {
 /// Ranges are validated against the particle count ([`Error::ExtractOutOfRange`]);
 /// the predicate form cannot fail beyond the initial decode.
 pub fn extract_mcpl(file: &McplFile, spec: &ExtractSpec) -> Result<(Header, Vec<Particle>)> {
-    let all = file.particles()?;
     let selected = match spec {
         ExtractSpec::Range(r) => {
-            if r.start > r.end || r.end > all.len() {
+            file.check_particle_region()?;
+            let n = file.header.nparticles as usize;
+            if r.start > r.end || r.end > n {
                 return Err(Error::ExtractOutOfRange {
                     start: r.start,
                     stop: r.end,
-                    nparticles: all.len() as u64,
+                    nparticles: n as u64,
                 });
             }
-            all[r.start..r.end].to_vec()
+            // Decode only the requested records — head/tail extracts stay
+            // O(range) instead of paying a full-file decode.
+            let mut selected = Vec::with_capacity(r.end - r.start);
+            for i in r.start..r.end {
+                selected.push(file.decode_record(i)?);
+            }
+            selected
         }
-        ExtractSpec::Predicate(p) => all.iter().filter(|particle| p(particle)).cloned().collect(),
+        ExtractSpec::Predicate(p) => {
+            let all = file.particles()?;
+            all.iter().filter(|particle| p(particle)).cloned().collect()
+        }
     };
     let mut header = file.header.clone();
     header.version = FORMAT_VERSION_WRITE;
@@ -1152,14 +1178,20 @@ pub struct McplStats {
 }
 
 /// Compute [`McplStats`] over all particles in a file.
+///
+/// Tally streams over the encoded records one at a time — no whole-file
+/// `Vec<Particle>` materialization — in the same sequential order as a full
+/// decode, so every reported quantity is bit-identical.
 pub fn mcpl_stats(file: &McplFile) -> Result<McplStats> {
-    let particles = file.particles()?;
+    file.check_particle_region()?;
+    let n = file.header.nparticles as usize;
     let mut ekin_sum = 0.0;
     let mut ekin_min = f64::INFINITY;
     let mut ekin_max = f64::NEG_INFINITY;
     let mut weight_sum = 0.0;
     let mut pdg_counts: Vec<(i32, u64)> = Vec::new();
-    for p in &particles {
+    for i in 0..n {
+        let p = file.decode_record(i)?;
         ekin_sum += p.ekin;
         ekin_min = ekin_min.min(p.ekin);
         ekin_max = ekin_max.max(p.ekin);
@@ -1169,17 +1201,13 @@ pub fn mcpl_stats(file: &McplFile) -> Result<McplStats> {
             Err(i) => pdg_counts.insert(i, (p.pdgcode, 1)),
         }
     }
-    let (ekin_min, ekin_max, ekin_mean) = if particles.is_empty() {
+    let (ekin_min, ekin_max, ekin_mean) = if n == 0 {
         (None, None, None)
     } else {
-        (
-            Some(ekin_min),
-            Some(ekin_max),
-            Some(ekin_sum / particles.len() as f64),
-        )
+        (Some(ekin_min), Some(ekin_max), Some(ekin_sum / n as f64))
     };
     Ok(McplStats {
-        nparticles: particles.len() as u64,
+        nparticles: n as u64,
         ekin_sum,
         ekin_min,
         ekin_max,
