@@ -5,17 +5,20 @@
 1D tritium diffusion-trapping kernel: Fickian mobile transport (T1) coupled
 to N extrinsic McNabb–Foster trap species (T2) on a slab with
 caller-supplied temperature, plus the Dirichlet/Sieverts/Henry/zero-flux
-surface taxonomy. Pure 1D finite-volume PDE; no multi-D, no FEM, no heat
-solve, no property tables.
+surface taxonomy. Multi-layer series stacks (e.g. W/Cu/CuCrZr first-wall
+stacks) extend the same kernel per layer with Sieverts internal interface
+conditions (v1; Henry/recombination interfaces are loud
+unsupported-interface errors). Pure 1D finite-volume PDE; no multi-D, no
+FEM, no heat solve, no property tables.
 
 ## Ownership
 
-Owns `crates/tritium/src/` (`params.rs`, `bc.rs`, `solve.rs`, `error.rs`),
-the Python surface (`nucleide.tritium`, `tritium_*` in `_internal`),
-`tests/test_tritium.py`, the `tritiumBreakthrough` WASM facade, the
-`TritiumBreakthrough` demo, and `docs/tutorials/interactive/tritium.mdx`.
-Replays (never rewrites) `fixtures/tritium/`; shares `linalg::tridiag`
-with no other consumer yet.
+Owns `crates/tritium/src/` (`params.rs`, `bc.rs`, `solve.rs`, `layers.rs`,
+`error.rs`), the Python surface (`nucleide.tritium`, `tritium_*` in
+`_internal`), `tests/test_tritium.py`, the `tritiumBreakthrough` WASM
+facade, the `TritiumBreakthrough` demo, and
+`docs/tutorials/interactive/tritium.mdx`. Replays (never rewrites)
+`fixtures/tritium/`; shares `linalg::tridiag` with no other consumer yet.
 
 ## Local Contracts
 
@@ -28,7 +31,24 @@ with no other consumer yet.
   impermeable wall); `recombination` (`J = K_r c²`) is closed in the
   steady state by the exact face-response construction (G5) and in the
   transient by the per-step face Newton sharing the affine face-response
-  construction (G6a–G6e) — never a silent pass.
+  construction (G6a–G6e) — never a silent pass. The same taxonomy governs
+  the outer ends of multi-layer stacks (`layers.rs`).
+- Multi-layer contract (G7/G8, `layers.rs`): a `LayerStack` chains `N ≥ 1`
+  caller-specified layers (thickness, cells, Arrhenius `D`, solubility
+  `K_S`, per-layer traps/temperature/source). Internal interfaces are
+  Sieverts-only in v1: `u = c_m / K_S` continuous, flux continuous; the
+  `Interface` taxonomy carries Henry/recombination variants that
+  `LayerStack::new` rejects loudly with `Error::UnsupportedInterface`.
+  The face flux `J = (c_i/K_i − c_{i+1}/K_{i+1})/R_f`, `R_f` the sum of the
+  two half-cell resistances `dx/(2·D·K_S)`, is linear in the cell values
+  and folds directly into the tridiagonal θ-step matrix — no interface
+  Newton (the spike outcome; the nonlinear G5/G6 face machinery is needed
+  only for recombination *outer ends*, reused unchanged on the layered
+  matrix). A one-layer stack dispatches to the landed single-slab kernel
+  and reproduces it exactly (G7c regression anchor). Goldens for the
+  layered gates live in unit tests with recorded provenance (synthetic
+  stacks, hand-derived series-resistance oracles), never in
+  `fixtures/tritium/`.
 - Discretization rule: cell-centred finite volume with implicit
   theta-stepping (Crank–Nicolson default, backward Euler on request);
   diffusion implicit, traps via the exact per-cell backward-Euler map with
@@ -53,10 +73,22 @@ with no other consumer yet.
   method-of-lines solver (node-centred central FD + explicit RK4,
   ghost-node recombination end) at 1.5e-4 relative on the mobile-profile
   max-norm (6e-4 trapped profile, outlet flux 5e-3 relative with a
-  1e-3·J_ss floor), trap-free and trap-coupled.
+  1e-3·J_ss floor), trap-free and trap-coupled. G7/G8 multi-layer gates
+  (synthetic stacks, in-test closed forms): G7a/G7b series-resistance flux
+  at 1e-12 relative with a 1e-18 absolute floor (fluxes ~1e-7), interface
+  flux continuity and half-cell-corrected interface potentials to roundoff
+  (1e-12), G7c single-layer recovery exact (bit-for-bit against the landed
+  kernel via dispatch), G7d property-continuous 2-layer ≡ landed at 1e-12,
+  G7e layered recombination outer end at 1e-12 relative, G8a dt-halving
+  bands as G6d (measured ≈2.0 CN / ≈1.0 BE), G8b layered steady asymptote
+  at 1e-6 relative on fluxes and 1e-9 on the profile (Dirichlet and
+  recombination outlets), G8c layered discrete mass balance at 1e-12
+  relative.
 - Out of scope (do not expand here): multi-D/FEM, heat coupling,
   plasma-facing implantation models, TBR coupling, FESTIM-file I/O, any
-  dolfinx linkage, vendored D/K_S tables (caller-supplied only).
+  dolfinx linkage, vendored D/K_S tables (caller-supplied only);
+  Henry/recombination internal interface laws (recorded v1 limitation —
+  they are loud `UnsupportedInterface` errors, not silently approximated).
 - WASM/tutorial surface (owned): `tritiumBreakthrough` in `bindings/wasm`
   (trap-free permeation solve returning the `J/J_ss` series plus `t_lag`
   and `J_ss`; thin facade, fixed 200-cell grid), the

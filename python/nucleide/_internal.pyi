@@ -820,6 +820,25 @@ def tritium_irreversible_fill(
 ) -> list[float]: ...
 def tritium_sieverts(solubility: float, pressure: float) -> float: ...
 def tritium_recombination_rate(kr0: float, e_r: float, temp: float) -> float: ...
+def tritium_layers_steady(
+    layers: list[dict[str, Any]],
+    left: dict[str, Any],
+    right: dict[str, Any],
+) -> dict[str, Any]: ...
+def tritium_layers_transient(
+    layers: list[dict[str, Any]],
+    left: dict[str, Any],
+    right: dict[str, Any],
+    t: list[float],
+    mobile0: list[float] | None = None,
+    trapped0: list[list[float]] | None = None,
+    method: str = "crank_nicolson",
+    rtol: float = 1e-9,
+    atol: float = 1e-12,
+    dt_min: float = 1e-14,
+    dt_max: float | None = None,
+    max_steps: int = 1000000,
+) -> dict[str, Any]: ...
 def spectroscopy_rect_smooth(counts: list[float], m: int) -> list[float]: ...
 def spectroscopy_five_point_smooth(counts: list[float]) -> list[float]: ...
 def spectroscopy_calc_bg(

@@ -202,9 +202,13 @@ caller-supplied temperature, solved by cell-centred finite volumes with
 implicit theta-stepping through the shared `linalg::tridiag` Thomas solver.
 Owns the Dirichlet/Sieverts/Henry/zero-flux surface taxonomy plus
 recombination ends (`J = K_r c²`, closed in steady state and transient by
-the face-response construction, G5/G6); multi-D/FEM, heat coupling, and
-vendored property tables stay out. Depends on `nucleide-linalg` only among
-workspace crates; bindings depend on it, never the reverse.
+the face-response construction, G5/G6), and multi-layer series stacks with
+Sieverts internal interface conditions (`c/K_S` and flux continuous; the
+linear interface flux folds into the tridiagonal step matrix — G7/G8).
+Henry/recombination internal interface laws are loud v1 errors; multi-D/FEM,
+heat coupling, and vendored property tables stay out. Depends on
+`nucleide-linalg` only among workspace crates; bindings depend on it, never
+the reverse.
 
 ### `nucleide-plasma-source`
 

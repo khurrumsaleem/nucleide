@@ -441,16 +441,16 @@ pub fn recombination_rate_arrhenius(kr0: f64, e_r: f64, temp: f64) -> Result<f64
 
 /// Tridiagonal rate system `dc/dt = A c + rhs` with `A` in
 /// sub/diag/sup form and face diffusivities for flux evaluation.
-struct DiffusionSystem {
-    sub: Vec<f64>,
-    diag: Vec<f64>,
-    sup: Vec<f64>,
-    rhs: Vec<f64>,
-    face_d: Vec<f64>,
+pub(crate) struct DiffusionSystem {
+    pub(crate) sub: Vec<f64>,
+    pub(crate) diag: Vec<f64>,
+    pub(crate) sup: Vec<f64>,
+    pub(crate) rhs: Vec<f64>,
+    pub(crate) face_d: Vec<f64>,
 }
 
 /// Face concentration imposed by an equilibrium end; `None` for zero flux.
-fn face_concentration(bc: &Boundary) -> Option<f64> {
+pub(crate) fn face_concentration(bc: &Boundary) -> Option<f64> {
     bc.surface_concentration()
 }
 
@@ -524,7 +524,7 @@ fn assemble(
 
 /// Outward surface flux \[mol/m²/s\] from the boundary-adjacent cell value
 /// (`D (c_cell − c_face) / (dx/2)` for equilibrium ends, `0` for zero flux).
-fn outward_flux(bc: &Boundary, c_cell: f64, d_face: f64, dx: f64) -> f64 {
+pub(crate) fn outward_flux(bc: &Boundary, c_cell: f64, d_face: f64, dx: f64) -> f64 {
     match face_concentration(bc) {
         Some(cf) => d_face * (c_cell - cf) / (dx * 0.5),
         None => 0.0,
@@ -536,27 +536,27 @@ fn outward_flux(bc: &Boundary, c_cell: f64, d_face: f64, dx: f64) -> f64 {
 /// ```text
 /// ctⱼⁿᵉʷ = (ctⱼᵒˡᵈ + dt·kⱼ·c·Nⱼ) / (1 + dt·(kⱼ·c + pⱼ)).
 /// ```
-fn trap_update(ct_old: f64, c: f64, k: f64, p: f64, site_density: f64, dt: f64) -> f64 {
+pub(crate) fn trap_update(ct_old: f64, c: f64, k: f64, p: f64, site_density: f64, dt: f64) -> f64 {
     (ct_old + dt * k * c * site_density) / (1.0 + dt * (k * c + p))
 }
 
-fn tridiag_err(e: nucleide_linalg::TridiagError) -> Error {
+pub(crate) fn tridiag_err(e: nucleide_linalg::TridiagError) -> Error {
     Error::Tridiag(e.to_string())
 }
 
 /// Cap on the per-step trap-coupling Picard iterations.
-const MAX_PICARD: usize = 100;
+pub(crate) const MAX_PICARD: usize = 100;
 
 // ---------------------------------------------------------------------------
 // Steady state (G1/G3b/G4)
 // ---------------------------------------------------------------------------
 
 /// Cap on the two-face G5 Newton iterations.
-const G5_NEWTON_MAX: usize = 50;
+pub(crate) const G5_NEWTON_MAX: usize = 50;
 /// Relative tolerance on the G5 face residuals.
-const G5_RTOL: f64 = 1e-9;
+pub(crate) const G5_RTOL: f64 = 1e-9;
 /// Absolute tolerance on the G5 face residuals.
-const G5_ATOL: f64 = 1e-12;
+pub(crate) const G5_ATOL: f64 = 1e-12;
 
 /// Steady state with at least one recombination end (G5).
 ///
@@ -705,7 +705,7 @@ fn finish_steady(
 }
 
 /// Solve one linear steady system `-A c = rhs` through the Thomas path.
-fn linear_steady(sys: &DiffusionSystem) -> Result<Vec<f64>, Error> {
+pub(crate) fn linear_steady(sys: &DiffusionSystem) -> Result<Vec<f64>, Error> {
     let neg_sub: Vec<f64> = sys.sub.iter().map(|v| -v).collect();
     let neg_diag: Vec<f64> = sys.diag.iter().map(|v| -v).collect();
     let neg_sup: Vec<f64> = sys.sup.iter().map(|v| -v).collect();
@@ -917,7 +917,7 @@ pub fn solve(
 /// clamp is the face clamp keeping `cf ≥ 0`). The rationalized quotient
 /// `2·g·a / (√disc + g)` keeps the K_r → 0 limit accurate (the naive
 /// `(√disc − g)/(2·K_r)` cancels catastrophically as K_r shrinks).
-fn face_from_adjacent(kr: f64, g: f64, adj: f64) -> f64 {
+pub(crate) fn face_from_adjacent(kr: f64, g: f64, adj: f64) -> f64 {
     let a = adj.max(0.0);
     let disc = g.mul_add(g, 4.0 * kr * g * a);
     (2.0 * g * a / (disc.sqrt() + g)).max(0.0)
@@ -927,7 +927,7 @@ fn face_from_adjacent(kr: f64, g: f64, adj: f64) -> f64 {
 /// `K_r cf² + g(1−b) cf − g·a = 0`, positive root (mirrors the G5 single
 /// end), rationalized for the same K_r → 0 accuracy as
 /// [`face_from_adjacent`].
-fn face_closed_single(kr: f64, g: f64, a: f64, b: f64) -> f64 {
+pub(crate) fn face_closed_single(kr: f64, g: f64, a: f64, b: f64) -> f64 {
     let a = a.max(0.0);
     let lin = g * (1.0 - b);
     let disc = lin.mul_add(lin, 4.0 * kr * g * a);
@@ -940,7 +940,7 @@ fn face_closed_single(kr: f64, g: f64, a: f64, b: f64) -> f64 {
 /// when the cap is exhausted or the Jacobian goes singular/non-finite
 /// (hard fail: the step is rejected, no dt retry).
 #[allow(clippy::too_many_arguments)]
-fn face_newton_pair(
+pub(crate) fn face_newton_pair(
     kr0: f64,
     g0: f64,
     a0: f64,
@@ -984,7 +984,7 @@ fn face_newton_pair(
 /// warm-starts the pair Newton. Returns the closed faces (`None` on a
 /// non-recombination end).
 #[allow(clippy::too_many_arguments)]
-fn close_faces(
+pub(crate) fn close_faces(
     base: &[f64],
     sens_left: Option<&Vec<f64>>,
     sens_right: Option<&Vec<f64>>,
@@ -1033,7 +1033,7 @@ fn close_faces(
 }
 
 /// Mobile profile for closed faces: `base + P·f` (no extra Thomas solve).
-fn apply_faces(
+pub(crate) fn apply_faces(
     mut base: Vec<f64>,
     sens_left: Option<&Vec<f64>>,
     sens_right: Option<&Vec<f64>>,

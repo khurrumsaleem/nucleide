@@ -7366,6 +7366,184 @@ fn tritium_recombination_rate(kr0: f64, e_r: f64, temp: f64) -> PyResult<f64> {
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+/// Parse a layer-spec dict into the core [`nucleide_tritium::LayerSpec`].
+///
+/// Keys: `thickness` [m], `cells`, `D` [m²/s], `solubility` `K_S`
+/// [mol/m³/Pa¹ᐟ²] (required); `E_D` [J/mol] (optional, default 0 = constant
+/// diffusivity); `traps` (optional list of trap-spec dicts, default none),
+/// `temperature` (optional, default [500]), `source` (optional). Internal
+/// interfaces between consecutive layers are Sieverts conditions in v1
+/// (`c/K_S` continuous, flux continuous); Henry/recombination interface
+/// laws are loud core errors, not expressible here.
+fn parse_tritium_layer(
+    spec: &BTreeMap<String, Py<PyAny>>,
+    py: Python<'_>,
+) -> PyResult<nucleide_tritium::LayerSpec> {
+    let num = |key: &str| -> PyResult<f64> {
+        spec.get(key)
+            .ok_or_else(|| PyValueError::new_err(format!("layer spec missing `{key}`")))?
+            .extract::<f64>(py)
+            .map_err(|_| PyValueError::new_err(format!("`{key}` must be a number")))
+    };
+    let opt = |key: &str| -> PyResult<f64> {
+        match spec.get(key) {
+            None => Ok(0.0),
+            Some(v) => v
+                .extract::<f64>(py)
+                .map_err(|_| PyValueError::new_err(format!("`{key}` must be a number"))),
+        }
+    };
+    let traps = match spec.get("traps") {
+        None => Vec::new(),
+        Some(v) => v
+            .extract::<Vec<BTreeMap<String, Py<PyAny>>>>(py)
+            .map_err(|_| PyValueError::new_err("`traps` must be a list of dicts"))?
+            .iter()
+            .map(|s| parse_tritium_trap(s, py))
+            .collect::<PyResult<_>>()?,
+    };
+    let temperature: Vec<f64> = match spec.get("temperature") {
+        None => vec![500.0],
+        Some(v) => v
+            .extract::<Vec<f64>>(py)
+            .map_err(|_| PyValueError::new_err("`temperature` must be a list of numbers"))?,
+    };
+    let source: Vec<f64> = match spec.get("source") {
+        None => Vec::new(),
+        Some(v) => v
+            .extract::<Vec<f64>>(py)
+            .map_err(|_| PyValueError::new_err("`source` must be a list of numbers"))?,
+    };
+    let cells: usize = spec
+        .get("cells")
+        .ok_or_else(|| PyValueError::new_err("layer spec missing `cells`"))?
+        .extract::<usize>(py)
+        .map_err(|_| PyValueError::new_err("`cells` must be an integer"))?;
+    nucleide_tritium::LayerSpec::new(
+        num("thickness")?,
+        cells,
+        num("D")?,
+        opt("E_D")?,
+        num("solubility")?,
+        traps,
+        temperature,
+        source,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+fn tritium_layer_stack(
+    py: Python<'_>,
+    layers: Vec<BTreeMap<String, Py<PyAny>>>,
+) -> PyResult<nucleide_tritium::LayerStack> {
+    let parsed: Vec<nucleide_tritium::LayerSpec> = layers
+        .iter()
+        .map(|s| parse_tritium_layer(s, py))
+        .collect::<PyResult<_>>()?;
+    let interfaces = vec![nucleide_tritium::Interface::Sieverts; parsed.len().saturating_sub(1)];
+    nucleide_tritium::LayerStack::new(parsed, interfaces)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Trap-free-style steady state of a multi-layer series stack (G7).
+///
+/// Thin wrapper over `nucleide_tritium::steady_layers`: `layers` holds one
+/// spec dict per layer (see `parse_tritium_layer`; internal interfaces are
+/// Sieverts conditions in v1) and `left`/`right` are boundary-spec dicts
+/// (see `parse_tritium_boundary`). A one-layer stack reproduces
+/// `tritium_steady` exactly. Returns a dict with `centres`, `mobile`,
+/// `trapped` (`[cell][trap]`), `flux_left`, `flux_right`,
+/// `inventory_mobile`, and `inventory_trapped`.
+#[pyfunction]
+fn tritium_layers_steady(
+    py: Python<'_>,
+    layers: Vec<BTreeMap<String, Py<PyAny>>>,
+    left: BTreeMap<String, Py<PyAny>>,
+    right: BTreeMap<String, Py<PyAny>>,
+) -> PyResult<Py<PyAny>> {
+    let stack = tritium_layer_stack(py, layers)?;
+    let left = parse_tritium_boundary(&left, py)?;
+    let right = parse_tritium_boundary(&right, py)?;
+    let s = nucleide_tritium::steady_layers(&stack, &left, &right)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    use pyo3::types::PyDict;
+    let out = PyDict::new(py);
+    out.set_item("centres", &s.centres).ok();
+    out.set_item("mobile", &s.mobile).ok();
+    out.set_item("trapped", &s.trapped).ok();
+    out.set_item("flux_left", s.flux_left).ok();
+    out.set_item("flux_right", s.flux_right).ok();
+    out.set_item("inventory_mobile", s.inventory_mobile).ok();
+    out.set_item("inventory_trapped", s.inventory_trapped).ok();
+    Ok(out.into_any().unbind())
+}
+
+/// Solve the multi-layer (T1–T2) transient over the output grid `t` (G8).
+///
+/// Thin wrapper over `nucleide_tritium::solve_layers` with the same layer
+/// stack and boundary arguments as `tritium_layers_steady` plus the output
+/// times `t` [s], the optional initial profiles (`mobile0` per cell,
+/// `trapped0` as `[cell][trap]` matching each layer's trap count; both
+/// default to zero), and the solver options (`method` is
+/// `"crank_nicolson"` (default) or `"backward_euler"`). Returns a dict with
+/// `times`, `mobile` (`[time][cell]`), `trapped` (`[time][cell][trap]`),
+/// `flux_left`, and `flux_right`.
+#[pyfunction]
+#[pyo3(signature = (layers, left, right, t, mobile0=None, trapped0=None, method="crank_nicolson", rtol=1e-9, atol=1e-12, dt_min=1e-14, dt_max=None, max_steps=1000000))]
+#[allow(clippy::too_many_arguments)]
+fn tritium_layers_transient(
+    py: Python<'_>,
+    layers: Vec<BTreeMap<String, Py<PyAny>>>,
+    left: BTreeMap<String, Py<PyAny>>,
+    right: BTreeMap<String, Py<PyAny>>,
+    t: Vec<f64>,
+    mobile0: Option<Vec<f64>>,
+    trapped0: Option<Vec<Vec<f64>>>,
+    method: &str,
+    rtol: f64,
+    atol: f64,
+    dt_min: f64,
+    dt_max: Option<f64>,
+    max_steps: usize,
+) -> PyResult<Py<PyAny>> {
+    use nucleide_tritium::{SolverOptions, Theta};
+    let stack = tritium_layer_stack(py, layers)?;
+    let left = parse_tritium_boundary(&left, py)?;
+    let right = parse_tritium_boundary(&right, py)?;
+    let grid =
+        nucleide_tritium::TimeGrid::new(t).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let mobile = mobile0.unwrap_or_else(|| vec![0.0; stack.total_cells()]);
+    let trapped = trapped0.unwrap_or_else(|| stack.zero_state().trapped);
+    let initial = nucleide_tritium::InitialState { mobile, trapped };
+    let theta = if method.eq_ignore_ascii_case("crank_nicolson") {
+        Theta::CrankNicolson
+    } else if method.eq_ignore_ascii_case("backward_euler") {
+        Theta::BackwardEuler
+    } else {
+        return Err(PyValueError::new_err(format!(
+            "unknown tritium method `{method}` (supported: crank_nicolson, backward_euler)"
+        )));
+    };
+    let opts = SolverOptions {
+        theta,
+        rtol,
+        atol,
+        dt_min,
+        dt_max: dt_max.unwrap_or(f64::INFINITY),
+        max_steps,
+    };
+    let sol = nucleide_tritium::solve_layers(&stack, &left, &right, &grid, &initial, &opts)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    use pyo3::types::PyDict;
+    let out = PyDict::new(py);
+    out.set_item("times", &sol.times).ok();
+    out.set_item("mobile", &sol.mobile).ok();
+    out.set_item("trapped", &sol.trapped).ok();
+    out.set_item("flux_left", &sol.flux_left).ok();
+    out.set_item("flux_right", &sol.flux_right).ok();
+    Ok(out.into_any().unbind())
+}
+
 // ---------------------------------------------------------------------------
 // Spectroscopy (thin glue over `nucleide-spectroscopy`; algorithms stay in core)
 // ---------------------------------------------------------------------------
@@ -8685,6 +8863,8 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tritium_irreversible_fill, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_sieverts, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_recombination_rate, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_layers_steady, m)?)?;
+    m.add_function(wrap_pyfunction!(tritium_layers_transient, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_rect_smooth, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_five_point_smooth, m)?)?;
     m.add_function(wrap_pyfunction!(spectroscopy_calc_bg, m)?)?;

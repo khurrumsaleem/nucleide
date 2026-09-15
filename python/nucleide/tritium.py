@@ -1,4 +1,8 @@
-"""1D tritium diffusion-trapping kernel (backed by the `nucleide-tritium` crate)."""
+"""1D tritium diffusion-trapping kernel (backed by the `nucleide-tritium` crate).
+
+Single slabs (:func:`steady`, :func:`transient`) and multi-layer series
+stacks with Sieverts internal interfaces (:func:`steady_layers`,
+:func:`transient_layers`)."""
 
 from typing import Any
 
@@ -6,6 +10,8 @@ from nucleide._internal import (
     tritium_breakthrough,
     tritium_irreversible_fill,
     tritium_langmuir,
+    tritium_layers_steady,
+    tritium_layers_transient,
     tritium_oriani,
     tritium_recombination_rate,
     tritium_sieverts,
@@ -17,6 +23,8 @@ from nucleide._internal import (
 __all__ = [
     "steady",
     "transient",
+    "steady_layers",
+    "transient_layers",
     "time_lag",
     "breakthrough",
     "oriani",
@@ -149,3 +157,65 @@ def sieverts(K_S: float, p: float) -> float:
 def recombination_rate(kr0: float, e_r: float, temp: float) -> float:
     """Recombination rate ``K_r = kr0 * exp(-e_r / R / temp)`` [m⁴/mol/s] (G5)."""
     return tritium_recombination_rate(kr0, e_r, temp)
+
+
+def steady_layers(
+    layers: list[dict[str, Any]], left: dict[str, Any], right: dict[str, Any]
+) -> dict[str, Any]:
+    """Trap-free-style steady state of a multi-layer series stack (G7).
+
+    ``layers`` holds one spec dict per layer, from the ``left`` face to the
+    ``right`` face: ``thickness`` [m], ``cells``, ``D`` [m²/s],
+    ``solubility`` (``K_S`` [mol/m³/Pa¹ᐟ²]) required; ``E_D`` [J/mol]
+    (default 0), ``traps`` (list of trap-spec dicts, default none),
+    ``temperature`` (one value or one per cell of the layer, default
+    ``[500]``), and ``source`` (``None``, one value, or one per cell).
+    Internal interfaces are Sieverts conditions in v1 — ``c/K_S`` continuous
+    with continuous flux — so a stack whose layers share ``D`` and ``K_S``
+    is a plain slab with a transparent interface. ``left``/``right`` are the
+    same boundary-spec dicts as :func:`steady`. A one-layer stack reproduces
+    :func:`steady` exactly. Returns ``centres``, ``mobile``, ``trapped``
+    (``[cell][trap]``, per-layer species), ``flux_left``/``flux_right``
+    (outward-positive), and the two inventories.
+    """
+    return tritium_layers_steady(layers, left, right)
+
+
+def transient_layers(
+    layers: list[dict[str, Any]],
+    left: dict[str, Any],
+    right: dict[str, Any],
+    t: list[float],
+    mobile0: list[float] | None = None,
+    trapped0: list[list[float]] | None = None,
+    method: str = "crank_nicolson",
+    rtol: float = 1e-9,
+    atol: float = 1e-12,
+    dt_min: float = 1e-14,
+    dt_max: float | None = None,
+    max_steps: int = 1000000,
+) -> dict[str, Any]:
+    """Solve the multi-layer mobile/trapped transient over the grid ``t`` [s] (G8).
+
+    Same layer-stack and boundary arguments as :func:`steady_layers` plus
+    the output times and the optional initial profiles (``mobile0`` per
+    cell, ``trapped0`` as ``[cell][trap]`` matching each layer's trap
+    count; both default to zero). ``method`` is ``"crank_nicolson"``
+    (default) or ``"backward_euler"``. Returns ``times``, ``mobile``
+    (``[time][cell]``), ``trapped`` (``[time][cell][trap]``), and the
+    outward ``flux_left``/``flux_right`` series.
+    """
+    return tritium_layers_transient(
+        layers,
+        left,
+        right,
+        t,
+        mobile0,
+        trapped0,
+        method,
+        rtol,
+        atol,
+        dt_min,
+        dt_max,
+        max_steps,
+    )

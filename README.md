@@ -45,7 +45,7 @@ rebuilds the high-value subset in memory-safe Rust with one-command
 | Depletion (`nucleide-depletion`) | CRAM (orders 16/48) matrix exponential, analytic Bateman fast path (`method=` selector with CRAM-48 fallback), depletion-chain XML parsing, Predictor/CECM/CF4 time-series integrators with activity/decay-heat observables, unit-aware decay inventories, cumulative decays and chain-lineage queries |
 | Enrichment (`nucleide-enrichment`) | Multicomponent cascade solver (numeric), SWU closed-form helpers |
 | Point kinetics (`nucleide-kinetics`) | Prescribed-reactivity PKE solver, inhour roots, prompt-jump factor |
-| Tritium transport (`nucleide-tritium`) | 1D Fick + McNabb–Foster diffusion-trapping kernel, Dirichlet/Sieverts/Henry/zero-flux/recombination surfaces (steady state and transient), permeation breakthrough and time lag |
+| Tritium transport (`nucleide-tritium`) | 1D Fick + McNabb–Foster diffusion-trapping kernel, Dirichlet/Sieverts/Henry/zero-flux/recombination surfaces (steady state and transient), permeation breakthrough and time lag, multi-layer series stacks with Sieverts internal interfaces |
 | Fusion sources (`nucleide-plasma-source`) | Tokamak neutron sources — ring/point (D-D 2.45 MeV, D-T 14.1 MeV) and a parametric Miller-geometry plasma with caller-supplied L/H/A-mode profiles (Fausser 2012), reactivity-weighted emission (Bosch–Hale 1992), ion-temperature-broadened Gaussian spectra (Brysk/Ballabio), seeded sampling to particle vectors, MCNP SDEF + Serpent source-card emission with drift report |
 | Damage metrics (`nucleide-damage`) | NRT-dpa and arc-dpa displacement functions (NRT 1975; Nordlund 2018), He/H appm production and He/dpa ratios by spectral folding of caller flux with caller response functions, UQ on the folds over caller MVN blocks (SPECTER is the validation oracle, never vendored) |
 | Spectroscopy (`nucleide-spectroscopy`) | Spectrum smoothing, gross/net counting, energy/efficiency calibration, X-ray lines, SPE parsing, decay-line SDEF source cards (E9) fed from caller lists or the runtime decay-lines TSV interchange |
@@ -85,7 +85,7 @@ nucleide/
 │   ├── enrichment/    # cascades, SWU
 │   ├── depletion/     # CRAM + chain files
 │   ├── kinetics/      # prescribed-reactivity point kinetics + inhour
-│   ├── tritium/       # 1D diffusion-trapping kernel + permeation checks
+│   ├── tritium/       # 1D diffusion-trapping kernel + single/multi-layer permeation checks
 │   ├── plasma-source/ # tokamak ring/point/parametric-plasma fusion sources + SDEF/Serpent cards
 │   ├── damage/        # NRT/arc-dpa + He/H appm + He/dpa spectral folds + UQ
 │   ├── unfold/        # SAND-II neutron spectrum unfolding (activation rates)
