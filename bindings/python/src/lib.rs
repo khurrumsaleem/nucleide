@@ -6459,24 +6459,19 @@ fn parse_plasma_reaction(name: &str) -> PyResult<nucleide_plasma_source::FusionR
     }
 }
 
-/// Parse a source-spec dict into the core [`PlasmaSourceConfig`].
-///
-/// `kind` selects the geometry (`"point"`, `"ring"`); keys per kind: point
-/// (`position` \[cm\], a three-list), ring (`radius` \[cm\], `height` \[cm\]).
-/// Common keys: `reaction` (`"dt"`/`"dd"`), `ion_temperature_kev` (0 for the
-/// monoenergetic nominal line), `weight` (default 1.0). Parametric-plasma
-/// keys (`fuel`, pedestal/Miller-profile parameters, toroidal-sector angles)
-/// belong to the second landing and are rejected loudly here, never guessed.
-fn parse_plasma_source_spec(
+/// A parsed source spec: ring/point or parametric plasma.
+enum PyPlasmaSource {
+    Basic(nucleide_plasma_source::PlasmaSourceConfig),
+    Parametric(nucleide_plasma_source::ParametricPlasmaConfig),
+}
+
+/// Parse a source-spec dict into a ring/point [`PlasmaSourceConfig`].
+fn parse_plasma_basic_spec(
     spec: &BTreeMap<String, Py<PyAny>>,
     py: Python<'_>,
+    kind: &str,
 ) -> PyResult<nucleide_plasma_source::PlasmaSourceConfig> {
     use nucleide_plasma_source as ps;
-    let kind: String = spec
-        .get("kind")
-        .ok_or_else(|| PyValueError::new_err("source spec needs a `kind`"))?
-        .extract::<String>(py)
-        .map_err(|_| PyValueError::new_err("`kind` must be a string"))?;
     let num = |key: &str| -> PyResult<f64> {
         spec.get(key)
             .ok_or_else(|| PyValueError::new_err(format!("source spec missing `{key}`")))?
@@ -6489,7 +6484,7 @@ fn parse_plasma_source_spec(
         "reaction",
         "source spec missing `reaction`",
     )?)?;
-    let model = match kind.as_str() {
+    let model = match kind {
         "point" => {
             let position: Vec<f64> = spec
                 .get("position")
@@ -6513,38 +6508,10 @@ fn parse_plasma_source_spec(
         }),
         other => {
             return Err(PyValueError::new_err(format!(
-                "unknown source kind `{other}` (supported: point, ring)"
+                "unknown source kind `{other}` (supported: point, ring, parametric)"
             )))
         }
     };
-    const PARAMETRIC_KEYS: &[&str] = &[
-        "fuel",
-        "mode",
-        "elongation",
-        "triangularity",
-        "shafranov_factor",
-        "minor_radius",
-        "pedestal_radius",
-        "ion_density_centre",
-        "ion_density_peaking_factor",
-        "ion_density_pedestal",
-        "ion_density_separatrix",
-        "ion_temperature_centre",
-        "ion_temperature_peaking_factor",
-        "ion_temperature_beta",
-        "ion_temperature_pedestal",
-        "ion_temperature_separatrix",
-        "start_angle",
-        "rotation_angle",
-    ];
-    for key in PARAMETRIC_KEYS {
-        if spec.contains_key(*key) {
-            return Err(PyValueError::new_err(format!(
-                "plasma-source: not yet supported: `{key}` belongs to the \
-                 parametric-plasma landing (v1 covers ring/point only)"
-            )));
-        }
-    }
     let mut config = ps::PlasmaSourceConfig {
         model,
         reaction,
@@ -6561,6 +6528,113 @@ fn parse_plasma_source_spec(
         .validate()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(config)
+}
+
+/// Parse the parametric-plasma keys into a [`ParametricPlasmaConfig`].
+///
+/// Keys: `major_radius`, `minor_radius`, `elongation`, `triangularity`,
+/// `shafranov_factor` (cm except the dimensionless shape factors), `mode`
+/// (`"L"`/`"H"`/`"A"`), `pedestal_radius` (cm), the
+/// `ion_density_{centre,peaking_factor,pedestal,separatrix}` parameters
+/// (m⁻³ and dimensionless), and the
+/// `ion_temperature_{centre,peaking_factor,beta,pedestal,separatrix}`
+/// parameters (keV and dimensionless). Profiles are caller inputs. Fuel
+/// mixtures (`fuel` dict) and toroidal sectors (`start_angle`/
+/// `rotation_angle`) are the documented loud boundary — Eriksson-weighted
+/// reactant distributions are not implemented.
+fn parse_plasma_parametric_spec(
+    spec: &BTreeMap<String, Py<PyAny>>,
+    py: Python<'_>,
+) -> PyResult<nucleide_plasma_source::ParametricPlasmaConfig> {
+    use nucleide_plasma_source as ps;
+    let num = |key: &str| -> PyResult<f64> {
+        spec.get(key)
+            .ok_or_else(|| PyValueError::new_err(format!("parametric spec missing `{key}`")))?
+            .extract::<f64>(py)
+            .map_err(|_| PyValueError::new_err(format!("`{key}` must be a number")))
+    };
+    for key in ["fuel", "start_angle", "rotation_angle"] {
+        if spec.contains_key(key) {
+            return Err(PyValueError::new_err(format!(
+                "plasma-source: not yet supported: `{key}` (fuel mixtures are \
+                 Eriksson-weighted reactant distributions; sectors need a \
+                 toroidal-angle distribution — both outside the parametric model)"
+            )));
+        }
+    }
+    let mode = ps::ProfileMode::parse(&get_str(
+        spec,
+        py,
+        "mode",
+        "parametric spec missing `mode`",
+    )?)
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let fuel = parse_plasma_reaction(&get_str(
+        spec,
+        py,
+        "reaction",
+        "parametric spec missing `reaction`",
+    )?)?;
+    let mut config = ps::ParametricPlasmaConfig {
+        geometry: ps::MillerGeometry {
+            major_radius_cm: num("major_radius")?,
+            minor_radius_cm: num("minor_radius")?,
+            elongation: num("elongation")?,
+            triangularity: num("triangularity")?,
+            shafranov_factor_cm: num("shafranov_factor")?,
+        },
+        mode,
+        ion_density: ps::DensityProfile {
+            centre_m3: num("ion_density_centre")?,
+            peaking_factor: num("ion_density_peaking_factor")?,
+            pedestal_m3: num("ion_density_pedestal")?,
+            separatrix_m3: num("ion_density_separatrix")?,
+        },
+        ion_temperature: ps::TemperatureProfile {
+            centre_kev: num("ion_temperature_centre")?,
+            peaking_factor: num("ion_temperature_peaking_factor")?,
+            beta: num("ion_temperature_beta")?,
+            pedestal_kev: num("ion_temperature_pedestal")?,
+            separatrix_kev: num("ion_temperature_separatrix")?,
+        },
+        pedestal_radius_cm: num("pedestal_radius")?,
+        fuel,
+        weight: 1.0,
+    };
+    if let Some(weight) = spec.get("weight") {
+        let weight = weight
+            .extract::<f64>(py)
+            .map_err(|_| PyValueError::new_err("`weight` must be a number"))?;
+        config.weight = weight;
+    }
+    config
+        .validate()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(config)
+}
+
+/// Parse a source-spec dict: `kind` selects ring/point (`"point"`,
+/// `"ring"`) or the parametric plasma (`"parametric"`).
+fn parse_plasma_source_spec(
+    spec: &BTreeMap<String, Py<PyAny>>,
+    py: Python<'_>,
+) -> PyResult<PyPlasmaSource> {
+    let kind: String = spec
+        .get("kind")
+        .ok_or_else(|| PyValueError::new_err("source spec needs a `kind`"))?
+        .extract::<String>(py)
+        .map_err(|_| PyValueError::new_err("`kind` must be a string"))?;
+    match kind.as_str() {
+        "point" | "ring" => Ok(PyPlasmaSource::Basic(parse_plasma_basic_spec(
+            spec, py, &kind,
+        )?)),
+        "parametric" => Ok(PyPlasmaSource::Parametric(parse_plasma_parametric_spec(
+            spec, py,
+        )?)),
+        other => Err(PyValueError::new_err(format!(
+            "unknown source kind `{other}` (supported: point, ring, parametric)"
+        ))),
+    }
 }
 
 /// Drift report rows as a list of dicts (`quantity`, `accounted`,
@@ -6585,12 +6659,13 @@ fn plasma_drift_rows(
 
 /// Sample `n` source particles into per-field float64 NumPy arrays.
 ///
-/// Thin wrapper over `nucleide_plasma_source::SourceSampler` (seeded,
-/// deterministic per platform): `spec` is the source-spec dict (see
-/// [`parse_plasma_source_spec`]), `seed` pins the stream. Returns `x`, `y`,
-/// `z` \[cm\], direction cosines `u`, `v`, `w` (unit vectors), `energy`
-/// \[MeV\], and `weight`. MCPL projection stays caller-side: write the arrays
-/// with `nucleide.mcpl` / `nucleide.mcnp` if a file is wanted.
+/// Thin wrapper over the ring/point `SourceSampler` and the parametric
+/// `ParametricSampler` (seeded, deterministic per platform): `spec` is the
+/// source-spec dict (see [`parse_plasma_source_spec`]), `seed` pins the
+/// stream. Returns `x`, `y`, `z` \[cm\], direction cosines `u`, `v`, `w`
+/// (unit vectors), `energy` \[MeV\], and `weight`. MCPL projection stays
+/// caller-side: write the arrays with `nucleide.mcpl` / `nucleide.mcnp` if
+/// a file is wanted.
 #[pyfunction]
 #[pyo3(signature = (spec, n, seed))]
 fn plasma_source_particles(
@@ -6600,10 +6675,14 @@ fn plasma_source_particles(
     seed: u64,
 ) -> PyResult<Py<PyAny>> {
     use nucleide_plasma_source as ps;
-    let config = parse_plasma_source_spec(&spec, py)?;
-    let particles = ps::SourceSampler::new(config, seed)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?
-        .sample_n(n);
+    let particles = match parse_plasma_source_spec(&spec, py)? {
+        PyPlasmaSource::Basic(config) => ps::SourceSampler::new(config, seed)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?
+            .sample_n(n),
+        PyPlasmaSource::Parametric(config) => ps::ParametricSampler::new(config, seed)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?
+            .sample_n(n),
+    };
     let mut x = Vec::with_capacity(n);
     let mut y = Vec::with_capacity(n);
     let mut z = Vec::with_capacity(n);
@@ -6637,14 +6716,15 @@ fn plasma_source_particles(
 
 /// Emit MCNP `SDEF` and Serpent `src` source cards plus drift reports.
 ///
-/// Thin wrapper over `nucleide_plasma_source::{emit_sdef, emit_serpent}`.
+/// Thin wrapper over `nucleide_plasma_source::{emit_sdef, emit_serpent}`
+/// (ring/point) and `{emit_sdef_parametric, emit_serpent_parametric}`.
 /// `spec` is the source-spec dict (optional `mcnp_version`, 5 or 6, default
-/// 5); `bins` sets the Gaussian tabulation bin count. Returns `sdef` and
-/// `serpent`, each `{"card": str, "drift": [row dicts]}`, plus the
-/// temperature-broadened `spectrum` moments (`nominal_mev`, `mean_mev`,
-/// `sigma_mev`, `mono`). The SDEF card round-trips through
-/// `nucleide.mcnp.parse_sdef` byte-identically; Serpent drift rows are
-/// analytic by design (no Serpent source reader in the workspace).
+/// 5); `bins` sets the tabulation bin count. Returns `sdef` and `serpent`,
+/// each `{"card": str, "drift": [row dicts]}`, plus `spectrum` moments
+/// (`nominal_mev`, `mean_mev`, `sigma_mev`, `mono` — for a parametric
+/// source these are the magnetic-axis moments). The SDEF card round-trips
+/// through `nucleide.mcnp.parse_sdef` byte-identically; Serpent drift rows
+/// are analytic by design (no Serpent source reader in the workspace).
 #[pyfunction]
 #[pyo3(signature = (spec, bins=21))]
 fn plasma_source_emit_cards(
@@ -6653,39 +6733,64 @@ fn plasma_source_emit_cards(
     bins: usize,
 ) -> PyResult<Py<PyAny>> {
     use nucleide_plasma_source as ps;
-    let config = parse_plasma_source_spec(&spec, py)?;
+    let source = parse_plasma_source_spec(&spec, py)?;
     let version = match spec.get("mcnp_version") {
         Some(v) => v
             .extract::<u32>(py)
             .map_err(|_| PyValueError::new_err("`mcnp_version` must be an integer (5 or 6)"))?,
         None => 5,
     };
-    let sdef =
-        ps::emit_sdef(&config, version, bins).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let serpent =
-        ps::emit_serpent(&config, bins).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let spectrum = config
-        .spectrum()
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let sigma = match spectrum {
-        ps::SpectrumSpec::Gaussian { sigma_mev, .. } => sigma_mev,
-        ps::SpectrumSpec::Mono { .. } => 0.0,
-    };
-    use pyo3::types::PyDict;
     let emit = |card: ps::EmittedCard| -> PyResult<Py<pyo3::types::PyDict>> {
+        use pyo3::types::PyDict;
         let d = PyDict::new(py);
         d.set_item("card", card.text)?;
         d.set_item("drift", plasma_drift_rows(py, &card.drift)?)?;
         Ok(d.unbind())
     };
+    use pyo3::types::PyDict;
     let out = PyDict::new(py);
-    out.set_item("sdef", emit(sdef)?)?;
-    out.set_item("serpent", emit(serpent)?)?;
+    let (nominal, mean, sigma, mono) = match &source {
+        PyPlasmaSource::Basic(config) => {
+            let sdef = ps::emit_sdef(config, version, bins)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let serpent =
+                ps::emit_serpent(config, bins).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let spectrum = config
+                .spectrum()
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let sigma = match spectrum {
+                ps::SpectrumSpec::Gaussian { sigma_mev, .. } => sigma_mev,
+                ps::SpectrumSpec::Mono { .. } => 0.0,
+            };
+            out.set_item("sdef", emit(sdef)?)?;
+            out.set_item("serpent", emit(serpent)?)?;
+            (
+                config.reaction.nominal_energy_mev(),
+                spectrum.mean_mev(),
+                sigma,
+                spectrum.is_mono(),
+            )
+        }
+        PyPlasmaSource::Parametric(config) => {
+            let sdef = ps::emit_sdef_parametric(config, version, bins)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            let serpent = ps::emit_serpent_parametric(config, bins)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            // Magnetic-axis spectrum summary (the profile peak).
+            let (mean, sigma) = config
+                .fuel
+                .moments_mev(config.temperature_kev(0.0))
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            out.set_item("sdef", emit(sdef)?)?;
+            out.set_item("serpent", emit(serpent)?)?;
+            (config.fuel.nominal_energy_mev(), mean, sigma, sigma == 0.0)
+        }
+    };
     let spec_out = PyDict::new(py);
-    spec_out.set_item("nominal_mev", config.reaction.nominal_energy_mev())?;
-    spec_out.set_item("mean_mev", spectrum.mean_mev())?;
+    spec_out.set_item("nominal_mev", nominal)?;
+    spec_out.set_item("mean_mev", mean)?;
     spec_out.set_item("sigma_mev", sigma)?;
-    spec_out.set_item("mono", spectrum.is_mono())?;
+    spec_out.set_item("mono", mono)?;
     out.set_item("spectrum", spec_out)?;
     Ok(out.into_any().unbind())
 }
@@ -6721,6 +6826,16 @@ fn plasma_source_spectrum_moments(
     out.set_item("mean_mev", mean)?;
     out.set_item("sigma_mev", sigma)?;
     Ok(out.into_any().unbind())
+}
+
+/// Thermonuclear reactivity ⟨σv⟩ \[m³/s\] of a fusion reaction at an ion
+/// temperature \[keV\] (Bosch & Hale, Nucl. Fusion 32 (1992) 611, in the
+/// Atzeni–Meyer-ter-Vehn parametrization). Zero at `T_i = 0`.
+#[pyfunction]
+fn plasma_source_reactivity(reaction: &str, ion_temperature_kev: f64) -> PyResult<f64> {
+    parse_plasma_reaction(reaction)?
+        .reactivity_m3_per_s(ion_temperature_kev)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -8299,6 +8414,7 @@ fn _internal(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(plasma_source_particles, m)?)?;
     m.add_function(wrap_pyfunction!(plasma_source_emit_cards, m)?)?;
     m.add_function(wrap_pyfunction!(plasma_source_spectrum_moments, m)?)?;
+    m.add_function(wrap_pyfunction!(plasma_source_reactivity, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_steady, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_transient, m)?)?;
     m.add_function(wrap_pyfunction!(tritium_time_lag, m)?)?;

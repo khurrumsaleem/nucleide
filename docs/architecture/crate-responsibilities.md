@@ -193,17 +193,25 @@ workspace crates; bindings depend on it, never the reverse.
 
 ### `nucleide-plasma-source`
 
-Tokamak fusion-neutron source creation: ring and point sources over the D-D
+Tokamak fusion-neutron source creation. Ring and point sources over the D-D
 (2.45 MeV) and D-T (14.1 MeV) reactions with ion-temperature-broadened
-Gaussian spectra (Brysk 1973; Ballabio et al. 1998 coefficients), a seeded
-sampler to particle vectors (position, direction, energy, weight), and
-MCNP `SDEF` + Serpent `src` card emission with a drift report. SDEF cards
+Gaussian spectra (Brysk 1973; Ballabio et al. 1998 coefficients), plus a
+parametric Miller-geometry plasma: caller-supplied L/H/A-mode density and
+temperature profiles (Fausser et al. 2012) over closed-form flux surfaces,
+reactivity-weighted emission (Bosch & Hale 1992), and a seeded sampler to
+particle vectors (position, direction, energy, weight). MCNP `SDEF` +
+Serpent `src` card emission with a drift report: ring/point cards
 round-trip byte-identically through the typed `nucleide-mcnp-io` reader
 (whose accepted subset carries the ring's `AXS`/`RAD`/`EXT` keywords);
-Serpent rows are analytic by design. Parametric Miller-geometry plasma
-profiles are the follow-up landing; MCPL projection stays caller-side
-(`vr-tools` KDE layering rule). Depends on `nucleide-mcnp-io` and
-`nucleide-nuclei`; never on `mcpl-io`, never on bindings.
+parametric cards carry the radial/vertical/energy marginals as histograms
+and the drift report quantifies the tabulation truncation and the
+joint-correlation distance a product-form card cannot carry; Serpent rows
+are analytic by design. Profiles are caller inputs — nothing computes them.
+Out of scope (loud `NotYetSupported`): fuel mixtures
+(Eriksson-weighted reactant distributions), toroidal sectors, the D(d,p)T
+proton branch. MCPL projection stays caller-side (`vr-tools` KDE layering
+rule). Depends on `nucleide-mcnp-io` and `nucleide-nuclei`; never on
+`mcpl-io`, never on bindings.
 
 ### `nucleide-emit`
 

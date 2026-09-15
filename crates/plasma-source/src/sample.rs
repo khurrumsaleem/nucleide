@@ -84,13 +84,54 @@ impl Xoshiro256 {
     }
 }
 
+/// Uniform/deviate facade shared by the ring/point and parametric samplers.
+pub(crate) struct Rng {
+    inner: Xoshiro256,
+    /// Cached second Box–Muller deviate.
+    normal_spare: Option<f64>,
+}
+
+impl Rng {
+    pub(crate) fn new(seed: u64) -> Self {
+        Self {
+            inner: Xoshiro256::from_seed(seed),
+            normal_spare: None,
+        }
+    }
+
+    /// Uniform in `[0, 1)` (53-bit mantissa granularity).
+    pub(crate) fn uniform(&mut self) -> f64 {
+        self.inner.uniform()
+    }
+
+    /// Standard normal deviate (Box–Muller, cached pair).
+    pub(crate) fn standard_normal(&mut self) -> f64 {
+        if let Some(spare) = self.normal_spare.take() {
+            return spare;
+        }
+        let u1 = 1.0 - self.uniform();
+        let u2 = self.uniform();
+        let radius = (-2.0 * u1.ln()).sqrt();
+        let theta = 2.0 * PI * u2;
+        self.normal_spare = Some(radius * theta.sin());
+        radius * theta.cos()
+    }
+
+    /// Isotropic unit direction: cos(theta) uniform in [-1, 1], azimuth
+    /// uniform in [0, 2*pi).
+    pub(crate) fn isotropic_direction(&mut self) -> [f64; 3] {
+        let mu = 2.0 * self.uniform() - 1.0;
+        let phi = 2.0 * PI * self.uniform();
+        let sin_theta = (1.0 - mu * mu).sqrt();
+        [sin_theta * phi.cos(), sin_theta * phi.sin(), mu]
+    }
+}
+
 /// Deterministic sampler for one source configuration.
 pub struct SourceSampler {
     config: PlasmaSourceConfig,
     spectrum: SpectrumSpec,
-    rng: Xoshiro256,
-    /// Cached second Box–Muller deviate.
-    normal_spare: Option<f64>,
+    rng: Rng,
 }
 
 impl SourceSampler {
@@ -104,8 +145,7 @@ impl SourceSampler {
         Ok(Self {
             config,
             spectrum,
-            rng: Xoshiro256::from_seed(seed),
-            normal_spare: None,
+            rng: Rng::new(seed),
         })
     }
 
@@ -116,24 +156,13 @@ impl SourceSampler {
 
     /// Standard normal deviate (Box–Muller, cached pair).
     fn standard_normal(&mut self) -> f64 {
-        if let Some(spare) = self.normal_spare.take() {
-            return spare;
-        }
-        let u1 = 1.0 - self.rng.uniform();
-        let u2 = self.rng.uniform();
-        let radius = (-2.0 * u1.ln()).sqrt();
-        let theta = 2.0 * PI * u2;
-        self.normal_spare = Some(radius * theta.sin());
-        radius * theta.cos()
+        self.rng.standard_normal()
     }
 
     /// Isotropic unit direction: cos(theta) uniform in [-1, 1], azimuth
     /// uniform in [0, 2*pi).
     fn isotropic_direction(&mut self) -> [f64; 3] {
-        let mu = 2.0 * self.rng.uniform() - 1.0;
-        let phi = 2.0 * PI * self.rng.uniform();
-        let sin_theta = (1.0 - mu * mu).sqrt();
-        [sin_theta * phi.cos(), sin_theta * phi.sin(), mu]
+        self.rng.isotropic_direction()
     }
 
     /// Sample one particle.

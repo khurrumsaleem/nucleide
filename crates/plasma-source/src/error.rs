@@ -33,6 +33,12 @@ pub enum Error {
     /// The MCNP designator version must be 5 or 6; got `{0}`.
     #[error("plasma-source: unsupported MCNP version {0} (supported: 5, 6)")]
     UnsupportedMcnpVersion(u32),
+    /// A Miller-geometry field fails its documented range check: `{0}`.
+    #[error("plasma-source: invalid Miller geometry: {0}")]
+    InvalidGeometry(&'static str),
+    /// A profile parameter fails its documented range check: `{0}`.
+    #[error("plasma-source: invalid plasma profile: {0}")]
+    InvalidProfile(&'static str),
     /// The emitted card failed to re-parse through the typed `SDEF` reader
     /// (an internal emission invariant; surfaced loudly rather than
     /// delivered unverified).

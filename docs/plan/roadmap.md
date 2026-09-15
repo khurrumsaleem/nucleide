@@ -87,8 +87,12 @@ clippy, workspace tests, maturin build, pytest, ruff, mypy) run on every PR.
 - Tokamak fusion neutron sources (`plasma-source`): ring/point D-D and D-T
   sources with ion-temperature-broadened spectra (Brysk 1973; Ballabio 1998),
   seeded sampling to particle vectors, and MCNP SDEF + Serpent source-card
-  emission with drift reports (parametric plasma profiles are the follow-up
-  landing; MCPL projection stays caller-side).
+  emission with drift reports (MCPL projection stays caller-side).
+- Parametric tokamak plasma source (`plasma-source`): Miller-geometry flux
+  surfaces (Fausser 2012) with caller-supplied L/H/A-mode profiles,
+  reactivity-weighted emission (Bosch–Hale 1992), Miller-Jacobian volume
+  gates, and marginal-histogram source cards with joint-correlation drift
+  (fuel mixtures and sectors stay loud errors).
 
 ## Upcoming priorities
 

@@ -19,6 +19,28 @@ RING_SPEC = {
     "ion_temperature_kev": 20.0,
 }
 
+# ITER-ish synthetic H-mode parametric plasma (hand round numbers).
+PARAMETRIC_SPEC = {
+    "kind": "parametric",
+    "reaction": "dt",
+    "major_radius": 620.0,
+    "minor_radius": 200.0,
+    "elongation": 1.85,
+    "triangularity": 0.35,
+    "shafranov_factor": 15.0,
+    "mode": "H",
+    "pedestal_radius": 150.0,
+    "ion_density_centre": 1.2e20,
+    "ion_density_peaking_factor": 1.1,
+    "ion_density_pedestal": 4.0e19,
+    "ion_density_separatrix": 3.0e19,
+    "ion_temperature_centre": 28.0,
+    "ion_temperature_peaking_factor": 2.5,
+    "ion_temperature_beta": 2.0,
+    "ion_temperature_pedestal": 4.0,
+    "ion_temperature_separatrix": 0.1,
+}
+
 
 def _ballabio_moments(reaction: str, ti_kev: float) -> tuple[float, float]:
     """Independent transcription of the Ballabio et al. 1998 Table III fits."""
@@ -157,13 +179,96 @@ def test_validation_errors_are_loud() -> None:
         ps.particles(dict(RING_SPEC, reaction="tt"), 4, seed=0)
     with pytest.raises(ValueError, match="kind"):
         ps.particles(dict(RING_SPEC, kind="torus"), 4, seed=0)
-    with pytest.raises(ValueError, match="not yet supported"):
-        ps.particles(dict(RING_SPEC, fuel={"D": 0.5, "T": 0.5}), 4, seed=0)
-    with pytest.raises(ValueError, match="not yet supported"):
-        ps.particles(dict(RING_SPEC, rotation_angle=1.57), 4, seed=0)
     with pytest.raises(ValueError, match="position"):
         ps.particles(
             {"kind": "point", "position": [0, 0], "reaction": "dt", "ion_temperature_kev": 0.0},
             4,
             seed=0,
         )
+    # Ring/point specs ignore parametric-only keys; a parametric spec keeps
+    # the loud boundary for mixtures and sectors.
+    ps.particles(dict(RING_SPEC, elongation=1.8), 4, seed=0)
+    with pytest.raises(ValueError, match="not yet supported"):
+        ps.particles(dict(PARAMETRIC_SPEC, fuel={"D": 0.5, "T": 0.5}), 4, seed=0)
+    with pytest.raises(ValueError, match="not yet supported"):
+        ps.particles(dict(PARAMETRIC_SPEC, rotation_angle=1.57), 4, seed=0)
+    with pytest.raises(ValueError, match="minor radius"):
+        ps.particles(dict(PARAMETRIC_SPEC, minor_radius=-1.0), 4, seed=0)
+    with pytest.raises(ValueError, match="triangularity"):
+        ps.particles(dict(PARAMETRIC_SPEC, triangularity=1.2), 4, seed=0)
+    with pytest.raises(ValueError, match="mode"):
+        ps.particles(dict(PARAMETRIC_SPEC, mode="Q"), 4, seed=0)
+
+
+def test_parametric_sampling_is_bounded_symmetric_and_deterministic() -> None:
+    n = 100_000
+    out = ps.particles(PARAMETRIC_SPEC, n, seed=2024)
+    for key in ("x", "y", "z", "u", "v", "w", "energy", "weight"):
+        assert out[key].shape == (n,)
+    major = (out["x"] ** 2 + out["y"] ** 2) ** 0.5
+    # Inside the mapped flux-surface region (Shafranov-shift bounds).
+    assert major.min() > 620.0 - 200.0 - 15.0
+    assert major.max() < 620.0 + 200.0 + 15.0
+    assert out["z"].max() < 1.85 * 200.0
+    assert out["z"].min() > -1.85 * 200.0
+    # Up-down and toroidal symmetry.
+    assert abs(float(out["z"].mean())) < 1.0
+    assert abs(float(out["x"].mean())) < 8.0
+    assert abs(float(out["y"].mean())) < 8.0
+    # Birth energies: DT line broadened by the local T_i (centre 28 keV).
+    assert float(out["energy"].mean()) == pytest.approx(14.08, abs=0.02)
+    assert float(out["energy"].std()) > 0.1
+    # Determinism.
+    again = ps.particles(PARAMETRIC_SPEC, 128, seed=2024)
+    for key in ("x", "y", "z", "energy"):
+        assert bool((again[key] == out[key][:128]).all())
+
+
+def test_parametric_birth_radius_peaks_in_the_core() -> None:
+    # Recover the minor radius through the Miller map (one fixed-point step
+    # for the Shafranov term) and check the peaked H-mode birth profile.
+    n = 100_000
+    out = ps.particles(PARAMETRIC_SPEC, n, seed=7)
+    major = (out["x"] ** 2 + out["y"] ** 2) ** 0.5
+    z_k = out["z"] / 1.85
+    r = ((major - 620.0) ** 2 + z_k**2) ** 0.5
+    shift = 15.0 * (1.0 - (r / 200.0) ** 2)
+    r = ((major - 620.0 - shift) ** 2 + z_k**2) ** 0.5
+    assert r.max() < 200.0
+    # Peaked profiles put most births well inside the pedestal.
+    assert float(r.mean()) < 120.0
+    assert float((r < 150.0).mean()) > 0.9
+
+
+def test_parametric_sdef_card_round_trips_with_three_marginals() -> None:
+    out = ps.emit_source_cards(PARAMETRIC_SPEC, bins=15)
+    card = out["sdef"]["card"]
+    parsed = mcnp.parse_sdef(card)
+    assert parsed["card"] == card
+    assert parsed["rad"] == "D1"
+    assert parsed["ext"] == "D2"
+    assert parsed["erg"] == "D3"
+    assert len(parsed["distributions"]) == 3
+    assert out["sdef"]["drift"][0]["reparsed"] is True
+    quantities = [row["quantity"] for row in out["sdef"]["drift"]]
+    assert quantities == ["emission probability", "spatial marginals", "joint correlation"]
+    corr = out["sdef"]["drift"][2]["rel_drift"]
+    assert 0.0 < corr < 1.0
+    # Magnetic-axis spectrum summary (centre T = 28 keV, Ballabio DT).
+    assert out["spectrum"]["mean_mev"] == pytest.approx(14.0818, abs=1e-3)
+    assert out["spectrum"]["mono"] is False
+
+
+def test_parametric_serpent_card_structure() -> None:
+    out = ps.emit_source_cards(PARAMETRIC_SPEC, bins=12)
+    lines = out["serpent"]["card"].splitlines()
+    assert lines[0] == "src 1 pos 0 0 0"
+    assert lines[1] == "src 1 rad d1"
+    assert lines[2] == "src 1 ext d2"
+    assert lines[3] == "src 1 erg d3"
+    assert lines[4] == "src 1 wgt 1"
+    assert len(lines) == 11
+    for number in (1, 2, 3):
+        assert lines[3 + 2 * number].startswith(f"SI{number} ")
+        assert lines[4 + 2 * number].startswith(f"SP{number} ")
+    assert out["serpent"]["drift"][0]["reparsed"] is False
